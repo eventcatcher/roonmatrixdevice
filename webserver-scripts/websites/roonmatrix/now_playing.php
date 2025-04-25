@@ -56,7 +56,34 @@ if ($source=='Spotify' || $source=='Apple Music') {
 		shell_exec($cmd);
 	}
 } else {
-	echo shell_exec("/Users/USERNAME/.pyenv/shims/python /Users/USERNAME/websites/python/now_playing.py"); 
+	$json_str = shell_exec("/Users/USERNAME/.pyenv/shims/python /Users/USERNAME/websites/python/now_playing.py");
+
+	// in json string array with objects, escape all doublequotes inside object property values strings
+	$len = strlen($json_str);
+	$output = '';
+	for ($i = 0; $i < $len; $i++) {
+    	$char = $json_str[$i];
+    
+    	$match1 = $i<($len-3) && substr($json_str,$i,4)=='": "';
+   	 	$match2 = $i<($len-1) && substr($json_str,$i,2)=='{"';
+    	$match3 = $i<($len-3) && substr($json_str,$i,4)=='", "';
+    	$match4 = $i<($len-1) && substr($json_str,$i,2)=='"}';
+
+    	if ($match1 || $match3) {
+    		$output .= substr($json_str,$i,4);
+    		$i+=3;
+    	} else if ($match2 || $match4) {
+    		$output .= substr($json_str,$i,2);
+    		$i+=1;
+    	} else if ($char=='"') {
+    		$output .= '\"';	// escape DOUBLE QUOTE
+    	} else {
+    		$output .= $char;
+    	}
+	}
+	
+	header('Content-Type: application/json; charset=utf-8');
+	echo $output;	
 }
 
 ?>
