@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.0.0, date: 25.10.2024
+# version 1.0.3, date: 25.04.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -222,6 +222,7 @@ reboot = False # set true to reboot
 roon_servers = [] # ip list of roon servers
 custom_message = '' # custom message received from app to integrate into playout
 custom_message_option = '' # custom message option (force: force updating, playout: standard playout with integrated custom message, exclusive: show only the custom message)
+selected_zone = {} # attributes of selected zone (zone name, artist, album, track)
 
 serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
@@ -337,7 +338,8 @@ async def rest_info():
         "displaystr": displaystr,
         "prepared_vert_strlines": prepared_vert_strlines,
         "vert_strlines": vert_strlines,
-        "audio_playing": audio_playing
+        "audio_playing": audio_playing,
+        "selected_zone": selected_zone
     }
 
 @app.get("/config/")
@@ -1138,6 +1140,7 @@ def get_message(key):
         return key
 
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
+    global selected_zone
     if log is True: print('get playing apple or spotify => start')
     force = False
     breakToo = False
@@ -1196,6 +1199,14 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                 zone = name_parts[1]
                                 if name == name_parts[0] and obj["zone"] == zone:
                                     controlled = '[*] '
+                                    zonedata = {"zone": name + ' / ' + convert_special_chars(obj["zone"]),"artist": convert_special_chars(obj["artist"]),"album": convert_special_chars(obj["album"]),"track": convert_special_chars(obj["track"])}
+                                    if len(selected_zone) != len(zonedata) or selected_zone['zone']!=zone["display_name"] or selected_zone['artist']!=artistFiltered or selected_zone['album']!=albumFiltered or selected_zone['track']!=trackFiltered:
+                                        if obj["cover"]:
+                                            if obj["cover"].startswith('http'):
+                                                zonedata['image_url'] = obj["cover"]
+                                            else:
+                                                zonedata['image_url'] = url[:1+url.rfind('/')] + obj["cover"]
+                                        selected_zone = zonedata
 
                             if type(displaystr) == list:
                                 if len(displaystr) == 0 and playing_headline !='':
@@ -1453,13 +1464,16 @@ def roon_state_callback(event, changed_ids):
             if zone["state"] == 'playing':
                 name = zone["display_name"]
                 playstr = zone["now_playing"]["three_line"]
-                artist = json.dumps(playstr["line2"],
-                ensure_ascii=False).encode('utf8')
-                album = json.dumps(playstr["line3"],
-                ensure_ascii=False).encode('utf8')
-                track = json.dumps(playstr["line1"],
-                ensure_ascii=False).encode('utf8')
-                playing = '{"artist": ' + artist.decode() + ', "album": ' + album.decode() + ', "track": ' + track.decode() + '}' 
+
+                artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
+                album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
+                track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+
+                artistFiltered = filterIllegalChars(artist.decode())
+                albumFiltered = filterIllegalChars(album.decode())
+                trackFiltered = filterIllegalChars(track.decode())
+
+                playing = '{"artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + '}' 
 
                 if ((force_active_roon_zone_only is False or name == channels[control_id]) and (name not in roon_playouts or roon_playouts[name] != playing)):
                     allowed = output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2
@@ -1689,8 +1703,12 @@ def tick():
         print('tick ' + datetime.now().strftime("%H:%M:%S") + ', vars: (cInp:' + str (clock_in_progress) + '|fOinP:' + str(fetch_output_in_progress) + '|fODone:' + str(fetch_output_done) + '|oinP:' + str(output_in_progress) + '|prDispEmpty:' + str(prepared_displaystr=='') + ')')
     n.notify("WATCHDOG=1")
 
+def filterIllegalChars(str):
+    filtered = str.replace("\\\"","”") # RIGHT DOUBLE QUOTATION MARK
+    return filtered
+
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts, selected_zone
     # global fetch_output_time
 
     buildstr = ''
@@ -1742,13 +1760,24 @@ def build_output():
                         zone_name += zone["display_name"]
 
                         playstr = zone["now_playing"]["three_line"]
-                        artist = json.dumps(playstr["line2"],
-                        ensure_ascii=False).encode('utf8')
-                        album = json.dumps(playstr["line3"],
-                        ensure_ascii=False).encode('utf8')
-                        track = json.dumps(playstr["line1"],
-                        ensure_ascii=False).encode('utf8')
-                        playing = '{"artist": ' + artist.decode() + ', "album": ' + album.decode() + ', "track": ' + track.decode() + '}'
+                        artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
+                        album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
+                        track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+
+                        artistFiltered = filterIllegalChars(artist.decode())
+                        albumFiltered = filterIllegalChars(album.decode())
+                        trackFiltered = filterIllegalChars(track.decode())
+
+                        playing = '{"artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + '}'
+                        if control_id is not None and zone["display_name"] == channels[control_id]:
+                            zonedata = {"zone": zone["display_name"],"artist": artistFiltered,"album": albumFiltered,"track": trackFiltered}
+                            if len(selected_zone) != len(zonedata) or selected_zone['zone']!=zone["display_name"] or selected_zone['artist']!=artistFiltered or selected_zone['album']!=albumFiltered or selected_zone['track']!=trackFiltered:
+                                image_key = zone["now_playing"].get("image_key")
+                                if image_key:
+                                    image_url = roonapi.get_image(image_key)
+                                    if image_url:
+                                        zonedata['image_url'] = image_url
+                                selected_zone = zonedata
 
                         if zone["display_name"] not in roon_playouts or roon_playouts[zone["display_name"]] != playing:
                             roon_playouts[zone["display_name"]] = playing
@@ -1760,12 +1789,12 @@ def build_output():
                         if show_zone is True:
                             roonstr += get_message('Zone') + ': ' + zone_name + ' => '
 
-                        if show_album is True and album.decode() != '':
+                        if show_album is True and albumFiltered != '':
                             roonstr += get_message('Artist') + ': {} / ' + get_message('Album') + ': {} / ' + get_message('Track') + ': {}'
-                            tup = (artist.decode(),album.decode(),track.decode(),state)
+                            tup = (artistFiltered,albumFiltered,trackFiltered,state)
                         else:
                             roonstr += get_message('Artist') + ': {} / ' + get_message('Track') + ': {}'
-                            tup = (artist.decode(),track.decode(),state)
+                            tup = (artist.decode(),trackFiltered,state)
 
                         if buildstr != '':
                             buildstr += separator
@@ -1785,19 +1814,19 @@ def build_output():
                                     buildlines = vertical_longtext_split_and_append(convert_special_chars(zone_name),buildlines)
                                 else:
                                     buildlines = vertical_longtext_split_and_append(zonestr,buildlines)
-                            if artist.decode() != '':
+                            if artistFiltered != '':
                                 if show_vertical_music_label is True:
                                     buildlines.append('< ' + get_message('Artist') + ' >')
-                                buildlines = vertical_longtext_split_and_append(convert_special_chars(artist.decode()).replace('"',''),buildlines)
-                            if show_album is True and album.decode() != '':
+                                buildlines = vertical_longtext_split_and_append(convert_special_chars(artistFiltered).replace('"',''),buildlines)
+                            if show_album is True and albumFiltered != '':
                                 if show_vertical_music_label is True:
                                     buildlines.append('< ' + get_message('Album') + ' >')
-                                buildlines = vertical_longtext_split_and_append(convert_special_chars(album.decode()).replace('"',''),buildlines)
+                                buildlines = vertical_longtext_split_and_append(convert_special_chars(albumFiltered).replace('"',''),buildlines)
                             if show_vertical_music_label is True:
                                 buildlines.append('< ' + get_message('Track') + ' >')
-                                buildlines = vertical_longtext_split_and_append(convert_special_chars(track.decode()).replace('"',''),buildlines)
+                                buildlines = vertical_longtext_split_and_append(convert_special_chars(trackFiltered).replace('"',''),buildlines)
                             else:
-                                buildlines = vertical_longtext_split_and_append(convert_special_chars('=> ' + track.decode()).replace('"',''),buildlines)
+                                buildlines = vertical_longtext_split_and_append('=> ' + convert_special_chars(trackFiltered).replace('"',''),buildlines)
 
         if webservers_show == True:
             if vertical_output == True:
