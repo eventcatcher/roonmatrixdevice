@@ -1,5 +1,18 @@
 <?php 
 
+// Requirements to run this php script (calls python script and applescript):
+// 1. You need a installed python 3.x on your macos computer.
+// 2. installed python versionmanager: pyenv >= v3.8.
+// 3. Export env variables (very important here is PIPENV_PYTHON, which is used in this script to find python):
+// 		export PYENV_ROOT=/Users/USERNAME/.pyenv
+// 		export PIPENV_PYTHON=/Users/USERNAME/.pyenv/shims/python
+// 		export PYENV_SHELL=bash
+// 		export PYENV_VIRTUALENV_INIT=1
+// 4. installed python AppleScript library: py-applescript: https://github.com/rdhyee/py-applescript (or from my github account).
+// 5. a own local webserver on mac, and website folder located in ~/websites/roonmatrix. Copy this php script into this folder.
+// 6. python script now_playing.py, Copy the python script to python folder, located in ~/websites/python.
+// 7. environment variable named USER with the name of the macos user the webserver is running on.
+
 $source = isset($_POST['source']) ? $_POST['source'] : ''; 
 $code = isset($_POST['code']) ? $_POST['code'] : ''; 
 
@@ -56,7 +69,19 @@ if ($source=='Spotify' || $source=='Apple Music') {
 		shell_exec($cmd);
 	}
 } else {
-	$json_str = shell_exec("/Users/USERNAME/.pyenv/shims/python /Users/USERNAME/websites/python/now_playing.py");
+	$pythonPath = getenv('PIPENV_PYTHON');	// get path to python from env property PIPENV_PYTHON (environment variables, e.g. /Users/USERNAME/.pyenv/shims/python)
+	if ($pythonPath === false) {
+		$pythonPath = getenv('PYENV_ROOT');	// as fallback: get path to python from env property PYENV_ROOT (environment variables, e.g. /Users/USERNAME/.pyenv/shims/python)
+		if ($pythonPath) {
+			$pythonPath = $pythonPath.'/shims/python';
+		}
+	}
+	if ($pythonPath === false) {
+		$pythonPath = '/Users/USERNAME/.pyenv/shims/python';	// as fallback: replace USERNAME with your macos username
+	}
+	$username = getenv('USER');
+	
+	$json_str = shell_exec($pythonPath." /Users/".$username."/websites/python/now_playing.py");
 
 	// in json string array with objects, escape all doublequotes inside object property values strings
 	$len = strlen($json_str);

@@ -46,7 +46,6 @@ on Playing()
                     set hasCover to false
                 end try
 
-                set thePath to POSIX path of (path to me as text)
                 set home_path to (path to home folder)
                 set subfolder to "websites:roonmatrix"
                 set fileName to ":coverAppleMusic" & ext
