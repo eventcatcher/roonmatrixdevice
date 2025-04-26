@@ -153,7 +153,7 @@ for line in output:
                     newFilename = fnparts[0] + '_' + hash.hexdigest() + '.' + fnparts[1]
                     if os.path.exists(DIR + newFilename) is False:
                         os.rename(DIR + filename, DIR + newFilename)
-                    cover = newFilename.encode('utf8')
+                    cover = ('covers/' + newFilename).encode('utf8')
 
         if cover!='':
             roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "cover": "{}"'

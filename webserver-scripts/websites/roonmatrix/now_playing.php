@@ -122,10 +122,19 @@ try {
 		$docRoot = '';
 		if (isset($_SERVER['DOCUMENT_ROOT']) && strlen($_SERVER['DOCUMENT_ROOT']) > 0) {
 			$docRoot = $_SERVER['DOCUMENT_ROOT'];
-		} else if (isset($_SERVER['PWD']) && strlen($_SERVER['PWD']) > 9 && substr($_SERVER['PWD'], -10)=='roonmatrix') {
+		} else if (isset($_SERVER['PWD']) && strlen($_SERVER['PWD']) > 0) {
 			$docRoot = $_SERVER['PWD'];		// if started with php cmd, get document root from PWD
 		}
-		if ($docRoot != '' && strlen($docRoot) > 0 && strpos($docRoot, '/') !== -1) {
+		if ($docRoot != '' && strlen($docRoot) > 0 && strpos($docRoot, '/') !== false) {
+			if (isset($_SERVER['PHP_SELF']) && strlen($_SERVER['PHP_SELF']) > 0 && strpos($_SERVER['PHP_SELF'], '/') !== false) {
+				$subDirParts = explode('/', $_SERVER['PHP_SELF']);
+				array_pop($subDirParts);
+				$subDir = implode('/', $subDirParts);
+				if (substr($_SERVER['PHP_SELF'],0,1) !== '/') {
+					$docRoot.='/';
+				}
+				$docRoot.=$subDir;
+			}	
 			$docRootParts = explode('/', $docRoot);
 			array_pop($docRootParts);
 			array_push($docRootParts, 'python'); // replace roonmatrix website script folder with python script folder which is in a same parent folder
