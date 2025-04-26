@@ -9,11 +9,17 @@ access to webserver: http://www.roonmatrix.test/now_playing.php (local network v
 or: http://IP-ADDRESS/roonmatrix/now_playing.php (local network via ip address)
 or: http://NETWORKNAME.local/roonmatrix/now_playing.php (local network via bonjour network)
 '''
-# pip install pyobjc
-import applescript # pip install https://pypi.python.org/packages/source/p/py-applescript/py-applescript-1.0.0.tar.gz
+
+import applescript # pip install of this package: https://pypi.python.org/packages/source/p/py-applescript/py-applescript-1.0.0.tar.gz
 import json
 import os
+from os.path import expanduser
 import hashlib
+
+userHomePath = expanduser("~") # /Users/USERNAME
+phpScriptPath = os.getcwd().replace(userHomePath,'') # /Users/USERNAME/websites/roonmatrix
+userHomeDirSubfolderPathToCoversPHP = phpScriptPath.replace(userHomePath,'') + '/covers/'
+userHomeDirSubfolderPathToCoversAppleScript = userHomeDirSubfolderPathToCoversPHP[1:-1].replace('/',':')
 
 tell_iTunes = applescript.AppleScript('''
 on is_running(appName)
@@ -47,7 +53,7 @@ on Playing()
                 end try
 
                 set home_path to (path to home folder)
-                set subfolder to "websites:roonmatrix"
+                set subfolder to "''' + userHomeDirSubfolderPathToCoversAppleScript + '''"
                 set fileName to ":coverAppleMusic" & ext
                 set filePathWithName to ((home_path & subfolder as text) & fileName)
 
@@ -109,8 +115,8 @@ end Playing
 ''')
 
 userHomeDir = os.path.expanduser("~")
-DIR = userHomeDir + '/websites/roonmatrix/'
-maxCoverFiles = 10
+DIR = userHomeDir + userHomeDirSubfolderPathToCoversPHP
+maxCoverFiles = 50
 coverfiles = [f for f in os.listdir(DIR) if f.startswith('coverAppleMusic_')]
 coverfiles.sort(key=lambda x: os.stat(os.path.join(DIR, x)).st_mtime, reverse=True)
 if (len(coverfiles) > maxCoverFiles):
