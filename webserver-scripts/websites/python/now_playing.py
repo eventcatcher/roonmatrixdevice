@@ -63,9 +63,9 @@ on Playing()
                 close access outFile                
                 
                 if hasCover then
-                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & fileName
+                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & fileName
                 else
-                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle
+                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled
                 end if
             on error m number n
             end try
@@ -94,9 +94,9 @@ on Playing()
             end tell
             
             if hasCover then
-                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & coverUrl
+                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & coverUrl
             else
-                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle
+                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling
             end if
                 
             if player state is playing then
@@ -138,14 +138,15 @@ for line in output:
     else:   
         album = output[2].encode('utf8')
         track = output[3].encode('utf8')
-        if len(output)>4:
+        shuffle = output[4].encode('utf8')
+        if len(output)>5:
             if zone_name.startswith('Spotify'):
-                if output[4].startswith('http') is False:
+                if output[5].startswith('http') is False:
                     cover = ''
                 else:
-                    cover = output[4].encode('utf8')
+                    cover = output[5].encode('utf8')
             else:
-                filename = output[4].replace(':','')
+                filename = output[5].replace(':','')
                 if os.path.exists(DIR + filename):
                     fnparts = filename.rsplit('.',1)
                     stringToHash = artist.decode() + '-' + album.decode() + '-' + track.decode()
@@ -156,11 +157,11 @@ for line in output:
                     cover = ('covers/' + newFilename).encode('utf8')
 
         if cover!='':
-            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "cover": "{}"'
-            tup = (zone_name,artist.decode(),album.decode(),track.decode(),cover.decode())
+            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "cover": "{}"'
+            tup = (zone_name,artist.decode(),album.decode(),track.decode(),shuffle.decode(),cover.decode())
         else:
-            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}"'
-            tup = (zone_name,artist.decode(),album.decode(),track.decode())
+            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}"'
+            tup = (zone_name,artist.decode(),album.decode(),track.decode(),shuffle.decode())
         
     output_list.append('{' + roonstr.format(*tup) + '}')
 return_str = ','.join(output_list)
