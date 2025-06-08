@@ -288,10 +288,15 @@ class SimpleImageWindow:
     
     def _toggle_shuffle(self):
         self._start_overlay_timer()
+        self._set_shufflemode(not self.shuffle_on)        
         self.shuffle_on = not self.shuffle_on
-        icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-        self.shuffle_btn.config(image = icon)
         self._control("shuffle_on" if self.shuffle_on else "shuffle_off")
+
+    def _set_shufflemode(self, mode):
+        if self.in_menu_mode is True and self.shuffle_btn is not None:
+            icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
+            self.shuffle_btn.config(image = icon)
+            print('[bold red]### set_shufflemode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
         if self.callback:
@@ -324,6 +329,7 @@ class SimpleImageWindow:
                     playmode = playlen is not None and playlen != -1 and is_playing is True
                     print('[red]### poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
+                    self._set_shufflemode(shuffle_on)
 
                     self.is_playing = is_playing
                     self.shuffle_on = shuffle_on
@@ -400,6 +406,7 @@ class SimpleImageWindow:
                     playmode = playlen is not None and playlen != -1 and is_playing is True
                     print('[red]### poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
+                    self._set_shufflemode(shuffle_on)
                             
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
