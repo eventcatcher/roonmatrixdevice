@@ -70,6 +70,28 @@ try {
 					end tell\';';
 				}
 				break;
+			case 'repeat':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'" to set song repeat to all\';';
+				} else {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+						if repeating is false then
+							set repeating to true
+						end if
+					end tell\';';
+				}
+				break;
+			case 'norepeat':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'" to set song repeat to off\';';
+				} else {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+						if repeating is true then
+							set repeating to false
+						end if
+					end tell\';';
+				}
+				break;
 		}
 
 		if ($cmd!='') {

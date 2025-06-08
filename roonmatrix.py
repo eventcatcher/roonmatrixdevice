@@ -2,12 +2,12 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.0.3, date: 25.04.2025
+# version 1.1.0, date: 08.06.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
 #
-# © Stephan Wilhelm, Bielefeld, Germany, coded @ 2024
+# © Stephan Wilhelm, Bielefeld, Germany, coded @ 2024 - 2025
 #
 # copy to /home/rmuser/FTP
 # config file: /usr/local/Roon/etc/roon_api.ini
@@ -29,7 +29,7 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system
+from os import path, system, environ
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -46,6 +46,7 @@ import uvicorn
 import subprocess
 import shlex
 import crypt
+from rich import print
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -129,6 +130,11 @@ controlswitch_gpio_center = int(config['SYSTEM']['controlswitch_gpio_center']) #
 controlswitch_gpio_right = int(config['SYSTEM']['controlswitch_gpio_right']) # button gpio number, for direction right
 controlswitch_bouncetime = int(config['SYSTEM']['controlswitch_bouncetime']) # button debounce time in ms
 
+if 'display_cover' in config['SYSTEM']:
+    display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
+else:
+    display_cover = False
+
 internet_connection_timeout = int(config['SYSTEM']['internet_connection_timeout']) # request timeout in seconds
 internet_connection_url = config['SYSTEM']['internet_connection_url'] # url used to check if internet is available
 separator = ' ' + config['SYSTEM']['separator'] + ' ' # string which is used to separate the different content messages
@@ -169,19 +175,19 @@ rss_show = eval(config['RSS']['rss_show']) # show rss feeds (true) or not (False
 rss_feeds = literal_eval(config['RSS']['feeds']) # list of rss feeds (fields: name, count, url), count = number of messages to display
 
 if startlog is True:
-    print('start roonmatrix service for ' + socket.gethostname() + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print('[bold green4]start roonmatrix service for ' + socket.gethostname() + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     print('')
-    print("default control zone (buttons): " + control_zone)
+    print("[bold green4]default control zone (buttons): " + control_zone + '[/bold green4]')
     print('')
-    print('exclusive_audio_mode: ' + str(exclusive_audio_mode is True))
-    print('music_required: ' + str(music_required is True))
-    print('show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True))
+    print('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
+    print('[green4]music_required: ' + str(music_required is True) + '[/green4]')
+    print('[green4]show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True) + '[/green4]')
     print('')
-    print('show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True))
-    print('show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec')
-    print('show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec')
-    print('show rss: ' + str(rss_show is True))
-    print('show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min')
+    print('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
+    print('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
+    print('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
+    print('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
+    print('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
     print('')
     print('=======================================================================================')
     print('')
@@ -213,8 +219,10 @@ zone_control_last_update_time = None # datetime the zone control mode is entered
 playmode = {} # playmode is a dictionary of play state of each roon- or webserver zone (key = control_id, value = play mode (play,stop)
 shufflemode = {} # shufflemode is a dictionary of shuffle state of each webserver zone (key = control_id, value = shuffle mode (shuffle,noshuffle)
 channels = {} # channels is a dictionary of control_id (key) and zone name (value)
-roon_playouts = {} # zone name and their three_line data (track,artist,album) of played song
-web_playouts = {} # webserver zone name and their data (track,artist,album) of played song
+roon_playouts_raw = {} # zone name and their raw jsonString variant of three_line data (track,artist,album) of played song
+roon_playouts = {} # zone name and their json variant of three_line data (track,artist,album) of played song
+web_playouts_raw = {} # webserver zone name and their raw jsonString variant of data (track,artist,album) of played song
+web_playouts = {} # webserver zone name and their json variant of data (track,artist,album) of played song
 jobs = {} # map of running threads
 jobcount = 0
 playcount = 0 # number of playouts
@@ -222,10 +230,45 @@ reboot = False # set true to reboot
 roon_servers = [] # ip list of roon servers
 custom_message = '' # custom message received from app to integrate into playout
 custom_message_option = '' # custom message option (force: force updating, playout: standard playout with integrated custom message, exclusive: show only the custom message)
-selected_zone = {} # attributes of selected zone (zone name, artist, album, track)
-
-serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
+is_playing = True # playing state of actual zone
+is_playing_last = None # playing state before of actual zone
+shuffle_on = False # shuffle state of actual zone
+shuffle_on_last = None # shuffle state before of actual zone
+repeat_on = False # repeat state of actual zone
+repeat_on_last = None # repeat state before of actual zone
+last_cover_url = '' # cover url of active zone (backup to check for changes)
+last_zones = [] # list of zone names (backup to check for changes)
+last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
+playpos_last = -1 # play position of active zone (backup to check for changes)
+playlen_last = -1 # play length of active zone (backup to check for changes)
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
+
+# init cover image viewer
+try:
+    # imports to display image on screen
+    if display_cover is True:
+        environ["DISPLAY"] = ":0"
+
+    if "DISPLAY" not in environ:
+        display_cover = False
+        raise EnvironmentError("No display available")
+
+    import tkinter as tk
+    from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
+    from io import BytesIO
+    from simple_image_window import SimpleImageWindow
+    root = tk.Tk()
+    root.destroy()
+except EnvironmentError as e:
+    print(f"[magenta][INFO] GUI not found (headless system): {e}[/magenta]")
+    display_cover = False
+except Exception as e:
+    print(f"[magenta][ERROR] Error on import of packages to display cover image: {e}[/magenta]")
+    display_cover = False
+print('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
+
+if display_cover is False:
+    serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
 # --- REST SERVER START ---
 
@@ -247,6 +290,7 @@ async def rest_info():
         "startlog": startlog,
         "log": log,
         "errorlog": errorlog,
+        "display_cover": display_cover,
         "led_modules": led_modules,
         "led_scroll_delay": led_scroll_delay,
         "led_vertical_scroll_delay": led_vertical_scroll_delay,
@@ -327,7 +371,9 @@ async def rest_info():
         "custom_message": custom_message,
         "custom_message_option": custom_message_option,
         "channels": channels,
+        "roon_playouts_raw": roon_playouts_raw,
         "roon_playouts": roon_playouts,
+        "web_playouts_raw": web_playouts_raw,
         "web_playouts": web_playouts,
         "jobs": len(jobs),
         "playcount": playcount,
@@ -339,11 +385,63 @@ async def rest_info():
         "prepared_vert_strlines": prepared_vert_strlines,
         "vert_strlines": vert_strlines,
         "audio_playing": audio_playing,
-        "selected_zone": selected_zone
+        "is_playing": is_playing,
+        "shuffle_on": shuffle_on,
+        "repeat_on": repeat_on
     }
 
 @app.get("/config/")
 async def rest_config():
+    if display_cover is True:
+        return {
+            "config": config,
+            "definitions": {
+                "area": [
+                    {
+                        "name": "SYSTEM",
+                        "items": [
+                            {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": socket.gethostname()},
+                            {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
+                            {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                            {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                            {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
+                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['SYSTEM']['playing_headline']},
+                            {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
+                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']}
+                        ]
+                    },
+                    {
+                        "name": "LANGUAGE",
+                        "items": [
+                            {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
+                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
+                        ]
+                    },
+                    {
+                        "name": "ROON",
+                        "items": [
+                            {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
+                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                            {"name": "token_filename", "editable": False, "type": {"type": "string", "structure": []}, "label": "Token filename", "unit": "", "value": config['ROON']['token_filename']},
+                            {"name": "roon_commandline_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline version", "unit": "", "value": config['ROON']['roon_commandline_version']},
+                            {"name": "roon_commandline_release", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline release", "unit": "", "value": config['ROON']['roon_commandline_release']}
+                        ]
+                    },
+                    {
+                        "name": "WEBSERVERS",
+                        "items": [
+                            {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
+                            {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
+                            {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
+                            {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        ]
+                    },
+                ]
+            }
+        }    
+    
     return {
         "config": config,
         "definitions": {
@@ -514,7 +612,7 @@ async def rest_zone_control(params: ZoneControlParams):
 
     control_id = params.control_id
     cmd = params.cmd
-    if log is True: print('POST zone_control => control_id: ' + control_id + ', cmd: ' + cmd)
+    if log is True: print('[bold magenta]POST zone_control => control_id: ' + control_id + ', cmd: ' + cmd + '[/bold magenta]')
 
     if cmd=='previous':
         play_previous()
@@ -527,6 +625,8 @@ async def rest_zone_control(params: ZoneControlParams):
         return True
     if cmd=="playmode":
         set_play_mode()
+        return True
+    if cmd=="switch":
         return True
 
     return False
@@ -623,10 +723,14 @@ def setUserPassword(login,password):
 
     r = subprocess.call(['usermod', '-p', shadow_password, login])
     if r != 0:
-        print('error changing password')
+        print('[red]error changing password[/red]')
 
 def init_matrix():
     global serial
+
+    if display_cover is True:
+        return None
+
     device = max7219(serial, cascaded=led_modules or 1, block_orientation=led_block_orientation,
                      rotate=led_rotate or 0, blocks_arranged_in_reverse_order=led_inreverse)
     device.contrast(led_contrast)
@@ -634,6 +738,11 @@ def init_matrix():
 
 def output():
     global output_in_progress
+
+    if display_cover is True:
+        time.sleep(3) # wait 3sec to give the thread routine enough time to recognize the change of output_in_progress flag, and a time slot to do nothing before next data fetch starts
+        output_in_progress = False
+        return
 
     if (vertical_output == False and displaystr is not None and displaystr != '') or (vertical_output == True and len(vert_strlines) > 0):
         if log is True: print('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
@@ -650,6 +759,9 @@ def output():
 
 def clear_display(type):
     if debug is True: print('clear display, called from [' + type + ']')
+    if display_cover is True:
+        return
+
     with canvas(device) as draw:
         text(draw, (0, 0), '', fill="white", font=proportional(CP437_FONT))
 
@@ -660,11 +772,14 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
         estimated_seconds = (2 + len(msg)) * (vertical_scroll_delay + 1/1000 * led_vertical_scroll_delay * 8)
     else:
         fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-        with canvas(device) as draw:
-            w, h = textsize(msg, font)
-        x = device.width
-        fullwidth = w + x
-        estimated_seconds = round(fullwidth/fps)
+        if display_cover is True:
+            estimated_seconds = 20 # fake time to limit api calls in display_cover mode
+        else:
+            with canvas(device) as draw:
+                w, h = textsize(msg, font)
+            x = device.width
+            fullwidth = w + x
+            estimated_seconds = round(fullwidth/fps)
     running_start = datetime.now()
     estimated_end = running_start + timedelta(0,estimated_seconds)
     fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
@@ -674,6 +789,9 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
 
 def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, scroll_delay=0.03):
     global interrupt_message
+
+    if display_cover is True:
+        return
 
     fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
     regulator = framerate_regulator(fps)
@@ -700,6 +818,9 @@ def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, sc
 
 def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None, scroll_delay=0.03):
     global interrupt_message
+
+    if display_cover is True:
+        return
 
     fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
     regulator = framerate_regulator(fps)
@@ -764,9 +885,9 @@ def is_audioinfo_available():
                         if result != '' and result.startswith('[{') and result.endswith('}]'):
                             resultJson = json.loads(result)
                             for obj in resultJson:
-                                is_playing = "status" not in obj
-                                if debug is True: print('playout check of webserver ' + name + '(zone:' + obj["zone"] + '): ' + str(is_playing))
-                                if is_playing is True:
+                                playing = "status" in obj and (obj['status'] == 'playing' or obj['status'] == 'paused')
+                                if debug is True: print('playout check of webserver ' + name + '(zone:' + obj["zone"] + '): ' + str(playing))
+                                if playing is True:
                                     available = True
                                     break
                             if available is True:
@@ -776,7 +897,7 @@ def is_audioinfo_available():
             discover = RoonDiscovery(None)
             servers = discover.all()
             discover.stop()
-            if debug is True: print('online check of roon server: ' + str(len(servers) > 0))
+            if debug is True: print('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(servers)) + ' => ' + str (servers) + ' [/bright_magenta]')
             if servers:
                 if path.exists(tokenfile):
                     with open(tokenfile, "r") as f:
@@ -797,7 +918,7 @@ def is_audioinfo_available():
             if available is True:
                 time.sleep(discovery_delay)
     except Exception as e:
-        if errorlog is True: print('==> audioinfo available error: ', str(e))
+        if errorlog is True: print('[red]==> audioinfo available error: [/red]', str(e))
 
     if available is True:
         fetch_output_time = None
@@ -851,8 +972,10 @@ def set_shuffle_mode():
                 zone = roonapi.zone_by_output_id(control_id)
                 if zone is not None:
                     if zone["settings"]["shuffle"]:
+                        shufflemode[control_id] = 'noshuffle'
                         roonapi.shuffle(control_id, False)
                     else:
+                        shufflemode[control_id] = 'shuffle'
                         roonapi.shuffle(control_id, True)
 
 def play_previous():
@@ -872,7 +995,10 @@ def play_next():
                 roonapi.playback_control(control_id, "next")
 
 def pressed_up(channel):
-    global do_set_zone_control, zone_control_last_update_time, clock_in_progress, control_id, control_id_update, control_zone
+    global do_set_zone_control, zone_control_last_update_time, clock_in_progress, control_id, control_id_update, control_zone, is_playing_last, shuffle_on_last
+
+    if display_cover is True:
+        return
 
     time.sleep(0.1)
     if GPIO.event_detected(controlswitch_gpio_top):
@@ -892,16 +1018,24 @@ def pressed_up(channel):
             clear_display('pressed_up')
             refresh_output_data(True)
             if log is True: print('close zone control setup')
-            if control_id is not None and log is True:
-                if channels[control_id]=='webserver':
-                    print("actual control zone (webserver): " + control_id)
-                else:
-                    print("actual control zone (roon): " + channels[control_id])
+            is_playing_last = None
+            shuffle_on_last = None
+            if control_id is not None:
+                getPlaymode()
+                getShufflemode()
+                if log is True:
+                    if channels[control_id]=='webserver':
+                        print("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
+                    else:
+                        print("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
         time.sleep(0.1)
         GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
 
 def pressed_down(channel):
     global do_set_zone_control
+
+    if display_cover is True:
+        return
 
     time.sleep(0.1)
     if GPIO.event_detected(controlswitch_gpio_down):
@@ -923,6 +1057,9 @@ def pressed_down(channel):
 
 def pressed_left(channel):
     global control_id_update, zone_control_last_update_time
+
+    if display_cover is True:
+        return
 
     time.sleep(0.1)
     if GPIO.event_detected(controlswitch_gpio_left):
@@ -952,6 +1089,9 @@ def pressed_left(channel):
 def pressed_right(channel):
     global control_id_update, zone_control_last_update_time
 
+    if display_cover is True:
+        return
+
     time.sleep(0.1)
     if GPIO.event_detected(controlswitch_gpio_right):
         GPIO.remove_event_detect(controlswitch_gpio_right)
@@ -978,7 +1118,10 @@ def pressed_right(channel):
         GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
 
 def pressed_enter(channel):
-    global playmode, do_set_zone_control, control_id, control_zone
+    global playmode, do_set_zone_control, control_id, control_zone, is_playing_last, shuffle_on_last
+
+    if display_cover is True:
+        return
 
     time.sleep(0.1)
     if GPIO.event_detected(controlswitch_gpio_center):
@@ -990,11 +1133,16 @@ def pressed_enter(channel):
             clear_display('pressed_enter')
             refresh_output_data(True)
             if log is True: print('close zone control setup')
-            if control_id is not None and log is True:
-                if channels[control_id]=='webserver':
-                    print("actual control zone (webserver): " + control_id)
-                else:
-                    print("actual control zone (roon): " + channels[control_id])
+            is_playing_last = None
+            shuffle_on_last = None
+            if control_id is not None:
+                getPlaymode()
+                getShufflemode()
+                if log is True:
+                    if channels[control_id]=='webserver':
+                        print("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
+                    else:
+                        print("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
         else:
             set_play_mode()
         time.sleep(0.1)
@@ -1027,6 +1175,48 @@ def send_webserver_zone_control(control_id, code):
             except Exception as e:
                 if errorlog is True: print('webserver_zone_control error: ', str(e))
 
+def getPlaymode():
+    global playmode
+
+    idle = False
+    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+        name_parts = control_id.split('-')
+        serverName = name_parts[0]
+        zoneName = name_parts[1]
+        if serverName in web_playouts:
+            zones = web_playouts[serverName]
+            for item in web_playouts[serverName]:
+                if 'zone' in item and item['zone'] == zoneName:
+                    idle = 'status' in item and item['status'] != 'playing'
+                    playmode[control_id] = 'stop' if idle is True else 'play'
+                    break
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
+        zoneName = channels[control_id]
+        idle = zoneName in roon_playouts and 'status' in roon_playouts[zoneName] and roon_playouts[zoneName]['status'] == 'not running'
+        playmode[control_id] = 'stop' if idle is True else 'play'
+    return idle is False
+
+def getShufflemode():
+    global shufflemode
+
+    shuffle = False
+    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+        name_parts = control_id.split('-')
+        serverName = name_parts[0]
+        zoneName = name_parts[1]
+        if serverName in web_playouts:
+            zones = web_playouts[serverName]
+            for item in web_playouts[serverName]:
+                if 'zone' in item and item['zone'] == zoneName:
+                    shuffle = 'shuffle' in item and item['shuffle'] == 'true'
+                    shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
+                    break
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
+        zoneName = channels[control_id]
+        shuffle = zoneName in roon_playouts and 'shuffle' in roon_playouts[zoneName] and roon_playouts[zoneName]['shuffle'] == True
+        shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
+    return shuffle
+
 def degToCompass(num):
     val=int((num/22.5)+.5)
     return convert_special_chars(deg_to_compass[(val % 16)])
@@ -1040,7 +1230,7 @@ def get_weather(weather_api, location):
     try:
         weather_data = weather_api.get_current(city=location, units='M').get()
     except Exception as e:
-        if errorlog is True: print('weather error: ' + str(e))
+        if errorlog is True: print('[red]weather error: [/red]' + str(e))
     else:
         temperature = weather_data[0]['temp'] # Temperature
         description = weather_data[0]['weather']['description'] # Text weather description.
@@ -1139,8 +1329,39 @@ def get_message(key):
     except Exception as e:
         return key
 
+def zone_selection(selection):
+    global control_id, is_playing_last, shuffle_on_last
+    print("[bold magenta]zone selection:[/bold magenta]", selection)
+    if selection in channels.keys() and channels[selection] == 'webserver':
+        control_id = selection
+    else:
+        if selection in channels.values():
+            for id, name in channels.items():
+                if channels[id] != 'webserver' and name == selection:
+                    control_id = id
+                    break
+    is_playing_last = None
+    shuffle_on_last = None
+    getPlaymode()
+    getShufflemode()
+
+def on_control_click(action):
+    print("on_control_click:", action)
+    if action=='backward':
+        play_previous()
+    if action=='pause':
+        set_play_mode()
+    if action=='play': 
+        set_play_mode()
+    if action=='forward':
+        play_next()
+    if action=='shuffle_on':
+        set_shuffle_mode()
+    if action=='shuffle_off':
+        set_shuffle_mode()
+
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
-    global selected_zone
+    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last
     if log is True: print('get playing apple or spotify => start')
     force = False
     breakToo = False
@@ -1183,9 +1404,26 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                 if result != '' and result.startswith('[{') and result.endswith('}]'):
                     resultJson = json.loads(result)
                     for obj in resultJson:
-                        if "status" in obj:
+                        if "status" in obj and obj["status"] == 'not running':
                             if log is True: print('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
+                            web_playouts_raw[name] = result
+                            if display_cover is True and control_id is not None and channels[control_id]=='webserver':
+                                name_parts = control_id.split('-')
+                                zone = name_parts[1]
+                                if name == name_parts[0] and obj["zone"] == zone:
+                                    cover_text_line_parts = []
+                                    cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+                                    last_cover_url = ''
+                                    last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                                    zones = get_zone_names()
+                                    is_playing = False
+                                    shuffle_on = False
+                                    print('[bold red]SimpleImageWindow.update (web): not running[/bold red]')
+                                    SimpleImageWindow.update(-1, -1, None, is_playing, shuffle_on, cover_text_line_parts, zones, zone_selection, on_control_click)
                         else:
+                            if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
+                                obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
+
                             controlled = ''
                             if type(displaystr) == list:
                                 if len(displaystr) > 0 and displaystr[0] != 'force>':
@@ -1199,14 +1437,30 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                 zone = name_parts[1]
                                 if name == name_parts[0] and obj["zone"] == zone:
                                     controlled = '[*] '
-                                    zonedata = {"zone": name + ' / ' + convert_special_chars(obj["zone"]),"artist": convert_special_chars(obj["artist"]),"album": convert_special_chars(obj["album"]),"track": convert_special_chars(obj["track"])}
-                                    if len(selected_zone) != len(zonedata) or selected_zone['zone']!=zone["display_name"] or selected_zone['artist']!=artistFiltered or selected_zone['album']!=albumFiltered or selected_zone['track']!=trackFiltered:
-                                        if obj["cover"]:
-                                            if obj["cover"].startswith('http'):
-                                                zonedata['image_url'] = obj["cover"]
-                                            else:
-                                                zonedata['image_url'] = url[:1+url.rfind('/')] + obj["cover"]
-                                        selected_zone = zonedata
+                                    playpos = int(obj['position'])
+                                    playlen = int(obj['total'])
+                                    is_playing_last = is_playing
+                                    shuffle_on_last = shuffle_on
+                                    is_playing = 'status' in obj and obj['status'] == 'playing'
+                                    shuffle_on = 'shuffle' in obj and obj['shuffle'] == 'true'
+                                    
+                                    if display_cover is True and 'cover' in obj and len(obj["cover"]) > 0:
+                                        cover_text_line_parts = []
+                                        cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+                                        if 'artist' in obj and obj["artist"] != '':
+                                            cover_text_line_parts.append(get_message('Artist') + ': "' + filterIllegalChars(obj["artist"]) + '"')
+                                        if show_album is True and 'album' in obj and obj["album"] != '':
+                                            cover_text_line_parts.append(get_message('Album') + ': "' + filterIllegalChars(obj["album"]) + '"')
+                                        if 'track' in obj and obj["track"] != '':
+                                            cover_text_line_parts.append(get_message('Track') + ': "' + filterIllegalChars(obj["track"]) + '"')
+                                        if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
+                                            last_cover_url = obj["cover"]
+                                            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                                            zones = get_zone_names()
+                                            print('[bold red]SimpleImageWindow.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + '[/bold red]')                                            
+                                            SimpleImageWindow.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                        else:
+                                            SimpleImageWindow.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, cover_text_line_parts)                                            
 
                             if type(displaystr) == list:
                                 if len(displaystr) == 0 and playing_headline !='':
@@ -1229,11 +1483,11 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                         displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
                                     else:
                                         displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
-                                if obj["artist"] != '':
+                                if 'artist' in obj and obj["artist"] != '':
                                     if show_vertical_music_label is True:
                                         displaystr.append('< ' + get_message('Artist') + ' >')
                                     displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
-                                if show_album is True and obj["album"] != '':
+                                if show_album is True and 'album' in obj and obj["album"] != '':
                                     if show_vertical_music_label is True:
                                         displaystr.append('< ' + get_message('Album') + ' >')
                                     displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
@@ -1248,15 +1502,16 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                 if show_zone is True:
                                     displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
                                     displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
-                                if obj["artist"] != '':
+                                if 'artist' in obj and obj["artist"] != '':
                                     displaystr += get_message('Artist') + ': "' + obj["artist"] + '" / '
-                                if show_album is True and obj["album"] != '':
+                                if show_album is True and 'album' in obj and obj["album"] != '':
                                     displaystr += get_message('Album') + ': "' + obj["album"] + '" / '
-                                displaystr += get_message('Track') + ': "' + obj["track"] + '"'
-                                displaystr = convert_special_chars(displaystr)
+                                if 'track' in obj:
+                                    displaystr += get_message('Track') + ': "' + obj["track"] + '"'
+                                    displaystr = convert_special_chars(displaystr)
 
-                            if name not in web_playouts or web_playouts[name] != result:
-                                web_playouts[name] = result
+                            if name not in web_playouts_raw or web_playouts_raw[name] != result:
+                                web_playouts_raw[name] = result
 
                                 active = (control_id is not None and channels[control_id]=='webserver' and name == name_parts[0] and obj["zone"] == zone)
                                 if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
@@ -1267,6 +1522,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                         displaystr = displaystr[6:] # remove prepended 'force>'
                                     breakToo = True # flag to break outer for loop too
                                     break
+                    web_playouts[name] = resultJson
                     if breakToo is True:
                         break
                 else:
@@ -1290,8 +1546,9 @@ def set_control_zone(waiting = True):
         channel_name = control_id_update.replace(' ','') if channels[control_id_update]=='webserver' else channels[control_id_update]
 
     if debug is True: print('set_control_zone message')
-    with canvas(device) as draw:
-        text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(channel_name), fill="white", font=proportional(CP437_FONT))
+    if display_cover is False:
+        with canvas(device) as draw:
+            text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(channel_name), fill="white", font=proportional(CP437_FONT))
 
     if waiting is True:
         while do_set_zone_control == True:
@@ -1308,6 +1565,9 @@ def set_fetch_time_before_clock_ends():
 
 def show_clock():
     global last_idle_time, check_audioinfo, audioinfo_available
+
+    if display_cover is True:
+        return
 
     time_start = datetime.now()
     framecount = 0
@@ -1355,6 +1615,9 @@ def split_word(word,lines):
     return lines
 
 def vertical_longtext_split_and_append(text,lines):
+    if display_cover is True:
+        return lines
+
     font = proportional(CP437_FONT)
 
     if len(text) > 0:
@@ -1456,43 +1719,124 @@ def set_default_zone():
                 print("actual control zone (roon): " + channels[control_id])
 
 def roon_state_callback(event, changed_ids):
-    global roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines
+    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last
+
+    print('roon_state_callback start => event: ' + str(event))
 
     if initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False:
+        update_roon_channels() # TODO: should this be enabled here too?
         for zone_id in changed_ids:
+            if zone_id not in roonapi.zones:
+                print('[red]zone_id ' + zone_id + ' not found in roonapi_zones![/red]')
+                continue
             zone = roonapi.zones[zone_id]
-            if zone["state"] == 'playing':
-                name = zone["display_name"]
-                playstr = zone["now_playing"]["three_line"]
 
+            state = "Unknown"
+            name = '-'
+            artistFiltered = ''
+            albumFiltered = ''
+            trackFiltered = ''
+            shuffle = False
+
+            if zone["state"] is None:
+                continue
+            else:
+                state = zone["state"]
+                name = zone["display_name"]
+            print('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"]))
+            if state == "Unknown":
+                continue
+            else:
+                playstr = zone["now_playing"]["three_line"]
                 artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
                 album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
                 track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+                shuffle = zone["settings"]["shuffle"]
+                repeat = zone["settings"]["loop"] != 'disabled'
 
                 artistFiltered = filterIllegalChars(artist.decode())
                 albumFiltered = filterIllegalChars(album.decode())
                 trackFiltered = filterIllegalChars(track.decode())
 
-                playing = '{"artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + '}' 
+                cover_url = ''
+                image_key = zone["now_playing"].get("image_key")
+                if image_key:
+                    cover_url = roonapi.get_image(image_key)
 
-                if ((force_active_roon_zone_only is False or name == channels[control_id]) and (name not in roon_playouts or roon_playouts[name] != playing)):
-                    allowed = output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2
-                    if allowed is True:
-                        if log is True: print("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
-                        roon_playouts[name] = playing
-                        interrupt_message = True
-                        time.sleep(1)
-                        if do_set_zone_control is False:
-                            clear_display('roon_state_callback')
-                        fetch_output_time = None
-                        if vertical_output is False and prepared_displaystr == '':
-                            prepared_displaystr = displaystr
-                        if vertical_output is True and len(prepared_vert_strlines) == 0:
-                            prepared_vert_strlines = vert_strlines
-                            prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+                if display_cover is True and control_id is not None and name == channels[control_id]:
+                    cover_text_line_parts = []
+                    cover_text_line_parts.append(get_message('Zone') + ': ' + name)
+                    if artistFiltered != '':
+                        cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered)
+                    if show_album is True and albumFiltered != '':
+                        cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered)
+                    if trackFiltered != '':
+                        cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered)
 
-                        refresh_output_data()
-                        check_audioinfo = False
+                    playpos = zone.get("seek_position")
+                    playlen = zone["now_playing"].get("length")                                   
+
+                    cover_changed = cover_url != last_cover_url
+                    text_changed = last_cover_text_line_parts != '|'.join(cover_text_line_parts)
+                    is_playing_changed = is_playing != is_playing_last
+                    shuffle_changed = shuffle_on != shuffle_on_last
+                    playpos_changed = playpos_last != playpos
+                    playlen_changed = playlen_last != playlen
+                    anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or playlen_changed
+                    
+                    if (anything_changed is True or (anything_changed is False and playpos_changed is True)):
+                        last_cover_url = cover_url
+                        last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                        zones = get_zone_names()                                    
+                        playpos_last = playpos
+                        playlen_last = playlen
+                        is_playing_last = is_playing
+                        shuffle_on_last = shuffle_on
+                        repeat_on_last = repeat_on
+                        is_playing = state == "playing"
+                        shuffle_on = shuffle
+                        repeat_on = repeat
+                                    
+                        print('[bold red]SimpleImageWindow.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        SimpleImageWindow.setpos(playpos, playlen, cover_url, is_playing, shuffle_on, cover_text_line_parts)
+
+
+            if name not in channels.values():
+                playing = '{"status": "not running"}'
+
+                if name not in roon_playouts_raw or roon_playouts_raw[name] != playing:
+                    roon_playouts_raw[name] = playing
+                    roon_playouts[name] = json.loads(playing)
+                continue
+            else:
+                if cover_url and len(cover_url) > 0:
+                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "cover": "' + cover_url + '"}'
+                else:
+                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + '}'
+                playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
+                if playing_data_has_changed is True:            
+                    roon_playouts_raw[name] = playing
+                    roon_playouts[name] = json.loads(playing)
+
+                # state variants: loading, playing, paused, not running
+                if state == 'playing':
+                    if ((force_active_roon_zone_only is False or name == channels[control_id]) and playing_data_has_changed is True):
+                        allowed = output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2
+                        if allowed is True:
+                            if log is True: print("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
+                            interrupt_message = True
+                            time.sleep(1)
+                            if do_set_zone_control is False:
+                                clear_display('roon_state_callback')
+                            fetch_output_time = None
+                            if vertical_output is False and prepared_displaystr == '':
+                                prepared_displaystr = displaystr
+                            if vertical_output is True and len(prepared_vert_strlines) == 0:
+                                prepared_vert_strlines = vert_strlines
+                                prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+
+                            refresh_output_data()
+                            check_audioinfo = False
 
 def check_webserver_for_playouts():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
@@ -1523,6 +1867,9 @@ def check_webserver_for_playouts():
 
 def force_custom_message():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
+
+    if display_cover is True:
+        return
 
     if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
         displaystr = convert_special_chars(custom_message)
@@ -1610,7 +1957,7 @@ def get_new_control_id_by_webserver_control_zone():
 
     if control_zone is not None and webservers_show == True and control_zone in channels.keys() and channels[control_zone]=='webserver':
         control_id = control_zone
-        if log is True: print('set control_id to webserver control-zone: ' + str(control_zone))
+        if log is True: print('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
         control_zone = None
 
 def get_new_control_id_by_webserver_zone_online():
@@ -1623,7 +1970,7 @@ def get_new_control_id_by_webserver_zone_online():
             for key in keys:
                 if channels[key]=='webserver':
                     control_id = key
-                    if log is True: print('set control_id to online webserver player zone: ' + key)
+                    if log is True: print('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
                     break
 
 def get_new_control_id_by_roon_control_zone():
@@ -1636,7 +1983,7 @@ def get_new_control_id_by_roon_control_zone():
             for key in keys:
                 if not channels[key]=='webserver' and channels[key]==control_zone:
                     control_id = key
-                    if log is True: print('set control_id to roon control-zone: ' + str(control_zone))
+                    if log is True: print('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
                     control_zone = None
                     break
 
@@ -1654,8 +2001,17 @@ def get_new_control_id_by_roon_zone_playing():
                 for id, name in channels.items():
                     if name == zone["display_name"]:
                         control_id = id
-                        if log is True: print('set control_id to roon playing zone: ' + name)
+                        if log is True: print('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
                         return
+
+def get_zone_names():
+    zones = []
+    for id, name in channels.items():
+        if name == 'webserver':
+            zones.append(id)
+        else:
+            zones.append(name)
+    return zones
 
 def get_new_control_id_by_roon_zone_online():
     global control_id
@@ -1667,7 +2023,7 @@ def get_new_control_id_by_roon_zone_online():
             for key in keys:
                 if not channels[key]=='webserver':
                     control_id = key
-                    if log is True: print('set control_id to roon online zone: ' + channels[key])
+                    if log is True: print('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
                     break
 
 def get_zone_control_shortname(str):
@@ -1686,7 +2042,7 @@ def get_ram_info():
 def remove_completed_threads():
     global jobs
 
-    if do_set_zone_control is False:
+    if display_cover is False and do_set_zone_control is False:
         try:
             for job in as_completed(jobs):
                 if log is True: print('delete job ' + str(jobs[job]))
@@ -1694,7 +2050,7 @@ def remove_completed_threads():
                 if debug is True:
                     get_ram_info()
         except Exception as e:
-            if errorlog is True: print('==> remove complete threads error: ', str(e))
+            if errorlog is True: print('[red]==> remove complete threads error: [/red]', str(e))
 
 def tick():
     global n
@@ -1708,7 +2064,7 @@ def filterIllegalChars(str):
     return filtered
 
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts, selected_zone
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last
     # global fetch_output_time
 
     buildstr = ''
@@ -1726,13 +2082,14 @@ def build_output():
             discover = RoonDiscovery(None)
             servers = discover.all()
             discover.stop()
+            print('build_output => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(servers)) + ' => ' + str (servers) + ' [/bright_magenta]')
 
             if not roon_servers and servers:
                 roon_servers = servers
                 if log is True:
-                    print('roon server is available again!')
-                    print("Found the following roon servers")
-                    print(roon_servers)
+                    print('[bright_magenta]roon server is available again![/bright_magenta]')
+                    print("[bright_magenta]Found the following roon servers[/bright_magenta]")
+                    print('[bright_magenta]' + str(roon_servers) + '[/bright_magenta]')
                 time.sleep(discovery_delay)
                 roonapi = RoonApi(appinfo, token, roon_servers[0][0], roon_servers[0][1], True)
                 if force_roon_update is True:
@@ -1747,9 +2104,73 @@ def build_output():
                 update_roon_channels()
                 for zone in list(roonapi.zones.values()):
                     state = "Unknown"
+                    artistFiltered = ''
+                    albumFiltered = ''
+                    trackFiltered = ''
+                    shuffle = False
+                    
                     if zone["state"] is not None:
                         state = zone["state"]
-                    if state != "playing":
+                    print('roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"]))
+                    if state == "Unknown":
+                        continue
+                    else:
+                        playstr = zone["now_playing"]["three_line"]
+                        artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
+                        album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
+                        track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+                        shuffle = zone["settings"]["shuffle"]
+                        repeat = zone["settings"]["loop"] != 'disabled'
+
+                        artistFiltered = filterIllegalChars(artist.decode())
+                        albumFiltered = filterIllegalChars(album.decode())
+                        trackFiltered = filterIllegalChars(track.decode())
+
+                        cover_url = ''
+                        image_key = zone["now_playing"].get("image_key")
+                        if image_key:
+                            cover_url = roonapi.get_image(image_key)
+
+                        if display_cover is True:
+                            zones = get_zone_names()
+                            if last_zones != zones:
+                                last_zones = zones
+                                print('[bold red]SimpleImageWindow.setZones (roon build_output) => zones: ' + str(zones) + '[/bold red]')
+                                SimpleImageWindow.setZones(zones)
+
+                            if control_id is not None and zone["display_name"] == channels[control_id]:
+                                cover_text_line_parts = []
+                                cover_text_line_parts.append(get_message('Zone') + ': ' + zone["display_name"])
+                                if artistFiltered != '':
+                                    cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered)
+                                if show_album is True and albumFiltered != '':
+                                    cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered)
+                                if trackFiltered != '':
+                                    cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered)
+
+                                if (cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or is_playing != is_playing_last or shuffle_on != shuffle_on_last):
+                                    last_cover_url = cover_url
+                                    last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                                    playpos = zone.get("seek_position")
+                                    playlen = zone["now_playing"].get("length")                                   
+                                    playpos_last = playpos
+                                    playlen_last = playlen
+                                    is_playing_last = is_playing
+                                    shuffle_on_last = shuffle_on
+                                    repeat_on_last = repeat_on
+                                    is_playing = state == "playing"
+                                    shuffle_on = shuffle
+                                    repeat_on = repeat
+                                    
+                                    print('[bold red]SimpleImageWindow.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                                    SimpleImageWindow.update(playpos, playlen, cover_url, is_playing, shuffle_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+
+                    if zone["display_name"] not in channels.values():
+                        playing = '{"status": "not running"}'
+
+                        if zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing:
+                            roon_playouts_raw[zone["display_name"]] = playing
+                            roon_playouts[zone["display_name"]] = json.loads(playing)
                         continue
                     else:
                         if log is True: print('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
@@ -1759,48 +2180,37 @@ def build_output():
                             zone_name = ''
                         zone_name += zone["display_name"]
 
-                        playstr = zone["now_playing"]["three_line"]
-                        artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
-                        album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
-                        track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
-
-                        artistFiltered = filterIllegalChars(artist.decode())
-                        albumFiltered = filterIllegalChars(album.decode())
-                        trackFiltered = filterIllegalChars(track.decode())
-
-                        playing = '{"artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + '}'
-                        if control_id is not None and zone["display_name"] == channels[control_id]:
-                            zonedata = {"zone": zone["display_name"],"artist": artistFiltered,"album": albumFiltered,"track": trackFiltered}
-                            if len(selected_zone) != len(zonedata) or selected_zone['zone']!=zone["display_name"] or selected_zone['artist']!=artistFiltered or selected_zone['album']!=albumFiltered or selected_zone['track']!=trackFiltered:
-                                image_key = zone["now_playing"].get("image_key")
-                                if image_key:
-                                    image_url = roonapi.get_image(image_key)
-                                    if image_url:
-                                        zonedata['image_url'] = image_url
-                                selected_zone = zonedata
-
-                        if zone["display_name"] not in roon_playouts or roon_playouts[zone["display_name"]] != playing:
-                            roon_playouts[zone["display_name"]] = playing
-
-                        roonstr = ''
-                        if playing_headline !='':
-                            roonstr = playing_headline + ': '
-
-                        if show_zone is True:
-                            roonstr += get_message('Zone') + ': ' + zone_name + ' => '
-
-                        if show_album is True and albumFiltered != '':
-                            roonstr += get_message('Artist') + ': {} / ' + get_message('Album') + ': {} / ' + get_message('Track') + ': {}'
-                            tup = (artistFiltered,albumFiltered,trackFiltered,state)
+                        if cover_url and len(cover_url) > 0:
+                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "cover": "' + cover_url + '"}'
                         else:
-                            roonstr += get_message('Artist') + ': {} / ' + get_message('Track') + ': {}'
-                            tup = (artist.decode(),trackFiltered,state)
+                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + '}'
+                        print('playing: ' + str(playing))
 
-                        if buildstr != '':
-                            buildstr += separator
-                        buildstr += convert_special_chars(roonstr.format(*tup))
+                        playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing
+                        if playing_data_has_changed:
+                            roon_playouts_raw[zone["display_name"]] = playing
+                            roon_playouts[zone["display_name"]] = json.loads(playing)
 
-                        if vertical_output == True:
+                        if state == "playing":
+                            roonstr = ''
+                            if playing_headline !='':
+                                roonstr = playing_headline + ': '
+
+                            if show_zone is True:
+                                roonstr += get_message('Zone') + ': ' + zone_name + ' => '
+
+                            if show_album is True and albumFiltered != '':
+                                roonstr += get_message('Artist') + ': {} / ' + get_message('Album') + ': {} / ' + get_message('Track') + ': {}'
+                                tup = (artistFiltered,albumFiltered,trackFiltered,state)
+                            else:
+                                roonstr += get_message('Artist') + ': {} / ' + get_message('Track') + ': {}'
+                                tup = (artist.decode(),trackFiltered,state)
+
+                            if buildstr != '':
+                                buildstr += separator
+                            buildstr += convert_special_chars(roonstr.format(*tup))
+
+                        if state == "playing" and vertical_output == True:
                             if len(buildlines) > 0:
                                 buildlines.append('')
                             if len(buildlines) == 0 and playing_headline !='':
@@ -1887,7 +2297,7 @@ def build_output():
             buildlines = vertical_longtext_split_and_append('> ' + convert_special_chars(custom_message),[])
 
     except Exception as e:
-        if errorlog is True: print('==> build output error: ', str(e))
+        if errorlog is True: print('[red]==> build output error: [/red]', str(e))
 
     build_seconds = ceil((datetime.now() - build_start).total_seconds())
     if log is True:
@@ -1915,22 +2325,23 @@ def build_output():
 #     button enter: leave zone control mode and switch to new selected zone (save control_id)
 #     button top: leave zone control mode and switch to new selected zone (save control_id)
 
-GPIO.setmode (GPIO.BCM)
-GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+if display_cover is False:
+    GPIO.setmode (GPIO.BCM)
+    GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
-GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
-GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
-GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
-GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+    GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
+    GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
+    GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
+    GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
+    GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
 
 # --- MAIN ---
-
-device = init_matrix()
+if display_cover is False:
+    device = init_matrix()
 
 while True:
     if is_url_active(internet_connection_url,internet_connection_timeout) is True:
@@ -1968,8 +2379,7 @@ if roon_show == True:
     roon_servers = discover.all()
     discover.stop()
     if log is True:
-        print("Found the following roon servers")
-        print(roon_servers)
+        print('main => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
     time.sleep(discovery_delay)
 
 if weather_show == True:
@@ -2085,4 +2495,4 @@ try:
             time.sleep(1)
             tick()
 except Exception as e:
-    if errorlog is True: print('==> MAIN ERROR: ', str(e))
+    if errorlog is True: print('[red]==> MAIN ERROR: [/red]', str(e))

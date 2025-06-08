@@ -1,4 +1,4 @@
-from tkinter import Tk, Label, Button, Frame
+from tkinter import Tk, Label, Button, Frame, Canvas, font as tkFont
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import queue
 import threading
@@ -7,15 +7,29 @@ from io import BytesIO
 from os import path
 import time
 import subprocess
+from datetime import timedelta
+from threading import Timer
+from rich import print
 
 class SimpleImageWindow:
     _instance = None
     _queue = queue.Queue()
+    maxpx = 720					# screen size in px
 
     @classmethod
-    def update(cls, path_or_url, is_playing, shuffle_on, text = None, buttons = None, callback = None, control_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, text = [], buttons = None, callback = None, control_callback = None):
         cls._ensure_running()
-        cls._queue.put((path_or_url, is_playing, shuffle_on, text, buttons or [], callback, control_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, text, buttons or [], callback, control_callback))
+
+    @classmethod
+    def setpos(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, text = []):
+        cls._ensure_running()
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, text, None, None, None))
+
+    @classmethod
+    def setZones(cls, buttons):
+        cls._ensure_running()
+        cls._queue.put(('setZones', None, None, None, None, None, None, buttons or [], None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -41,16 +55,44 @@ class SimpleImageWindow:
         self.label.bind("<Button-1>", self._on_click_start)
         self.label.bind("<ButtonRelease-1>", self._on_click_end)
 
+        self.maxpx = 720					# screen size in px
+        self.overlay_height = self.maxpx
+        self.overlay_relheight = 1
+        self.overlay_bgcolor = "#222222"	# background color of control overlay
+        self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
+        self.button_highlight_color = '#80ed99'
+
+        # button size in px (screensize is 72mm x 72mm for 720px x 720px => 10px / mm on screen)
+        self.zone_button_height = 91
+        self.control_button_height = 90
+        self.extra_space_height = 50
+
+        self.debug = False
+        self.count = 0
+        self.play_btn = None
         self.overlay = None
         self.overlay_timer = None
         self.in_menu_mode = False
         self.buttons = []
+        self.playpos = -1
+        self.playlen = -1
+        self.playpos_next = None
+        self.playpos_text = None
+        self.playlen_text = None
+        self.canvas = None
+        self.canvas_clear = None
+        self.text = []
+        self.zone = None
+        self.zone_btn = {}
+        self.path = ''
         self.callback = None
         self.control_callback = None
         self.is_playing = True
         self.shuffle_on = False
         self.control_icons = {}
         self._load_control_icons()
+
+        self.root.after(1000, self.update_playpos)
 
         self._poll_queue()
         self.root.mainloop()
@@ -81,7 +123,7 @@ class SimpleImageWindow:
                 if "Monitor is" in line:
                     return "On" in line
         except Exception as e:
-            print(f"Error with xset: {e}")
+            print(f"[red]Error with xset:[/red] {e}")
         return False
 
     def _on_click_start(self, event):
@@ -97,7 +139,7 @@ class SimpleImageWindow:
 
         self._press_after_id = self.root.after(5000, self._on_long_press)
 
-        if self.in_menu_mode:
+        if self.in_menu_mode is True:
             if event.y < int(self.root.winfo_height() * (1 - self.overlay_relheight)):
                 self._hide_overlay()
         else:
@@ -125,11 +167,11 @@ class SimpleImageWindow:
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
         }
         except Exception as e:
-            print(f"Icon loading error: {e}")
+            print(f"[red]Icon loading error:[/red] {e}")
 
     def _start_overlay_timer(self):
         self._cancel_overlay_timer()
-        self.overlay_timer = self.root.after(15000, self._hide_overlay)
+        #self.overlay_timer = self.root.after(15000, self._hide_overlay)
 
     def _cancel_overlay_timer(self):
         if self.overlay_timer:
@@ -139,33 +181,26 @@ class SimpleImageWindow:
     def _show_overlay(self):
         self._start_overlay_timer()
         
-        
-        maxpx = 720			# screen size in px
         max_per_row = 3		# max 3 buttons per row
 
-        overlay_bgcolor = "#222222"	# background color of control overlay
         ctrl_btn_bgcolor = "white"	# background color of control buttons
         ctrl_btn_ipad = 20			# inner padding in px of control buttons
         corner_btn_size = 60		# button size in px of shuffle and close button in the bottom corners
         
-        # button size in px (screensize is 72mm x 72mm for 720px x 720px => 10px / mm on screen)
-        zone_button_height = 85
-        extra_space_height = 50
-        control_button_height = 90
-        
         total = len(self.buttons)
         rows = (total + max_per_row - 1) // max_per_row
-        self.overlay_relheight = rows * 1/maxpx*zone_button_height + 1/maxpx*extra_space_height + 1/maxpx*control_button_height
+        self.overlay_height = rows * self.zone_button_height + self.extra_space_height + self.control_button_height
+        self.overlay_relheight = 1/self.maxpx*self.overlay_height
 
         self.in_menu_mode = True
-        self.overlay = Frame(self.root, bg = overlay_bgcolor)
+        self.overlay = Frame(self.root, bg = self.overlay_bgcolor)
         self.overlay.grid_columnconfigure(0, weight = 1)
         self.overlay.place(relx = 0, rely = 1 - self.overlay_relheight, relwidth = 1, relheight = self.overlay_relheight)
 
         # container for zone buttons (top)
-        zone_frame = Frame(self.overlay, bg = overlay_bgcolor)
+        zone_frame = Frame(self.overlay, bg = self.overlay_bgcolor)
         zone_frame.pack(side = 'top', fill = 'x')
-        zone_frame.place(relx = 0, rely = 0, relwidth = 1, height = rows * zone_button_height)
+        zone_frame.place(relx = 0, rely = 0, relwidth = 1, height = rows * self.zone_button_height)
 
         # divide columns for upper buttons (consider max_per_row)
         for col in range(max_per_row):
@@ -174,11 +209,11 @@ class SimpleImageWindow:
         for idx, label in enumerate(self.buttons):
             row = idx // max_per_row
             col = idx % max_per_row
-            btn = Button(zone_frame, text = label, command = lambda l = label: self._on_button_click(l), pady = 20)
-            btn.grid(row = row, column = col, padx = 10, pady = 10, sticky = "ew")
+            self.zone_btn[label] = Button(zone_frame, text = label, bg = self.button_highlight_color if (self.zone is not None and label == self.zone) else None, wraplength = self.maxpx / 4 , font = self.buttonFont, command = lambda l = label: self._on_button_click(l), pady = 20, height = 1)
+            self.zone_btn[label].grid(row = row, column = col, padx = 10, pady = 10, sticky = "ew")
 
         # container for play control buttons (bottom)
-        control_frame = Frame(self.overlay, bg = overlay_bgcolor)
+        control_frame = Frame(self.overlay, bg = self.overlay_bgcolor)
         control_frame.grid_columnconfigure(0, weight = 1)
         control_frame.pack(side = 'bottom', anchor = 'center')
 
@@ -191,13 +226,49 @@ class SimpleImageWindow:
 
 		# shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-        self.shuffle_btn = Button(self.overlay, image = icon, bg = overlay_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.shuffle_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
         # back button at the bottom right
-        back_btn = Button(self.overlay, image = self.control_icons["close"], bg = overlay_bgcolor, bd = 0, command = self._hide_overlay, height = corner_btn_size, width = corner_btn_size)
+        back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, height = corner_btn_size, width = corner_btn_size)
         back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
 
+        if self.playpos is not None and self.playpos != -1:
+            self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+            self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+            self.canvas=Canvas(self.overlay, width = self.maxpx - 240, height = 5)
+            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+            self.canvas.create_line(0, 0, self.maxpx - 240,0, fill = "white", width = 14)
+            w = (self.maxpx - 243) / self.playlen * self.playpos
+            self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
+
+        if self.playlen is not None and self.playlen != -1:
+            self.playlen_text = Label(self.overlay, text = timedelta(seconds=self.playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+
+    def update_playpos(self):
+        self.root.after(1000, self.update_playpos)
+        if self.playpos_next != None:
+            self.playpos = self.playpos_next
+            self.playpos_next = None
+        if self.is_playing is True and self.playpos is not None and self.playpos != -1 and self.playlen is not None and self.playlen != -1:
+            if self.playpos < self.playlen:
+                self.playpos += 1
+            if self.in_menu_mode is True:
+                if self.playpos_text is None:
+                    self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+                else:
+                    self.playpos_text.config(text=timedelta(seconds=self.playpos))
+                self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                if self.canvas is None:
+                    self.canvas=Canvas(self.overlay, width = self.maxpx - 240, height = 5)
+                    self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+                self.canvas.create_line(0, 0, self.maxpx - 240,0, fill = "white", width = 14)
+                w = (self.maxpx - 243) / self.playlen * self.playpos
+                self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
+        if self.debug is True:
+            print('### classfunc update_playpos: ' + str(self.playpos))
+    
     def _control(self, action):
         self._start_overlay_timer()
         if self.control_callback:
@@ -205,11 +276,16 @@ class SimpleImageWindow:
 
     def _toggle_play(self):
         self._start_overlay_timer()
+        self._set_playmode(not self.is_playing)
         self.is_playing = not self.is_playing
-        icon = self.control_icons["pause"] if self.is_playing else self.control_icons["play"]
-        self.play_btn.config(image = icon)
         self._control("play" if self.is_playing else "pause")
 
+    def _set_playmode(self, mode):
+        if self.in_menu_mode is True and self.play_btn is not None:
+            icon = self.control_icons["pause"] if mode else self.control_icons["play"]
+            self.play_btn.config(image = icon)
+            print('[bold red]### set_playmode: '+ str(mode) + '[/bold red]')
+    
     def _toggle_shuffle(self):
         self._start_overlay_timer()
         self.shuffle_on = not self.shuffle_on
@@ -219,12 +295,21 @@ class SimpleImageWindow:
 
     def _on_button_click(self, value):
         if self.callback:
+            self.zone = value
             self.callback(value)
         self._hide_overlay()
 
     def _hide_overlay(self):
         self._cancel_overlay_timer()
         if self.overlay:
+            self.playpos_text = None
+            self.playlen_text = None
+            if self.canvas is not None:
+                self.canvas.destroy()
+                self.canvas = None
+            if self.canvas_clear is not None:
+                self.canvas_clear.destroy()
+                self.canvas_clear = None
             self.overlay.destroy()
             self.overlay = None
             self.in_menu_mode = False
@@ -232,18 +317,124 @@ class SimpleImageWindow:
     def _poll_queue(self):
         try:
             while True:
-                path, is_playing, shuffle_on, text, buttons, callback, control_callback = self._queue.get_nowait()
-                self.is_playing = is_playing
-                self.shuffle_on = shuffle_on
-                self.buttons = buttons
-                self.callback = callback
-                self.control_callback = control_callback
-                img = self._load_image(path, text)
-                if img:
-                    self.label.config(image = img)
-                    self.label.image = img
-                else:
-                    self.label.config(text = "Image not found", image = "")
+                func, playpos, playlen, path, is_playing, shuffle_on, text, buttons, callback, control_callback = self._queue.get_nowait()
+                if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen):
+                    if self.debug is True:
+                        print('[bold red]### poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + '[/bold red]')
+                    playmode = playlen is not None and playlen != -1 and is_playing is True
+                    print('[red]### poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
+                    self._set_playmode(playmode)
+
+                    self.is_playing = is_playing
+                    self.shuffle_on = shuffle_on
+
+                    if self.buttons != buttons:
+                        self.buttons = buttons
+
+                    if playpos is None:
+                        if self.debug is True:
+                            print('[red]### poll_queue update => playpos: is None[/red]')
+                    if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
+                        self.playpos_next = -1
+                    if playpos is None and playlen != -1:
+                        self.playpos_next = 0
+                    #if playpos is not None and playpos != -1 and (self.playpos is None or self.playpos == -1 or (self.playpos is not None and playpos >= self.playpos) or self.text != text or self.path != path or self.playlen != playlen):
+                    if playpos is not None and playpos != -1:
+                        self.playpos_next = playpos
+                        if self.debug is True:
+                            print('[red]### poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
+                    if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
+                        if playlen == -1:
+                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
+                            self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                        else:
+                            self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+                            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            if self.canvas_clear is not None:
+                                self.canvas_clear.destroy()
+                                self.canvas_clear = None
+
+                    self.playlen = playlen
+                    self.callback = callback
+                    self.control_callback = control_callback
+                    paused = not playmode
+                    icon_path = self.scriptpath + "icons/play.png"
+                    img = self._load_image(paused, icon_path, path, text)
+                    if img:
+                        self.label.config(image = img)
+                        self.label.image = img
+                    else:
+                        self.label.config(text = "Image not found", image = "")
+                    self.text = text
+                    if len(text) > 0:
+                        line_parts = text[0].split(':')
+                        if len(line_parts) > 0:
+                            if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                                self.zone_btn[self.zone].config(bg = None)
+                            self.zone = line_parts[1].strip()
+                            if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                                self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                    self.path = path
+                if func == 'setpos':
+                    if self.debug is True:
+                        print('[bold red]### poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + '[/bold red]')
+                    if playpos is None:
+                        if self.debug is True:
+                            print('[red]### poll_queue setpos => playpos: is None[/red]')
+                    else:
+                        if self.playlen is not None and self.playlen != -1:
+                            self.playpos_next = playpos
+                            if self.debug is True:
+                                print('[red]### poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
+                    if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
+                        if playlen == -1:
+                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
+                            self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                        else:
+                            self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+                            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            if self.canvas_clear is not None:
+                                self.canvas_clear.destroy()
+                                self.canvas_clear = None
+
+                    playmode = playlen is not None and playlen != -1 and is_playing is True
+                    print('[red]### poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
+                    self._set_playmode(playmode)
+                            
+                    if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
+                        paused = not playmode
+                        icon_path = self.scriptpath + "icons/play.png"
+                        img = self._load_image(paused, icon_path, path, text)
+                        if img:
+                            self.label.config(image = img)
+                            self.label.image = img
+                        else:
+                            self.label.config(text = "Image not found", image = "")
+                        self.path = path
+                        self.text = text
+                        if len(text) > 0:
+                            line_parts = text[0].split(':')
+                            if len(line_parts) > 0:
+                                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                                    self.zone_btn[self.zone].config(bg = None)
+                                self.zone = line_parts[1].strip()
+                                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                                    self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                        if playpos is None:
+                            self.playpos_next = 0
+
+                    if self.in_menu_mode is True and self.debug is True:
+                        self.count += 1
+                        upd_pos_text = str(timedelta(seconds=playpos)) + ' / ' + str(self.count) if (playpos is not None and playpos != -1) else str(playpos) + ' / ' + str(self.count)
+                        upd_pos = Label(self.overlay, text = upd_pos_text, bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+                        upd_pos.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height + 40)
+
+                    self.playlen = playlen
+                    self.is_playing = is_playing
+                    self.shuffle_on = shuffle_on
+                if func == 'setZones' and self.buttons != buttons:
+                    self.buttons = buttons
+
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)
@@ -272,7 +463,7 @@ class SimpleImageWindow:
         return lines
 
     @classmethod
-    def _load_image(cls, path_or_url = None, text = None):
+    def _load_image(cls, paused, icon_path, path_or_url = None, text = None):
         try:
             if path_or_url is None:
             	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
@@ -282,7 +473,22 @@ class SimpleImageWindow:
             else:
                 img = Image.open(path_or_url)
 
-            img = img.resize((720, 720), Image.ANTIALIAS)
+            img = img.resize((cls.maxpx, cls.maxpx), Image.ANTIALIAS)
+            
+            if paused is True:
+                canvas = Image.new("RGB", (cls.maxpx,cls.maxpx))
+                mask   = Image.new('L',   (cls.maxpx,cls.maxpx))
+                canvasDraw = ImageDraw.Draw(canvas)
+                maskDraw   = ImageDraw.Draw(mask)
+                canvasDraw.rectangle((0,0,cls.maxpx - 1,cls.maxpx - 1), 'white')
+                maskDraw.rectangle((0,0,cls.maxpx - 1,cls.maxpx - 1), 160)
+                img.paste(canvas, mask)
+                size = round(cls.maxpx / 5)
+                icon_img = Image.open(icon_path)
+                icon_img = icon_img.resize((size, size), Image.ANTIALIAS)
+                pos = round((cls.maxpx - size) / 2)
+                img.paste(icon_img, (pos, pos), mask = icon_img)
+
             draw = ImageDraw.Draw(img)
 
             if text:
@@ -319,6 +525,6 @@ class SimpleImageWindow:
 
             return ImageTk.PhotoImage(img)
         except Exception as e:
-            print(f"[Error on image loading] {e}")
+            print(f"[red]Error on image loading:[/red] {e}")
             return None
 

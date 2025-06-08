@@ -57,23 +57,24 @@ on Playing()
                 set fileName to ":coverAppleMusic" & ext
                 set filePathWithName to ((home_path & subfolder as text) & fileName)
 
+                set pos_double to the player position
+                set total_double to the duration of the current track
+                set pos to round pos_double rounding down
+                set total to round total_double rounding down
+
                 set outFile to open for access file filePathWithName with write permission
                 set eof outFile to 0
                 write srcBytes to outFile
                 close access outFile                
                 
                 if hasCover then
-                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & fileName
+                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & fileName
                 else
-                    set result to "Apple Music%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled
+                    set result to "Apple Music%-%" & player state & "%-%" & songAlbum & "%-%" & songArtist & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total
                 end if
             on error m number n
             end try
-            if player state is playing then
-                copy result to the end of the resultArray
-            else
-                copy "Apple Music%-%" & "status::idle" to the end of the resultArray
-            end if
+            copy result to the end of the resultArray
         end tell
     else
         copy "Apple Music%-%" & "status::not running" to the end of the resultArray
@@ -92,18 +93,18 @@ on Playing()
                     set hasCover to false
                 end try
             end tell
+
+            set currentPosition to player position
+            set pos to round currentPosition rounding down
+            set total to round ((duration of current track) / 1000) rounding down
             
             if hasCover then
-                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & coverUrl
+                set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%" & coverUrl
             else
-                set result to "Spotify%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling
+                set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total
             end if
                 
-            if player state is playing then
-                copy result to the end of the resultArray
-            else
-                copy "Spotify%-%" & "status::idle" to the end of the resultArray
-            end if
+            copy result to the end of the resultArray
         end tell
     else
         copy "Spotify%-%" & "status::not running" to the end of the resultArray
@@ -130,23 +131,27 @@ output = tell_iTunes.call('Playing')
 for line in output:
     output = line.split('%-%')
     zone_name = output[0]
+    status = output[1].encode('utf8')
     cover = ''
-    artist = output[1].encode('utf8')
-    if artist.decode().startswith('status::'):
+    if status.decode().startswith('status::'):
         roonstr = '"zone": "{}", "status": "{}"'
-        tup = (zone_name,artist.decode()[8:])
+        tup = (zone_name,status.decode()[8:])
     else:   
-        album = output[2].encode('utf8')
-        track = output[3].encode('utf8')
-        shuffle = output[4].encode('utf8')
-        if len(output)>5:
+        artist = output[2].encode('utf8')
+        album = output[3].encode('utf8')
+        track = output[4].encode('utf8')
+        shuffle = output[5].encode('utf8')
+        repeat = output[6].encode('utf8')
+        position = output[7].encode('utf8')
+        total = output[8].encode('utf8')
+        if len(output) > 9:
             if zone_name.startswith('Spotify'):
-                if output[5].startswith('http') is False:
+                if output[9].startswith('http') is False:
                     cover = ''
                 else:
-                    cover = output[5].encode('utf8')
+                    cover = output[9].encode('utf8')
             else:
-                filename = output[5].replace(':','')
+                filename = output[9].replace(':','')
                 if os.path.exists(DIR + filename):
                     fnparts = filename.rsplit('.',1)
                     stringToHash = artist.decode() + '-' + album.decode() + '-' + track.decode()
@@ -157,11 +162,11 @@ for line in output:
                     cover = ('covers/' + newFilename).encode('utf8')
 
         if cover!='':
-            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "cover": "{}"'
-            tup = (zone_name,artist.decode(),album.decode(),track.decode(),shuffle.decode(),cover.decode())
+            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "cover": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),cover.decode())
         else:
-            roonstr = '"zone": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}"'
-            tup = (zone_name,artist.decode(),album.decode(),track.decode(),shuffle.decode())
+            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode())
         
     output_list.append('{' + roonstr.format(*tup) + '}')
 return_str = ','.join(output_list)
