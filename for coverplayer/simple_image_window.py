@@ -17,19 +17,19 @@ class SimpleImageWindow:
     maxpx = 720					# screen size in px
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, text = [], buttons = None, callback = None, control_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, text, buttons or [], callback, control_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback))
 
     @classmethod
-    def setpos(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, text = []):
+    def setpos(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = []):
         cls._ensure_running()
-        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, text, None, None, None))
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, None, None, None))
 
     @classmethod
     def setZones(cls, buttons):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, buttons or [], None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, buttons or [], None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -89,6 +89,7 @@ class SimpleImageWindow:
         self.control_callback = None
         self.is_playing = True
         self.shuffle_on = False
+        self.repeat_on = False
         self.control_icons = {}
         self._load_control_icons()
 
@@ -164,6 +165,8 @@ class SimpleImageWindow:
                 "back": PhotoImage(file = self.scriptpath + "icons/backward.png"),
                 "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
                 "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
+                "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
+                "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
         }
         except Exception as e:
@@ -229,9 +232,14 @@ class SimpleImageWindow:
         self.shuffle_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
+		# repeat button at the bottom right
+        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+        self.repeat_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_repeat, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.repeat_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+
         # back button at the bottom right
-        back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, height = corner_btn_size, width = corner_btn_size)
-        back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+        #back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, height = corner_btn_size, width = corner_btn_size)
+        #back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
 
         if self.playpos is not None and self.playpos != -1:
             self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
@@ -272,7 +280,16 @@ class SimpleImageWindow:
     def _control(self, action):
         self._start_overlay_timer()
         if self.control_callback:
-            self.control_callback(action)
+            stateupdate = self.control_callback(action)
+            is_playing = stateupdate[0]
+            shuffle_on = stateupdate[1]
+            repeat_on = stateupdate[2]
+            if is_playing != self.is_playing:
+                _set_playmode(self, is_playing)
+            if shuffle_on != self.shuffle_on:
+                _set_shufflemode(self, shuffle_on)
+            if repeat_on != self.repeat_on:
+                _set_repeatmode(self, repeat_on)
 
     def _toggle_play(self):
         self._start_overlay_timer()
@@ -298,6 +315,18 @@ class SimpleImageWindow:
             self.shuffle_btn.config(image = icon)
             print('[bold red]### set_shufflemode: '+ str(mode) + '[/bold red]')
 
+    def _toggle_repeat(self):
+        self._start_overlay_timer()
+        self._set_repeatmode(not self.repeat_on)        
+        self.repeat_on = not self.repeat_on
+        self._control("repeat_on" if self.repeat_on else "repeat_off")
+
+    def _set_repeatmode(self, mode):
+        if self.in_menu_mode is True and self.repeat_btn is not None:
+            icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+            self.repeat_btn.config(image = icon)
+            print('[bold red]### set_repeatmode: '+ str(mode) + '[/bold red]')
+
     def _on_button_click(self, value):
         if self.callback:
             self.zone = value
@@ -322,17 +351,19 @@ class SimpleImageWindow:
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, shuffle_on, text, buttons, callback, control_callback = self._queue.get_nowait()
+                func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen):
                     if self.debug is True:
-                        print('[bold red]### poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + '[/bold red]')
+                        print('[bold red]### poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     playmode = playlen is not None and playlen != -1 and is_playing is True
                     print('[red]### poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
+                    self._set_repeatmode(repeat_on)
 
                     self.is_playing = is_playing
                     self.shuffle_on = shuffle_on
+                    self.repeat_on = repeat_on
 
                     if self.buttons != buttons:
                         self.buttons = buttons
@@ -383,7 +414,7 @@ class SimpleImageWindow:
                     self.path = path
                 if func == 'setpos':
                     if self.debug is True:
-                        print('[bold red]### poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + '[/bold red]')
+                        print('[bold red]### poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     if playpos is None:
                         if self.debug is True:
                             print('[red]### poll_queue setpos => playpos: is None[/red]')
@@ -407,6 +438,7 @@ class SimpleImageWindow:
                     print('[red]### poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
+                    self._set_repeatmode(repeat_on)
                             
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
@@ -439,6 +471,7 @@ class SimpleImageWindow:
                     self.playlen = playlen
                     self.is_playing = is_playing
                     self.shuffle_on = shuffle_on
+                    self.repeat_on = repeat_on
                 if func == 'setZones' and self.buttons != buttons:
                     self.buttons = buttons
 
