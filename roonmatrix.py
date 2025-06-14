@@ -1556,14 +1556,6 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                             if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
                                 obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
 
-                            controlled = ''
-                            if type(displaystr) == list:
-                                if len(displaystr) > 0 and displaystr[0] != 'force>':
-                                    displaystr.append('')
-                            else:
-                                if displaystr != '':
-                                    displaystr += separator
-
                             playing = 'status' in obj and obj['status'] == 'playing'
                             shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
                             repeat = 'repeat' in obj and obj['repeat'] == 'true'
@@ -1571,6 +1563,14 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                             set_play_mode(zid, playing, False)
                             set_shuffle_mode(zid, shuffle, False)
                             set_repeat_mode(zid, repeat, False)
+
+                            controlled = ''
+                            if type(displaystr) == list:
+                                if playing is True and len(displaystr) > 0 and displaystr[0] != 'force>':
+                                    displaystr.append('')
+                            else:
+                                if playing is True and displaystr != '':
+                                    displaystr += separator
 
                             if control_id is not None and channels[control_id]=='webserver':
                                 name_parts = control_id.split('-')
@@ -1604,53 +1604,54 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                         else:
                                             SimpleImageWindow.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)                                            
 
-                            if type(displaystr) == list:
-                                if len(displaystr) == 0 and playing_headline !='':
-                                    displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
-                                if show_zone is True:
-                                    sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
-                                    font = proportional(CP437_FONT)
-                                    w, h = textsize(sourcestr, font)
-                                    if w > device.width:
-                                        displaystr.append(get_message('Source'))
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
-                                    else:
-                                        displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
+                            if playing is True:
+                                if type(displaystr) == list:
+                                    if len(displaystr) == 0 and playing_headline !='':
+                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
+                                    if show_zone is True:
+                                        sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
+                                        font = proportional(CP437_FONT)
+                                        w, h = textsize(sourcestr, font)
+                                        if w > device.width:
+                                            displaystr.append(get_message('Source'))
+                                            displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
+                                        else:
+                                            displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
 
-                                    zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
-                                    font = proportional(CP437_FONT)
-                                    w, h = textsize(zonestr, font)
-                                    if w > device.width:
-                                        displaystr.append(controlled + get_message('Zone'))
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
+                                        zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
+                                        font = proportional(CP437_FONT)
+                                        w, h = textsize(zonestr, font)
+                                        if w > device.width:
+                                            displaystr.append(controlled + get_message('Zone'))
+                                            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
+                                        else:
+                                            displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
+                                    if 'artist' in obj and obj["artist"] != '':
+                                        if show_vertical_music_label is True:
+                                            displaystr.append('< ' + get_message('Artist') + ' >')
+                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
+                                    if show_album is True and 'album' in obj and obj["album"] != '':
+                                        if show_vertical_music_label is True:
+                                            displaystr.append('< ' + get_message('Album') + ' >')
+                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
+                                    if show_vertical_music_label is True:
+                                        displaystr.append('< ' + get_message('Track') + ' >')
+                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
                                     else:
-                                        displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
-                                if 'artist' in obj and obj["artist"] != '':
-                                    if show_vertical_music_label is True:
-                                        displaystr.append('< ' + get_message('Artist') + ' >')
-                                    displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
-                                if show_album is True and 'album' in obj and obj["album"] != '':
-                                    if show_vertical_music_label is True:
-                                        displaystr.append('< ' + get_message('Album') + ' >')
-                                    displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
-                                if show_vertical_music_label is True:
-                                    displaystr.append('< ' + get_message('Track') + ' >')
-                                    displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
+                                        displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
                                 else:
-                                    displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
-                            else:
-                                if displaystr == '' and playing_headline !='':
-                                    displaystr += playing_headline + ': '
-                                if show_zone is True:
-                                    displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
-                                    displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
-                                if 'artist' in obj and obj["artist"] != '':
-                                    displaystr += get_message('Artist') + ': "' + obj["artist"] + '" / '
-                                if show_album is True and 'album' in obj and obj["album"] != '':
-                                    displaystr += get_message('Album') + ': "' + obj["album"] + '" / '
-                                if 'track' in obj:
-                                    displaystr += get_message('Track') + ': "' + obj["track"] + '"'
-                                    displaystr = convert_special_chars(displaystr)
+                                    if displaystr == '' and playing_headline !='':
+                                        displaystr += playing_headline + ': '
+                                    if show_zone is True:
+                                        displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
+                                        displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
+                                    if 'artist' in obj and obj["artist"] != '':
+                                        displaystr += get_message('Artist') + ': "' + obj["artist"] + '" / '
+                                    if show_album is True and 'album' in obj and obj["album"] != '':
+                                        displaystr += get_message('Album') + ': "' + obj["album"] + '" / '
+                                    if 'track' in obj:
+                                        displaystr += get_message('Track') + ': "' + obj["track"] + '"'
+                                        displaystr = convert_special_chars(displaystr)
 
                             if name not in web_playouts_raw or web_playouts_raw[name] != result:
                                 playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
