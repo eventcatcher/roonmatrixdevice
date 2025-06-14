@@ -40,7 +40,7 @@ import psutil
 import sdnotify
 import socket
 from unidecode import unidecode
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
 import uvicorn
 import subprocess
@@ -242,6 +242,8 @@ last_zones = [] # list of zone names (backup to check for changes)
 last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
 playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
+data_changed = False # switch to true if data has changed (playmode,shufflemode,repeatmode,cover,artist,album, or title)
+
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 # init cover image viewer
@@ -274,123 +276,19 @@ if display_cover is False:
 # --- REST SERVER START ---
 
 app = FastAPI()
+clients = set()
 
 @app.get("/")
 async def rest_index():
     return {
+        "type": 'coverplayer' if display_cover is True else 'roonmatrix',
         "name": socket.gethostname(),
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
 @app.get("/info/")
 async def rest_info():
-    return {
-        "name": socket.gethostname(),
-        "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "debug": debug,
-        "startlog": startlog,
-        "log": log,
-        "errorlog": errorlog,
-        "display_cover": display_cover,
-        "led_modules": led_modules,
-        "led_scroll_delay": led_scroll_delay,
-        "led_vertical_scroll_delay": led_vertical_scroll_delay,
-        "led_contrast": led_contrast,
-        "controlswitch_bouncetime": controlswitch_bouncetime,
-        "internet_connection_timeout": internet_connection_timeout,
-        "internet_connection_url": internet_connection_url,
-        "zone_control_timeout": zone_control_timeout,
-        "map_zone_control": map_zone_control,
-        "socket_timeout": socket_timeout,
-        "control_zone": control_zone,
-        "playing_headline" : playing_headline,
-        "exclusive_audio_mode": exclusive_audio_mode,
-        "exclusive_active_zone": exclusive_active_zone,
-        "music_required": music_required,
-        "show_zone": show_zone,
-        "show_album": show_album,
-        "vertical_output": vertical_output,
-        "vertical_scroll_delay": vertical_scroll_delay,
-        "show_vertical_music_label": show_vertical_music_label,
-        "datetime_show": datetime_show,
-        "datetime_only_time": datetime_only_time,
-        "roon_show": roon_show,
-        "force_roon_update": force_roon_update,
-        "force_active_roon_zone_only": force_active_roon_zone_only,
-        "discovery_delay": discovery_delay,
-        "webservers_show": webservers_show,
-        "force_webserver_update": force_webserver_update,
-        "force_active_webserver_zone_only": force_active_webserver_zone_only,
-        "webcheck_update_interval": webcheck_update_interval,
-        "webservers_zones": webservers_zones,
-        "webserver_head_request_timeout": webserver_head_request_timeout,
-        "webserver_url_request_timeout": webserver_url_request_timeout,
-        "weather_show": weather_show,
-        "location": location,
-        "weather_update_interval": weather_update_interval,
-        "with_feel_temperature": with_feel_temperature,
-        "with_rain": with_rain,
-        "with_wind_spd": with_wind_spd,
-        "with_wind_dir": with_wind_dir,
-        "with_humidity": with_humidity,
-        "with_pressure": with_pressure,
-        "with_clouds": with_clouds,
-        "with_snow": with_snow,
-        "with_uv": with_uv,
-        "with_sunrise": with_sunrise,
-        "with_sunset": with_sunset,
-        "with_description": with_description,
-        "rss_show": rss_show,
-        "rss_feeds": rss_feeds,
-        "clock_show": clock_show,
-        "clock_without_idle_time": clock_without_idle_time,
-        "clock_refresh_per_second": clock_refresh_per_second,
-        "clock_max_idle_time": clock_max_idle_time,
-        "clock_max_show_time": clock_max_show_time,
-        "audioinfo_timer": audioinfo_timer,
-        "from_zone": datetime.now(from_zone).tzname(),
-        "to_zone": datetime.now(to_zone).tzname(),
-        "initialization_done": initialization_done,
-        "check_audioinfo": check_audioinfo,
-        "audioinfo_available": audioinfo_available,
-        "control_id": control_id,
-        "do_set_zone_control": do_set_zone_control,
-        "datetime": datetime.now(),
-        "last_idle_time": last_idle_time,
-        "control_id_update": control_id_update,
-        "weather_fetch_count": weather_fetch_count,
-        "build_seconds": build_seconds,
-        "interrupt_message": interrupt_message,
-        "fetch_output_in_progress": fetch_output_in_progress,
-        "output_in_progress": output_in_progress,
-        "clock_in_progress": clock_in_progress,
-        "fetch_output_done": fetch_output_done,
-        "fetch_output_time": fetch_output_time,
-        "zone_control_last_update_time": zone_control_last_update_time,
-        "playmode": playmode,
-        "shufflemode": shufflemode,
-        "repeatmode": repeatmode,
-        "custom_message": custom_message,
-        "custom_message_option": custom_message_option,
-        "channels": channels,
-        "roon_playouts_raw": roon_playouts_raw,
-        "roon_playouts": roon_playouts,
-        "web_playouts_raw": web_playouts_raw,
-        "web_playouts": web_playouts,
-        "jobs": len(jobs),
-        "playcount": playcount,
-        "roon_servers": roon_servers,
-        "weatherstr": weatherstr,
-        "weatherlines": weatherlines,
-        "prepared_displaystr": prepared_displaystr,
-        "displaystr": displaystr,
-        "prepared_vert_strlines": prepared_vert_strlines,
-        "vert_strlines": vert_strlines,
-        "audio_playing": audio_playing,
-        "is_playing": is_playing,
-        "shuffle_on": shuffle_on,
-        "repeat_on": repeat_on
-    }
+    return getInfoData()
 
 @app.get("/config/")
 async def rest_config():
@@ -698,6 +596,27 @@ async def rest_live_control(params: LiveControlParams):
 
     return True
 
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    global data_changed
+    await websocket.accept()
+    clients.add(websocket)
+    print(f"websocket client connected: {websocket.client}")
+    try:
+        while True:
+            await asyncio.sleep(1)
+            if data_changed is True:
+                data_changed = False
+                data = getInfoData()
+                print('websocket sending info data')
+                await websocket.send_json(data)
+    except WebSocketDisconnect:
+        print(f"websocket client disconnected: {websocket.client}")
+    except Exception as e:
+        print(f"websocket error: {e}")
+    finally:
+        clients.discard(websocket)
+
 def start_restserver():
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
@@ -776,6 +695,120 @@ def clear_display(type):
 
     with canvas(device) as draw:
         text(draw, (0, 0), '', fill="white", font=proportional(CP437_FONT))
+
+def getInfoData():
+    hostName = socket.gethostname()
+    timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    outputTime = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
+    now = str(datetime.now())
+
+    return {
+        "name": hostName,
+        "time": timeStr,
+        "debug": debug,
+        "startlog": startlog,
+        "log": log,
+        "errorlog": errorlog,
+        "display_cover": display_cover,
+        "led_modules": led_modules,
+        "led_scroll_delay": led_scroll_delay,
+        "led_vertical_scroll_delay": led_vertical_scroll_delay,
+        "led_contrast": led_contrast,
+        "controlswitch_bouncetime": controlswitch_bouncetime,
+        "internet_connection_timeout": internet_connection_timeout,
+        "internet_connection_url": internet_connection_url,
+        "zone_control_timeout": zone_control_timeout,
+        "map_zone_control": map_zone_control,
+        "socket_timeout": socket_timeout,
+        "control_zone": control_zone,
+        "playing_headline" : playing_headline,
+        "exclusive_audio_mode": exclusive_audio_mode,
+        "exclusive_active_zone": exclusive_active_zone,
+        "music_required": music_required,
+        "show_zone": show_zone,
+        "show_album": show_album,
+        "vertical_output": vertical_output,
+        "vertical_scroll_delay": vertical_scroll_delay,
+        "show_vertical_music_label": show_vertical_music_label,
+        "datetime_show": datetime_show,
+        "datetime_only_time": datetime_only_time,
+        "roon_show": roon_show,
+        "force_roon_update": force_roon_update,
+        "force_active_roon_zone_only": force_active_roon_zone_only,
+        "discovery_delay": discovery_delay,
+        "webservers_show": webservers_show,
+        "force_webserver_update": force_webserver_update,
+        "force_active_webserver_zone_only": force_active_webserver_zone_only,
+        "webcheck_update_interval": webcheck_update_interval,
+        "webservers_zones": webservers_zones,
+        "webserver_head_request_timeout": webserver_head_request_timeout,
+        "webserver_url_request_timeout": webserver_url_request_timeout,
+        "weather_show": weather_show,
+        "location": location,
+        "weather_update_interval": weather_update_interval,
+        "with_feel_temperature": with_feel_temperature,
+        "with_rain": with_rain,
+        "with_wind_spd": with_wind_spd,
+        "with_wind_dir": with_wind_dir,
+        "with_humidity": with_humidity,
+        "with_pressure": with_pressure,
+        "with_clouds": with_clouds,
+        "with_snow": with_snow,
+        "with_uv": with_uv,
+        "with_sunrise": with_sunrise,
+        "with_sunset": with_sunset,
+        "with_description": with_description,
+        "rss_show": rss_show,
+        "rss_feeds": rss_feeds,
+        "clock_show": clock_show,
+        "clock_without_idle_time": clock_without_idle_time,
+        "clock_refresh_per_second": clock_refresh_per_second,
+        "clock_max_idle_time": clock_max_idle_time,
+        "clock_max_show_time": clock_max_show_time,
+        "audioinfo_timer": audioinfo_timer,
+        "from_zone": datetime.now(from_zone).tzname(),
+        "to_zone": datetime.now(to_zone).tzname(),
+        "initialization_done": initialization_done,
+        "check_audioinfo": check_audioinfo,
+        "audioinfo_available": audioinfo_available,
+        "control_id": control_id,
+        "do_set_zone_control": do_set_zone_control,
+        "datetime": now,
+        "last_idle_time": last_idle_time,
+        "control_id_update": control_id_update,
+        "weather_fetch_count": weather_fetch_count,
+        "build_seconds": build_seconds,
+        "interrupt_message": interrupt_message,
+        "fetch_output_in_progress": fetch_output_in_progress,
+        "output_in_progress": output_in_progress,
+        "clock_in_progress": clock_in_progress,
+        "fetch_output_done": fetch_output_done,
+        "fetch_output_time": outputTime,
+        "zone_control_last_update_time": zone_control_last_update_time,
+        "playmode": playmode,
+        "shufflemode": shufflemode,
+        "repeatmode": repeatmode,
+        "custom_message": custom_message,
+        "custom_message_option": custom_message_option,
+        "channels": channels,
+        "roon_playouts_raw": roon_playouts_raw,
+        "roon_playouts": roon_playouts,
+        "web_playouts_raw": web_playouts_raw,
+        "web_playouts": web_playouts,
+        "jobs": len(jobs),
+        "playcount": playcount,
+        "roon_servers": roon_servers,
+        "weatherstr": weatherstr,
+        "weatherlines": weatherlines,
+        "prepared_displaystr": prepared_displaystr,
+        "displaystr": displaystr,
+        "prepared_vert_strlines": prepared_vert_strlines,
+        "vert_strlines": vert_strlines,
+        "audio_playing": audio_playing,
+        "is_playing": is_playing,
+        "shuffle_on": shuffle_on,
+        "repeat_on": repeat_on
+    }
 
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
     font = font or DEFAULT_FONT
@@ -965,11 +998,15 @@ def getPlaystateFromPlaymode(control_id):
         return False
 
 def set_play_mode(control_id, enable, send):
+    global data_changed
     if control_id is not None and control_id in channels.keys():
+        playmode_last = playmode[control_id] if control_id in playmode else None
         if enable is True:
             playmode[control_id] = 'play'
         else:
             playmode[control_id] = 'stop'
+        if control_id in playmode and playmode_last != playmode[control_id]:
+            data_changed = True
 
         if send is True:
             if channels[control_id]=='webserver':
@@ -985,6 +1022,8 @@ def getShufflestateFromPlaymode(control_id):
         return False
 
 def set_shuffle_mode(control_id, enable, send):
+    global data_changed
+    shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
     if control_id is not None and control_id in channels.keys():
         if channels[control_id]=='webserver':
             if enable is True:
@@ -995,9 +1034,7 @@ def set_shuffle_mode(control_id, enable, send):
                 send_webserver_zone_control(control_id, shufflemode[control_id])
         else:
             if roon_show == True and roon_servers:
-                zone = roonapi.zone_by_output_id(control_id)
-                if zone is not None:
-                    # zone["settings"]["shuffle"]
+                if control_id is not None:
                     if enable is True:
                         shufflemode[control_id] = 'shuffle'
                         if send is True:
@@ -1006,6 +1043,8 @@ def set_shuffle_mode(control_id, enable, send):
                         shufflemode[control_id] = 'noshuffle'
                         if send is True:
                             roonapi.shuffle(control_id, False)
+    if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
+        data_changed = True
 
 def getRepeatstateFromPlaymode(control_id):
     if control_id is not None and control_id in repeatmode:
@@ -1014,6 +1053,8 @@ def getRepeatstateFromPlaymode(control_id):
         return False
 
 def set_repeat_mode(control_id, enable, send):
+    global data_changed
+    repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
     if control_id is not None and control_id in channels.keys():
         if channels[control_id]=='webserver':
             if enable is True:
@@ -1024,9 +1065,7 @@ def set_repeat_mode(control_id, enable, send):
                 send_webserver_zone_control(control_id, repeatmode[control_id])
         else:
             if roon_show == True and roon_servers:
-                zone = roonapi.zone_by_output_id(control_id)
-                if zone is not None:
-                    # zone["settings"]["loop"] != 'disabled'
+                if control_id is not None:
                     if enable is True:
                         repeatmode[control_id] = 'repeat'
                         if send is True:
@@ -1035,6 +1074,8 @@ def set_repeat_mode(control_id, enable, send):
                         repeatmode[control_id] = 'norepeat'
                         if send is True:
                             roonapi.repeat(control_id, 'disabled')
+    if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
+        data_changed = True
 
 def play_previous(control_id):
     if control_id is not None:
@@ -1448,7 +1489,7 @@ def on_control_click(action):
         set_repeat_mode(control_id, False, True)
 
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
-    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last
+    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, data_changed
     if log is True: print('get playing apple or spotify => start')
     force = False
     breakToo = False
@@ -1493,6 +1534,9 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                     for obj in resultJson:
                         if "status" in obj and obj["status"] == 'not running':
                             if log is True: print('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
+                            playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
+                            if playout_changed is True:
+                                data_changed = True
                             web_playouts_raw[name] = result
                             if display_cover is True and control_id is not None and channels[control_id]=='webserver':
                                 name_parts = control_id.split('-')
@@ -1609,6 +1653,9 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                     displaystr = convert_special_chars(displaystr)
 
                             if name not in web_playouts_raw or web_playouts_raw[name] != result:
+                                playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
+                                if playout_changed is True:
+                                    data_changed = True
                                 web_playouts_raw[name] = result
 
                                 active = (control_id is not None and channels[control_id]=='webserver' and name == name_parts[0] and obj["zone"] == zone)
@@ -1818,7 +1865,7 @@ def set_default_zone():
                 print("actual control zone (roon): " + channels[control_id])
 
 def roon_state_callback(event, changed_ids):
-    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last
+    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
 
     if debug is True:
         print('roon_state_callback start => event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids))
@@ -1911,6 +1958,7 @@ def roon_state_callback(event, changed_ids):
                 if name not in roon_playouts_raw or roon_playouts_raw[name] != playing:
                     roon_playouts_raw[name] = playing
                     roon_playouts[name] = json.loads(playing)
+                    data_changed = True
                 continue
             else:
                 if cover_url and len(cover_url) > 0:
@@ -1921,6 +1969,7 @@ def roon_state_callback(event, changed_ids):
                 if playing_data_has_changed is True:            
                     roon_playouts_raw[name] = playing
                     roon_playouts[name] = json.loads(playing)
+                    data_changed = True
 
                 # state variants: loading, playing, paused, not running
                 if state == 'playing':
@@ -2175,7 +2224,7 @@ def filterIllegalChars(str):
     return filtered
 
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed
     # global fetch_output_time
 
     buildstr = ''
@@ -2286,6 +2335,7 @@ def build_output():
                         if zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
+                            data_changed = True
                         continue
                     else:
                         if log is True: print('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
@@ -2305,6 +2355,7 @@ def build_output():
                         if playing_data_has_changed:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
+                            data_changed = True
 
                         if state == "playing":
                             roonstr = ''
