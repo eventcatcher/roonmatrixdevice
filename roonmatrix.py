@@ -259,7 +259,7 @@ try:
     import tkinter as tk
     from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
     from io import BytesIO
-    from simple_image_window import SimpleImageWindow
+    from coverplayer import Coverplayer
     root = tk.Tk()
     root.destroy()
 except EnvironmentError as e:
@@ -1550,8 +1550,8 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                     is_playing = False
                                     shuffle_on = False
                                     repeat_on = False
-                                    print('[bold red]SimpleImageWindow.update (web): not running[/bold red]')
-                                    SimpleImageWindow.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                    print('[bold red]Coverplayer.update (web): not running[/bold red]')
+                                    Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
                         else:
                             if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
                                 obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
@@ -1599,10 +1599,10 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                             last_cover_url = obj["cover"]
                                             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
                                             zones = get_zone_names()
-                                            print('[bold red]SimpleImageWindow.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')                                            
-                                            SimpleImageWindow.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                            print('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')                                            
+                                            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
                                         else:
-                                            SimpleImageWindow.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)                                            
+                                            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)                                            
 
                             if playing is True:
                                 if type(displaystr) == list:
@@ -1949,8 +1949,8 @@ def roon_state_callback(event, changed_ids):
                         shuffle_on = shuffle
                         repeat_on = repeat
                                     
-                        print('[bold red]SimpleImageWindow.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                        SimpleImageWindow.setpos(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts)
+                        print('[bold red]Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts)
 
 
             if name not in channels.values():
@@ -1963,9 +1963,9 @@ def roon_state_callback(event, changed_ids):
                 continue
             else:
                 if cover_url and len(cover_url) > 0:
-                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "cover": "' + cover_url + '"}'
+                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
                 else:
-                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + '}'
+                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
                 playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
                 if playing_data_has_changed is True:            
                     roon_playouts_raw[name] = playing
@@ -2300,8 +2300,8 @@ def build_output():
                             zones = get_zone_names()
                             if last_zones != zones:
                                 last_zones = zones
-                                print('[bold red]SimpleImageWindow.setZones (roon build_output) => zones: ' + str(zones) + '[/bold red]')
-                                SimpleImageWindow.setZones(zones)
+                                print('[bold red]Coverplayer.setZones (roon build_output) => zones: ' + str(zones) + '[/bold red]')
+                                Coverplayer.setZones(zones)
 
                             if control_id is not None and zone["display_name"] == channels[control_id]:
                                 cover_text_line_parts = []
@@ -2327,8 +2327,8 @@ def build_output():
                                     shuffle_on = shuffle
                                     repeat_on = repeat
                                     
-                                    print('[bold red]SimpleImageWindow.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                                    SimpleImageWindow.update(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                    print('[bold red]Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'

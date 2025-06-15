@@ -11,7 +11,7 @@ from datetime import timedelta
 from threading import Timer
 from rich import print
 
-class SimpleImageWindow:
+class Coverplayer:
     _instance = None
     _queue = queue.Queue()
     maxpx = 720					# screen size in px
