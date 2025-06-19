@@ -47,6 +47,7 @@ import subprocess
 import shlex
 import crypt
 from rich import print
+import traceback
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -203,6 +204,7 @@ weatherlines = [] # list to hold the weather data to display in vertical scrolli
 last_idle_time = None # datetime of last time the playout message was empty
 control_id_update = None # temp zone control id to hold this value while zone control setup. this value will be taken if enter button is pressed
 displaystr = '' # string to hold the whole message which is actually output to led matrix
+app_displaystr = '' # string of new generated audio message part prepared to get info about all audio zones which are playing
 vert_strlines = [] # list of message lines for actually output to led matrix in vertical display mode (exclusive_vertical is True)
 prepared_displaystr = '' # string of new generated playout message prepared for next run of led matrix output before it will be takeover into displaystr and output to the led matrix
 prepared_vert_strlines = [] # string lines of new generated playout message prepared for next run of vertical scrolling led matrix output before it will be takeover into vert_strlines and vertical output to the led matrix
@@ -614,6 +616,7 @@ async def websocket_endpoint(websocket: WebSocket):
         print(f"websocket client disconnected: {websocket.client}")
     except Exception as e:
         print(f"websocket error: {e}")
+        print(str(data))
     finally:
         clients.discard(websocket)
 
@@ -701,6 +704,7 @@ def getInfoData():
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     outputTime = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
     now = str(datetime.now())
+    lastIdleTimeStr = last_idle_time.strftime("%Y-%m-%d %H:%M:%S") if last_idle_time is not None else 'None'
 
     return {
         "name": hostName,
@@ -774,7 +778,7 @@ def getInfoData():
         "control_id": control_id,
         "do_set_zone_control": do_set_zone_control,
         "datetime": now,
-        "last_idle_time": last_idle_time,
+        "last_idle_time": lastIdleTimeStr,
         "control_id_update": control_id_update,
         "weather_fetch_count": weather_fetch_count,
         "build_seconds": build_seconds,
@@ -802,6 +806,7 @@ def getInfoData():
         "weatherlines": weatherlines,
         "prepared_displaystr": prepared_displaystr,
         "displaystr": displaystr,
+        "app_displaystr": app_displaystr,
         "prepared_vert_strlines": prepared_vert_strlines,
         "vert_strlines": vert_strlines,
         "audio_playing": audio_playing,
@@ -963,7 +968,9 @@ def is_audioinfo_available():
             if available is True:
                 time.sleep(discovery_delay)
     except Exception as e:
-        if errorlog is True: print('[red]==> audioinfo available error: [/red]', str(e))
+        if errorlog is True: 
+            print('[red]==> audioinfo available error: [/red]', str(e))
+            print(traceback.format_exc())
 
     if available is True:
         fetch_output_time = None
@@ -1832,7 +1839,9 @@ def get_rss_feed(displaystr):
                 if count == max:
                     break
         except Exception as e:
-            if errorlog is True: print('==> rss feed error: ', str(e))
+            if errorlog is True: 
+                print('==> rss feed error: ', str(e))
+                print(traceback.format_exc())
 
     return displaystr
 
@@ -1892,7 +1901,7 @@ def roon_state_callback(event, changed_ids):
                 state = zone["state"]
                 name = zone["display_name"]
             print('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"]))
-            if state == "Unknown":
+            if state == "Unknown" or 'now_playing' not in zone:
                 continue
             else:
                 playstr = zone["now_playing"]["three_line"]
@@ -1972,10 +1981,10 @@ def roon_state_callback(event, changed_ids):
                     roon_playouts[name] = json.loads(playing)
                     data_changed = True
 
-                # state variants: loading, playing, paused, not running
+                # state variants: loading, playing, paused, stopped, not running
                 if state == 'playing':
                     if ((force_active_roon_zone_only is False or name == channels[control_id]) and playing_data_has_changed is True):
-                        allowed = output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2
+                        allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
                         if allowed is True:
                             if log is True: print("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
                             interrupt_message = True
@@ -2225,7 +2234,7 @@ def filterIllegalChars(str):
     return filtered
 
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed, app_displaystr
     # global fetch_output_time
 
     buildstr = ''
@@ -2271,9 +2280,9 @@ def build_output():
                     shuffle = False
                     
                     if zone["state"] is not None:
-                        state = zone["state"]
-                    print('roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"]))
-                    if state == "Unknown":
+                        state = zone["state"] # state variants: loading, playing, paused, stopped, not running
+                    print('roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else 'None'))
+                    if state == "Unknown" or 'now_playing' not in zone:
                         continue
                     else:
                         playstr = zone["now_playing"]["three_line"]
@@ -2464,7 +2473,9 @@ def build_output():
             buildlines = vertical_longtext_split_and_append('> ' + convert_special_chars(custom_message),[])
 
     except Exception as e:
-        if errorlog is True: print('[red]==> build output error: [/red]', str(e))
+        if errorlog is True: 
+            print('[red]==> build output error: [/red]', str(e))
+            print(traceback.format_exc())
 
     build_seconds = ceil((datetime.now() - build_start).total_seconds())
     if log is True:
@@ -2474,7 +2485,11 @@ def build_output():
     if vertical_output == True and len(buildlines) == 0:
         prepared_displaystr = ''
     else:
-        prepared_displaystr = str(buildlines) if vertical_output == True else buildstr
+        to_update = str(buildlines) if vertical_output == True else buildstr
+        prepared_displaystr = to_update
+        if  app_displaystr != to_update:
+            app_displaystr = to_update
+            data_changed = True
     prepared_vert_strlines = buildlines
     fetch_output_done = True
 
@@ -2662,4 +2677,6 @@ try:
             time.sleep(1)
             tick()
 except Exception as e:
-    if errorlog is True: print('[red]==> MAIN ERROR: [/red]', str(e))
+    if errorlog is True: 
+        print('[red]==> MAIN ERROR: [/red]', str(e))
+        print(traceback.format_exc())
