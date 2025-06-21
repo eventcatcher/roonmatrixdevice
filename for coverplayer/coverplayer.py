@@ -1,3 +1,20 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# CoverPlayer Class - display roon, spotify and apple music playout informations and cover art on 720x720px Pimoroni HyperPixel Square 4.0 LCD matrix display
+# Roonmatrix extension class
+# version 1.0.0, date: 21.06.2025
+#
+# show what is playing on roon zones and via webservers on Spotify and Apple Music
+#
+# © Stephan Wilhelm, Bielefeld, Germany, coded @ 2025
+#
+# copy to /home/coverplayer/FTP
+#
+# icon images loaded from /home/coverplayer/FTP/icons
+# fallback image loaded from /home/coverplayer/FTP/cover_fallback.png
+# logs saved to /home/coverplayer/FTP/logs
+
 from tkinter import Tk, Label, Button, Frame, Canvas, font as tkFont
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import queue
@@ -10,11 +27,24 @@ import subprocess
 from datetime import timedelta
 from threading import Timer
 from rich import print
+import sys
+import logging
 
 class Coverplayer:
     _instance = None
     _queue = queue.Queue()
-    maxpx = 720					# screen size in px
+
+    def flexprint(self, str, objStr = None):
+        if objStr is None:
+            if sys.stdout.isatty():
+                print(str)
+            else:
+                self.logger.info(str)
+        else:
+            if sys.stdout.isatty():
+                print(str, objStr)
+            else:
+                self.logger.info(str, objStr)
 
     @classmethod
     def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None):
@@ -37,7 +67,98 @@ class Coverplayer:
             cls._instance = cls()
             threading.Thread(target = cls._instance._gui_loop, daemon = True).start()
 
+    @classmethod
+    def _wrap_text(cls, text, font, max_width):
+        """wraps text if its too long."""
+        lines = []
+        words = text.split()
+        current_line = ""
+
+        for word in words:
+            test_line = current_line + " " + word if current_line else word
+            test_width, _ = ImageDraw.Draw(Image.new('RGB', (1, 1))).textsize(test_line, font)
+
+            if test_width <= max_width:
+                current_line = test_line
+            else:
+                if current_line:
+                    lines.append(current_line)
+                current_line = word
+        
+        if current_line:
+            lines.append(current_line)
+        
+        return lines
+
+    @classmethod
+    def _load_image(cls, flexprint, maxpx, paused, icon_path, path_or_url = None, text = None):
+        try:
+            if path_or_url is None:
+            	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
+            if path_or_url.startswith("http"):
+                response = requests.get(path_or_url, timeout = 5)
+                img = Image.open(BytesIO(response.content))
+            else:
+                img = Image.open(path_or_url)
+
+            img = img.resize((maxpx, maxpx), Image.ANTIALIAS)
+            
+            if paused is True:
+                canvas = Image.new("RGB", (maxpx,maxpx))
+                mask   = Image.new('L',   (maxpx,maxpx))
+                canvasDraw = ImageDraw.Draw(canvas)
+                maskDraw   = ImageDraw.Draw(mask)
+                canvasDraw.rectangle((0,0,maxpx - 1,maxpx - 1), 'white')
+                maskDraw.rectangle((0,0,maxpx - 1,maxpx - 1), 160)
+                img.paste(canvas, mask)
+                size = round(maxpx / 5)
+                icon_img = Image.open(icon_path)
+                icon_img = icon_img.resize((size, size), Image.ANTIALIAS)
+                pos = round((maxpx - size) / 2)
+                img.paste(icon_img, (pos, pos), mask = icon_img)
+
+            draw = ImageDraw.Draw(img)
+
+            if text:
+                font_size = 24
+                line_space = 5
+                
+                try:
+                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size = font_size)
+                except IOError:
+                    font = ImageFont.load_default()
+
+                max_width = img.width - 40  # max width of text
+                lines_all_items = 0
+                for text_part in text:
+                    lines = cls._wrap_text(text_part, font, max_width)
+                    lines_all_items += len(lines)
+                    
+                border_space = 20
+                text_x = border_space
+                text_y = img.height - border_space - lines_all_items * (font_size + line_space)
+                
+                background = (0, 0, 0, 128)  # RGB + Alpha (0-255)
+                
+                for text_part in text:
+                    lines = cls._wrap_text(text_part, font, max_width)
+                    for line in lines:
+                        text_width, text_height = draw.textsize(line, font = font)
+                        draw.rectangle(
+                            [text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space],
+                            fill = background
+                        )
+                        draw.text((text_x, text_y), line, font = font, fill = "white")
+                        text_y += text_height + line_space  # line spacing
+
+            return ImageTk.PhotoImage(img)
+        except Exception as e:
+            flexprint(f"[red]Error on image loading:[/red] {e}")
+            return None
+
     def _gui_loop(self):
+        self.logger = logging.getLogger('coverplayer')
+
         self.root = Tk()
         self.root.focus_force()
         self.root.title("CoverImage")
@@ -56,6 +177,7 @@ class Coverplayer:
         self.label.bind("<ButtonRelease-1>", self._on_click_end)
 
         self.maxpx = 720					# screen size in px
+        self.autoclose_in_seconds = 30
         self.overlay_height = self.maxpx
         self.overlay_relheight = 1
         self.overlay_bgcolor = "#222222"	# background color of control overlay
@@ -105,7 +227,7 @@ class Coverplayer:
         if screen_on:
             # If the display has just been switched on
             if now - self.last_screen_on > 10:
-                print("Display has been reactivated")
+                self.flexprint("Display has been reactivated")
                 self.just_woke_up = True
                 self.root.after(1000, self._reset_wake_flag)
                 self.wake_time = now  # Zeit merken
@@ -124,14 +246,14 @@ class Coverplayer:
                 if "Monitor is" in line:
                     return "On" in line
         except Exception as e:
-            print(f"[red]Error with xset:[/red] {e}")
+            self.flexprint(f"[red]Error with xset:[/red] {e}")
         return False
 
     def _on_click_start(self, event):
         screen_on = self.is_screen_on()
         now = time.time()
         if (screen_on is True and now - self.last_screen_on > 10) or (self.just_woke_up and now - self.wake_time < 1):
-            print("Touch ignored after wake-up.")
+            self.flexprint("Touch ignored after wake-up.")
             self.last_screen_on = now
             return
 
@@ -152,7 +274,7 @@ class Coverplayer:
             del self._press_after_id
 
     def _on_long_press(self):
-        print("long press – close app.")
+        self.flexprint("long press – close coverplayer app.")
         self.root.destroy()
     
     def _load_control_icons(self):
@@ -170,11 +292,11 @@ class Coverplayer:
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
         }
         except Exception as e:
-            print(f"[red]Icon loading error:[/red] {e}")
+            self.flexprint(f"[red]Icon loading error:[/red] {e}")
 
     def _start_overlay_timer(self):
         self._cancel_overlay_timer()
-        #self.overlay_timer = self.root.after(15000, self._hide_overlay)
+        self.overlay_timer = self.root.after(self.autoclose_in_seconds * 1000, self._hide_overlay) # disable this line to prevent auto-close of overlay
 
     def _cancel_overlay_timer(self):
         if self.overlay_timer:
@@ -275,7 +397,7 @@ class Coverplayer:
                 w = (self.maxpx - 243) / self.playlen * self.playpos
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
         if self.debug is True:
-            print('### classfunc update_playpos: ' + str(self.playpos))
+            self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
     
     def _control(self, action):
         self._start_overlay_timer()
@@ -301,7 +423,7 @@ class Coverplayer:
         if self.in_menu_mode is True and self.play_btn is not None:
             icon = self.control_icons["pause"] if mode else self.control_icons["play"]
             self.play_btn.config(image = icon)
-            print('[bold red]### set_playmode: '+ str(mode) + '[/bold red]')
+            self.flexprint('[bold red]CoverPlayer: set_playmode: '+ str(mode) + '[/bold red]')
     
     def _toggle_shuffle(self):
         self._start_overlay_timer()
@@ -313,7 +435,7 @@ class Coverplayer:
         if self.in_menu_mode is True and self.shuffle_btn is not None:
             icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
             self.shuffle_btn.config(image = icon)
-            print('[bold red]### set_shufflemode: '+ str(mode) + '[/bold red]')
+            self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
 
     def _toggle_repeat(self):
         self._start_overlay_timer()
@@ -325,7 +447,7 @@ class Coverplayer:
         if self.in_menu_mode is True and self.repeat_btn is not None:
             icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
             self.repeat_btn.config(image = icon)
-            print('[bold red]### set_repeatmode: '+ str(mode) + '[/bold red]')
+            self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
         if self.callback:
@@ -354,9 +476,9 @@ class Coverplayer:
                 func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen):
                     if self.debug is True:
-                        print('[bold red]### poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     playmode = playlen is not None and playlen != -1 and is_playing is True
-                    print('[red]### poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
+                    self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
                     self._set_repeatmode(repeat_on)
@@ -370,16 +492,15 @@ class Coverplayer:
 
                     if playpos is None:
                         if self.debug is True:
-                            print('[red]### poll_queue update => playpos: is None[/red]')
+                            self.flexprint('[red]CoverPlayer: poll_queue update => playpos: is None[/red]')
                     if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
                         self.playpos_next = -1
                     if playpos is None and playlen != -1:
                         self.playpos_next = 0
-                    #if playpos is not None and playpos != -1 and (self.playpos is None or self.playpos == -1 or (self.playpos is not None and playpos >= self.playpos) or self.text != text or self.path != path or self.playlen != playlen):
                     if playpos is not None and playpos != -1:
                         self.playpos_next = playpos
                         if self.debug is True:
-                            print('[red]### poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
+                            self.flexprint('[red]CoverPlayer: poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
                     if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
                         if playlen == -1:
                             self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
@@ -396,7 +517,7 @@ class Coverplayer:
                     self.control_callback = control_callback
                     paused = not playmode
                     icon_path = self.scriptpath + "icons/play.png"
-                    img = self._load_image(paused, icon_path, path, text)
+                    img = self._load_image(self.flexprint, self.maxpx, paused, icon_path, path, text)
                     if img:
                         self.label.config(image = img)
                         self.label.image = img
@@ -414,15 +535,15 @@ class Coverplayer:
                     self.path = path
                 if func == 'setpos':
                     if self.debug is True:
-                        print('[bold red]### poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     if playpos is None:
                         if self.debug is True:
-                            print('[red]### poll_queue setpos => playpos: is None[/red]')
+                            self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
                     else:
                         if self.playlen is not None and self.playlen != -1:
                             self.playpos_next = playpos
                             if self.debug is True:
-                                print('[red]### poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
+                                self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
                     if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
                         if playlen == -1:
                             self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
@@ -435,7 +556,7 @@ class Coverplayer:
                                 self.canvas_clear = None
 
                     playmode = playlen is not None and playlen != -1 and is_playing is True
-                    print('[red]### poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
+                    self.flexprint('[red]CoverPlayer: poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
                     self._set_repeatmode(repeat_on)
@@ -443,7 +564,7 @@ class Coverplayer:
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
                         icon_path = self.scriptpath + "icons/play.png"
-                        img = self._load_image(paused, icon_path, path, text)
+                        img = self._load_image(self.flexprint, self.maxpx, paused, icon_path, path, text)
                         if img:
                             self.label.config(image = img)
                             self.label.image = img
@@ -478,93 +599,4 @@ class Coverplayer:
         except queue.Empty:
             pass
         self.root.after(100, self._poll_queue)
-    
-    @classmethod
-    def _wrap_text(cls, text, font, max_width):
-        """wraps text if its too long."""
-        lines = []
-        words = text.split()
-        current_line = ""
-
-        for word in words:
-            test_line = current_line + " " + word if current_line else word
-            test_width, _ = ImageDraw.Draw(Image.new('RGB', (1, 1))).textsize(test_line, font)
-
-            if test_width <= max_width:
-                current_line = test_line
-            else:
-                if current_line:
-                    lines.append(current_line)
-                current_line = word
-        
-        if current_line:
-            lines.append(current_line)
-        
-        return lines
-
-    @classmethod
-    def _load_image(cls, paused, icon_path, path_or_url = None, text = None):
-        try:
-            if path_or_url is None:
-            	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
-            if path_or_url.startswith("http"):
-                response = requests.get(path_or_url, timeout = 5)
-                img = Image.open(BytesIO(response.content))
-            else:
-                img = Image.open(path_or_url)
-
-            img = img.resize((cls.maxpx, cls.maxpx), Image.ANTIALIAS)
-            
-            if paused is True:
-                canvas = Image.new("RGB", (cls.maxpx,cls.maxpx))
-                mask   = Image.new('L',   (cls.maxpx,cls.maxpx))
-                canvasDraw = ImageDraw.Draw(canvas)
-                maskDraw   = ImageDraw.Draw(mask)
-                canvasDraw.rectangle((0,0,cls.maxpx - 1,cls.maxpx - 1), 'white')
-                maskDraw.rectangle((0,0,cls.maxpx - 1,cls.maxpx - 1), 160)
-                img.paste(canvas, mask)
-                size = round(cls.maxpx / 5)
-                icon_img = Image.open(icon_path)
-                icon_img = icon_img.resize((size, size), Image.ANTIALIAS)
-                pos = round((cls.maxpx - size) / 2)
-                img.paste(icon_img, (pos, pos), mask = icon_img)
-
-            draw = ImageDraw.Draw(img)
-
-            if text:
-                font_size = 24
-                line_space = 5
-                
-                try:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size = font_size)
-                except IOError:
-                    font = ImageFont.load_default()
-
-                max_width = img.width - 40  # max width of text
-                lines_all_items = 0
-                for text_part in text:
-                    lines = cls._wrap_text(text_part, font, max_width)
-                    lines_all_items += len(lines)
-                    
-                border_space = 20
-                text_x = border_space
-                text_y = img.height - border_space - lines_all_items * (font_size + line_space)
-                
-                background = (0, 0, 0, 128)  # RGB + Alpha (0-255)
-                
-                for text_part in text:
-                    lines = cls._wrap_text(text_part, font, max_width)
-                    for line in lines:
-                        text_width, text_height = draw.textsize(line, font = font)
-                        draw.rectangle(
-                            [text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space],
-                            fill = background
-                        )
-                        draw.text((text_x, text_y), line, font = font, fill = "white")
-                        text_y += text_height + line_space  # line spacing
-
-            return ImageTk.PhotoImage(img)
-        except Exception as e:
-            print(f"[red]Error on image loading:[/red] {e}")
-            return None
 
