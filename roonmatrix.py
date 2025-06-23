@@ -16,6 +16,8 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
+scriptVersion = '1.1.0, date: 21.06.2025'
+
 from threading import Timer
 from datetime import datetime, timedelta
 from dateutil import tz
@@ -92,8 +94,12 @@ def init_logging():
         ]
     )
 
+base_path = '/usr/local/Roon/etc/'
+# core id and token files
+idfile = base_path + 'coreid.txt'
+tokenfile = base_path + 'roontoken.txt'
 # read config file
-configFile = '/usr/local/Roon/etc/roon_api.ini'
+configFile = base_path + 'roon_api.ini'
 config = configparser.ConfigParser()
 config.read(configFile)
 
@@ -180,11 +186,9 @@ webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_
 roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
 force_roon_update = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
 force_active_roon_zone_only = eval(config['ROON']['force_active_roon_zone_only']) # true: force updating output message only if the active zone is of roon type and is updating
-tokenfile = config['ROON']['token_filename'] # Name of the file that holds a Roon API token
 discovery_delay = int(config['ROON']['discovery_delay']) # delay after first roon discover call to wait a discover.stop is completed
-version = config['ROON']['roon_commandline_version']
-release = config['ROON']['roon_commandline_release']
-fullver = version + "-" + release
+core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
+core_port = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
 
 config['SYSTEM']['hostname'] = socket.gethostname() # override roonmatrix hostname with actual value
 config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
@@ -316,6 +320,8 @@ playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
 data_changed = False # switch to true if data has changed (playmode,shufflemode,repeatmode,cover,artist,album, or title)
 
+test_roon_discover = False # true: call RoonDiscovery to check for roon servers
+
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 # --- REST SERVER START ---
@@ -368,9 +374,8 @@ async def rest_config():
                         "items": [
                             {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
                             {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                            {"name": "token_filename", "editable": False, "type": {"type": "string", "structure": []}, "label": "Token filename", "unit": "", "value": config['ROON']['token_filename']},
-                            {"name": "roon_commandline_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline version", "unit": "", "value": config['ROON']['roon_commandline_version']},
-                            {"name": "roon_commandline_release", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline release", "unit": "", "value": config['ROON']['roon_commandline_release']}
+                            {"name": "core_ip", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core IP address", "unit": "", "value": config['ROON']['core_ip']},
+                            {"name": "core_port", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core port", "unit": "", "value": config['ROON']['core_port']}
                         ]
                     },
                     {
@@ -447,9 +452,8 @@ async def rest_config():
                         {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
                         {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
                         {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                        {"name": "token_filename", "editable": False, "type": {"type": "string", "structure": []}, "label": "Token filename", "unit": "", "value": config['ROON']['token_filename']},
-                        {"name": "roon_commandline_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline version", "unit": "", "value": config['ROON']['roon_commandline_version']},
-                        {"name": "roon_commandline_release", "editable": False, "type": {"type": "string", "structure": []}, "label": "Commandline release", "unit": "", "value": config['ROON']['roon_commandline_release']}
+                        {"name": "core_ip", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core IP address", "unit": "", "value": config['ROON']['core_ip']},
+                        {"name": "core_port", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core port", "unit": "", "value": config['ROON']['core_port']}
                     ]
                 },
                 {
@@ -742,6 +746,145 @@ def clear_display(type):
     with canvas(device) as draw:
         text(draw, (0, 0), '', fill="white", font=proportional(CP437_FONT))
 
+def roon_discover_all_test():
+    if test_roon_discover is True:
+        discover = RoonDiscovery(None)
+        servers = discover.all()
+        flexprint('[bold red]roon_discover_all_test: ' + str(servers) + '[/bold red]')
+        discover.stop()
+        time.sleep(1)
+
+def roon_discover_first_test():
+    if test_roon_discover is True:
+        discover = RoonDiscovery(None)
+        servers = discover.first()
+        flexprint('[bold red]roon_discover_first_test: ' + str(servers) + '[/bold red]')
+        discover.stop()
+        time.sleep(1)
+
+def roon_discover_active_test():
+    if test_roon_discover is True:
+        if path.exists(idfile):
+            with open(idfile, "r") as f:
+                core_id = f.read()
+                f.close()
+        else:
+            core_id = None
+
+        if path.exists(tokenfile):
+            with open(tokenfile, "r") as f:
+                token = f.read()
+                f.close()
+        else:
+            token = None
+
+        if core_id is not None and token is not None:
+            discover = RoonDiscovery(core_id)
+            servers = discover.first()
+            flexprint('[bold red]roon_discover_active_test: ' + str(servers) + '[/bold red]')
+            discover.stop()
+            time.sleep(1)
+
+def roon_discover():
+    global roon_servers, core_ip, core_port, config
+
+    if roonapi is not None:
+        return
+
+    if path.exists(idfile):
+        with open(idfile, "r") as f:
+            core_id = f.read()
+            f.close()
+    else:
+        core_id = None
+
+    if path.exists(tokenfile):
+        with open(tokenfile, "r") as f:
+            token = f.read()
+            f.close()
+    else:
+        token = None
+
+    if core_id is None or token is None or core_ip == '' or core_port == '':
+        discover = RoonDiscovery(None)
+        roon_servers = discover.all()
+
+        if log is True: flexprint("roon_discover => Shutdown discovery")
+        discover.stop()
+
+        flexprint("roon_discover => Found the following servers")
+        flexprint(roon_servers)
+        if len(roon_servers) > 0:
+            core_ip = roon_servers[0][0]
+            core_port = roon_servers[0][1]
+            
+            api = RoonApi(appinfo, None, core_ip, core_port, False)
+            
+            if api is not None:
+                config['ROON']['core_ip'] = core_ip # set roon server ip
+                config['ROON']['core_port'] = str(core_port) # set roon server port
+                del config['SYSTEM']['password']
+                with open(configFile, 'w') as fileRes:
+                    config.write(fileRes)
+                config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+            
+                # This is what we need to reconnect
+                core_id = api.core_id
+                token = api.token
+
+                with open(idfile, "w") as f:
+                    f.write(str(core_id))
+                    f.close()
+
+                with open(tokenfile, "w") as f:
+                    f.write(str(token))
+                    f.close()
+
+                if log is True: flexprint("roon_discover => Shutdown api")
+                api.stop()
+
+        flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
+        time.sleep(discovery_delay)
+
+def get_roon_api():
+    global roonapi, roon_servers
+
+    if path.exists(tokenfile):
+        with open(tokenfile, "r") as f:
+            token = f.read()
+            f.close()
+    else:
+        token = None
+
+    if core_ip !='' and core_port != '' and token is not None:
+        roonapi = RoonApi(appinfo, token, core_ip, int(core_port), True)
+        time.sleep(1)
+        if roonapi is not None:
+            data = [core_ip, int(core_port)]
+            if len(roon_servers) == 0:
+                roon_servers = [data]
+            if log is True: 
+                flexprint("roon api connected => (host, core_name, core_id)")
+                flexprint(roonapi.host)
+                flexprint(roonapi.core_name)
+                flexprint(roonapi.core_id)
+                
+            # This is what we need to reconnect
+            core_id = roonapi.core_id
+            token = roonapi.token
+
+            with open(idfile, "w") as f:
+                f.write(str(core_id))
+                f.close()
+
+            with open(tokenfile, "w") as f:
+                f.write(str(token))
+                f.close()
+                
+            set_default_zone()
+            if force_roon_update is True:
+                roonapi.register_state_callback(roon_state_callback)
+
 def getInfoData():
     hostName = socket.gethostname()
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -845,6 +988,8 @@ def getInfoData():
         "jobs": len(jobs),
         "playcount": playcount,
         "roon_servers": roon_servers,
+        "core_ip": core_ip,
+        "core_port": core_port,
         "weatherstr": weatherstr,
         "weatherlines": weatherlines,
         "prepared_displaystr": prepared_displaystr,
@@ -953,6 +1098,26 @@ def is_url_active(url,timeout):
     except Exception as e:
         return False
 
+def is_port_on_ip_open(ip,port):
+   msg = 'is_port_on_ip_open (ip: ' + ip + ', port: ' + port + '): '
+   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+   try:
+      s.connect((ip, int(port)))
+      s.shutdown(2)
+      flexprint('[green]' + msg + 'true[/green]')
+      return True
+   except:
+      flexprint('[red]' + msg + 'false[/red]')
+      return False
+
+def is_roon_server_active(ip,port):
+    global roon_servers
+
+    active = is_port_on_ip_open(ip,port)
+    if active is False:
+        roon_servers = []
+    return active
+
 def is_audioinfo_available():
     global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress
 
@@ -986,22 +1151,16 @@ def is_audioinfo_available():
                             if available is True:
                                 break
 
-        if check_audioinfo is True and available is False and roon_show is True and len(roon_servers) > 0:
-            discover = RoonDiscovery(None)
-            servers = discover.all()
-            discover.stop()
-            if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(servers)) + ' => ' + str (servers) + ' [/bright_magenta]')
-            if servers:
-                if path.exists(tokenfile):
-                    with open(tokenfile, "r") as f:
-                        token = f.read()
-                        f.close()
-                else:
-                    token = "None"
-                if roonapi is None:
-                    roonapi = RoonApi(appinfo, token, servers[0][0], servers[0][1], True)
-                    if force_roon_update is True:
-                        roonapi.register_state_callback(roon_state_callback)
+        if check_audioinfo is True and available is False and roon_show is True:
+            if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ' [/bright_magenta]')
+            roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
+            if core_ip == '' or core_port == '':
+                roon_discover()
+            if roonapi is None:
+                get_roon_api()
+            roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
+            roon_discover_first_test()
+            if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
                 for zone in list(roonapi.zones.values()):
                     if debug is True: flexprint('playout check of roon zone ' + zone["display_name"] + ': ' + (zone["state"] if zone["state"] is not None else '-'))
                     if zone["state"] is not None and zone["state"] == 'playing':
@@ -2292,28 +2451,16 @@ def build_output():
 
     try:
         if roon_show == True:
-            discover = RoonDiscovery(None)
-            servers = discover.all()
-            discover.stop()
-            flexprint('build_output => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(servers)) + ' => ' + str (servers) + ' [/bright_magenta]')
+            roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
+            if core_ip == '' or core_port == '':
+                roon_discover()
+            if roonapi is None:
+                get_roon_api()
+            roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
+            roon_discover_first_test()
 
-            if not roon_servers and servers:
-                roon_servers = servers
-                if log is True:
-                    flexprint('[bright_magenta]roon server is available again![/bright_magenta]')
-                    flexprint("[bright_magenta]Found the following roon servers[/bright_magenta]")
-                    flexprint('[bright_magenta]' + str(roon_servers) + '[/bright_magenta]')
-                time.sleep(discovery_delay)
-                roonapi = RoonApi(appinfo, token, roon_servers[0][0], roon_servers[0][1], True)
-                if force_roon_update is True:
-                    roonapi.register_state_callback(roon_state_callback)
-
-                with open(tokenfile, "w") as f:
-                    f.write(str(roonapi.token))
-                    f.close()
-                set_default_zone()
-
-            if servers:
+            flexprint('roon_active: ' + str(roon_active) + ', core_ip: ' + str(core_ip) + ', core_port: ' + str(core_port) + ', roonapi: ' + str(roonapi is not None))
+            if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
                 update_roon_channels()
                 for zone in list(roonapi.zones.values()):
                     state = "Unknown"
@@ -2324,7 +2471,7 @@ def build_output():
                     
                     if zone["state"] is not None:
                         state = zone["state"] # state variants: loading, playing, paused, stopped, not running
-                    flexprint('roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else 'None'))
+                    flexprint('### roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else 'None'))
                     if state == "Unknown" or 'now_playing' not in zone:
                         continue
                     else:
@@ -2402,7 +2549,7 @@ def build_output():
                             playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
                         else:
                             playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
-                        flexprint('playing: ' + str(playing))
+                        flexprint('### playing: ' + str(playing))
 
                         playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing
                         if playing_data_has_changed:
@@ -2428,6 +2575,7 @@ def build_output():
                             if buildstr != '':
                                 buildstr += separator
                             buildstr += convert_special_chars(roonstr.format(*tup))
+                            flexprint('### buildstr: ' + buildstr)
 
                         if state == "playing" and vertical_output == True:
                             if len(buildlines) > 0:
@@ -2462,6 +2610,7 @@ def build_output():
                 buildlines = get_playing_apple_or_spotify(webservers_zones,buildlines)
             else:
                 buildstr = get_playing_apple_or_spotify(webservers_zones,buildstr)
+            flexprint('### buildstr after webserver: ' + buildstr)
 
         if buildstr != '' or len(buildlines) > 0:
             last_idle_time = None
@@ -2514,6 +2663,7 @@ def build_output():
         if custom_message != '' and custom_message_option == 'exclusive':
             buildstr = separator + convert_special_chars(custom_message)
             buildlines = vertical_longtext_split_and_append('> ' + convert_special_chars(custom_message),[])
+        flexprint('### buildstr end: ' + buildstr)
 
     except Exception as e:
         if errorlog is True: 
@@ -2530,7 +2680,8 @@ def build_output():
     else:
         to_update = str(buildlines) if vertical_output == True else buildstr
         prepared_displaystr = to_update
-        if  app_displaystr != to_update:
+        flexprint('### buildstr update: ' + str(app_displaystr != to_update))
+        if app_displaystr != to_update:
             app_displaystr = to_update
             data_changed = True
     prepared_vert_strlines = buildlines
@@ -2583,41 +2734,23 @@ parser.add_argument("-a", "--all", default=False, action='store_true',
                     help="display all zones regardless of state")
 
 appinfo = {
-  "extension_id": "roon_command_line",
-  "display_name": "Python library for Roon",
-  "display_version": fullver,
-  "publisher": "RoonCommandLine",
-  "email": "roon@ronrecord.com",
-  "website": "https://gitlab.com/doctorfree/RoonCommandLine",
+  "extension_id": "roonmatrix_" + socket.gethostname(),
+  "display_name": "RoonMatrix [" + socket.gethostname() + "]",
+  "display_version": scriptVersion,
+  "publisher": "Stephan Wilhelm",
+  "email": "support@wilhelm-devblog.de",
+  "website": "https://github.com/eventcatcher/roonmatrix",
+  "unique_id": socket.gethostname(),
 }
 
-# Can be None if you don't yet have a token
-if path.exists(tokenfile):
-    with open(tokenfile, "r") as f:
-        token = f.read()
-        f.close()
-else:
-    token = "None"
-
 if roon_show == True:
-    discover = RoonDiscovery(None)
-    roon_servers = discover.all()
-    discover.stop()
-    if log is True:
-        flexprint('main => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
-    time.sleep(discovery_delay)
+    if core_ip == '' or core_port == '':
+        roon_discover()
+    if roonapi is None:
+        get_roon_api()
 
 if weather_show == True:
     get_weather(weather_api,location)
-
-if roon_show == True and roon_servers:
-    roonapi = RoonApi(appinfo, token, roon_servers[0][0], roon_servers[0][1], True)
-    if force_roon_update is True:
-        roonapi.register_state_callback(roon_state_callback)
-    # save the token for next time
-    with open(tokenfile, "w") as f:
-        f.write(str(roonapi.token))
-        f.close()
 
 if force_webserver_update is True:
     check_webserver_for_playouts()
