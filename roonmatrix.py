@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.1.0, date: 21.06.2025
+# version 1.1.0, date: 23.06.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.1.0, date: 21.06.2025'
+scriptVersion = '1.1.0, date: 23.06.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta
@@ -102,6 +102,8 @@ tokenfile = base_path + 'roontoken.txt'
 configFile = base_path + 'roon_api.ini'
 config = configparser.ConfigParser()
 config.read(configFile)
+
+hostName = socket.gethostname()
 
 if 'display_cover' in config['SYSTEM']:
     display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
@@ -190,7 +192,7 @@ discovery_delay = int(config['ROON']['discovery_delay']) # delay after first roo
 core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
 core_port = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
 
-config['SYSTEM']['hostname'] = socket.gethostname() # override roonmatrix hostname with actual value
+config['SYSTEM']['hostname'] = hostName # override roonmatrix hostname with actual value
 config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
 
 led_modules = int(config['SYSTEM']['led_modules']) # number of led matrix modules (8x8 led)
@@ -249,7 +251,7 @@ rss_show = eval(config['RSS']['rss_show']) # show rss feeds (true) or not (False
 rss_feeds = literal_eval(config['RSS']['feeds']) # list of rss feeds (fields: name, count, url), count = number of messages to display
 
 if startlog is True:
-    flexprint('[bold green4]start roonmatrix service for ' + socket.gethostname() + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
+    flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     flexprint('')
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
     flexprint("[bold green4]default control zone (buttons): " + control_zone + '[/bold green4]')
@@ -333,7 +335,7 @@ clients = set()
 async def rest_index():
     return {
         "type": 'coverplayer' if display_cover is True else 'roonmatrix',
-        "name": socket.gethostname(),
+        "name": hostName,
         "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     }
 
@@ -351,7 +353,7 @@ async def rest_config():
                     {
                         "name": "SYSTEM",
                         "items": [
-                            {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": socket.gethostname()},
+                            {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                             {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                             {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
                             {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
@@ -399,7 +401,7 @@ async def rest_config():
                 {
                     "name": "SYSTEM",
                     "items": [
-                        {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": socket.gethostname()},
+                        {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                         {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                         {"name": "led_modules", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED modules", "unit": "", "value": config['SYSTEM']['led_modules']},
                         {"name": "led_block_orientation", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED Block Orientation", "unit": "", "value": config['SYSTEM']['led_block_orientation']},
@@ -537,7 +539,7 @@ async def rest_setup(params: SetupParams):
             config[areaKey][fieldKey] = str(jsonObj[areaKey][fieldKey])
             if areaKey!='SYSTEM' or fieldKey!='password':
                 flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + str(fieldValue))
-            if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=socket.gethostname():
+            if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
                 setHostname(config[areaKey][fieldKey])
             if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
                 setUserPassword('rmuser',config[areaKey][fieldKey])
@@ -886,7 +888,6 @@ def get_roon_api():
                 roonapi.register_state_callback(roon_state_callback)
 
 def getInfoData():
-    hostName = socket.gethostname()
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     outputTime = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
     now = str(datetime.now())
@@ -2733,14 +2734,14 @@ parser.add_argument("-z", "--zone", help="zone selection")
 parser.add_argument("-a", "--all", default=False, action='store_true',
                     help="display all zones regardless of state")
 
+appKey = 'coverplayer' if display_cover is True else 'roonmatrix'
 appinfo = {
-  "extension_id": "roonmatrix_" + socket.gethostname(),
-  "display_name": "RoonMatrix [" + socket.gethostname() + "]",
+  "extension_id": appKey + '_' + hostName,
+  "display_name": appKey + ' [' + hostName + ']',
   "display_version": scriptVersion,
   "publisher": "Stephan Wilhelm",
   "email": "support@wilhelm-devblog.de",
-  "website": "https://github.com/eventcatcher/roonmatrix",
-  "unique_id": socket.gethostname(),
+  "website": "https://github.com/eventcatcher/roonmatrix"
 }
 
 if roon_show == True:
