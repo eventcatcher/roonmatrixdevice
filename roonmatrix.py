@@ -889,9 +889,10 @@ def get_roon_api():
 
 def getInfoData():
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    outputTime = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
-    now = str(datetime.now())
+    outputTimeStr = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
+    nowStr = str(datetime.now())
     lastIdleTimeStr = last_idle_time.strftime("%Y-%m-%d %H:%M:%S") if last_idle_time is not None else 'None'
+    zoneControlLastUpdateTimeStr = zone_control_last_update_time.strftime("%Y-%m-%d %H:%M:%S") if zone_control_last_update_time is not None else 'None'
 
     return {
         "name": hostName,
@@ -964,7 +965,7 @@ def getInfoData():
         "audioinfo_available": audioinfo_available,
         "control_id": control_id,
         "do_set_zone_control": do_set_zone_control,
-        "datetime": now,
+        "datetime": nowStr,
         "last_idle_time": lastIdleTimeStr,
         "control_id_update": control_id_update,
         "weather_fetch_count": weather_fetch_count,
@@ -974,8 +975,8 @@ def getInfoData():
         "output_in_progress": output_in_progress,
         "clock_in_progress": clock_in_progress,
         "fetch_output_done": fetch_output_done,
-        "fetch_output_time": outputTime,
-        "zone_control_last_update_time": zone_control_last_update_time,
+        "fetch_output_time": outputTimeStr,
+        "zone_control_last_update_time": zoneControlLastUpdateTimeStr,
         "playmode": playmode,
         "shufflemode": shufflemode,
         "repeatmode": repeatmode,
