@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.1.0, date: 23.06.2025'
+scriptVersion = '1.1.0, date: 03.07.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta
