@@ -321,6 +321,7 @@ last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to
 playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
 data_changed = False # switch to true if data has changed (playmode,shufflemode,repeatmode,cover,artist,album, or title)
+roon_zones = [] # list of actual roon zones
 
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
@@ -2379,11 +2380,20 @@ def get_new_control_id_by_roon_zone_playing():
                         return
 
 def get_zone_names():
+    global roon_zones
+
+    if (len(roon_zones) == 0 and roonapi != None):
+        roon_zones = list(roonapi.zones.values())
+    zone_id_list = []
+    for zone in roon_zones:
+        if zone["state"] is not None and zone["state"] != "Unknown" and 'now_playing' in zone:
+            zone_id_list.append(zone['zone_id'])
+
     zones = []
     for id, name in channels.items():
         if name == 'webserver':
             zones.append(id)
-        else:
+        elif id in zone_id_list:
             zones.append(name)
     return zones
 
@@ -2438,7 +2448,7 @@ def filterIllegalChars(str):
     return filtered
 
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed, app_displaystr
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones
     # global fetch_output_time
 
     buildstr = ''
@@ -2464,7 +2474,8 @@ def build_output():
             flexprint('roon_active: ' + str(roon_active) + ', core_ip: ' + str(core_ip) + ', core_port: ' + str(core_port) + ', roonapi: ' + str(roonapi is not None))
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
                 update_roon_channels()
-                for zone in list(roonapi.zones.values()):
+                roon_zones = list(roonapi.zones.values())
+                for zone in roon_zones:
                     state = "Unknown"
                     artistFiltered = ''
                     albumFiltered = ''
