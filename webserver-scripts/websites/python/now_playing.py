@@ -73,6 +73,7 @@ on Playing()
                     set result to "Apple Music%-%" & player state & "%-%" & songAlbum & "%-%" & songArtist & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total
                 end if
             on error m number n
+				set result to "Apple Music%-%" & "status::not running"
             end try
             copy result to the end of the resultArray
         end tell
@@ -82,28 +83,31 @@ on Playing()
 
     if SpotifyRunning then
         tell application "Spotify"
-            tell current track
-                set songArtist to the artist
-                set songAlbum to the album
-                set songTitle to the name
-                set hasCover to true
-                try 
-                    set coverUrl to artwork url
-                on error errMsg
-                    set hasCover to false
-                end try
-            end tell
+            try
+                tell current track
+                    set songArtist to the artist
+                    set songAlbum to the album
+                    set songTitle to the name
+                    set hasCover to true
+                    try 
+                        set coverUrl to artwork url
+                    on error errMsg
+                        set hasCover to false
+                    end try
+                end tell
 
-            set currentPosition to player position
-            set pos to round currentPosition rounding down
-            set total to round ((duration of current track) / 1000) rounding down
+                set currentPosition to player position
+                set pos to round currentPosition rounding down
+                set total to round ((duration of current track) / 1000) rounding down
             
-            if hasCover then
-                set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%" & coverUrl
-            else
-                set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total
-            end if
-                
+                if hasCover then
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%" & coverUrl
+                else
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total
+                end if
+            on error m number n
+				set result to "Spotify%-%" & "status::not running"
+            end try                
             copy result to the end of the resultArray
         end tell
     else
@@ -117,6 +121,7 @@ end Playing
 
 userHomeDir = os.path.expanduser("~")
 DIR = userHomeDir + userHomeDirSubfolderPathToCoversPHP
+
 maxCoverFiles = 50
 coverfiles = [f for f in os.listdir(DIR) if f.startswith('coverAppleMusic_')]
 coverfiles.sort(key=lambda x: os.stat(os.path.join(DIR, x)).st_mtime, reverse=True)
