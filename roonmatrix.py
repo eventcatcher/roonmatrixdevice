@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.1.0, date: 23.06.2025
+# version 1.1.0, date: 08.07.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.1.0, date: 03.07.2025'
+scriptVersion = '1.1.0, date: 08.07.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta
@@ -521,10 +521,14 @@ class LogParams(BaseModel):
 @app.post("/log/")
 async def rest_log(params: LogParams):
     hours = params.hours
-    cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
-    flexprint('LOG CMD: ' + cmd)
-    result = subprocess.run(shlex.split(cmd), capture_output=True)
-    return result.stdout
+    if display_cover is True:
+        result = filter_lines_by_hours('/home/coverplayer/FTP/logs/roonmatrix.log', hours)
+        return result
+    else:
+        cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
+        flexprint('LOG CMD: ' + cmd)
+        result = subprocess.run(shlex.split(cmd), capture_output=True)
+        return result.stdout
 
 class SetupParams(BaseModel):
     data: str
@@ -543,7 +547,10 @@ async def rest_setup(params: SetupParams):
             if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
                 setHostname(config[areaKey][fieldKey])
             if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
-                setUserPassword('rmuser',config[areaKey][fieldKey])
+                if display_cover is True:
+                    setUserPassword('coverplayer',config[areaKey][fieldKey])
+                else:
+                    setUserPassword('rmuser',config[areaKey][fieldKey])
 
     del config['SYSTEM']['password']
 
@@ -677,37 +684,78 @@ def start_restserver():
 
 def do_reboot():
     time.sleep(3)
-    system("sudo reboot -f")
+    subprocess.run(["sudo", "/usr/sbin/reboot", "-f"], check=True)
 
 def setHostname(newhostname):
     flexprint('setHostname: ' + newhostname)
-    with open('/etc/hosts', 'r') as file:
-        data = file.readlines()
-    data[5] = '127.0.1.1       ' + newhostname
+    try:
+        temp_path = '/var/tmp/roonmatrix_temp.txt'
+        with open('/etc/hosts', 'r') as file:
+            data = file.readlines()
+        data[5] = '127.0.1.1       ' + newhostname
 
-    with open('temp.txt', 'w') as file:
-        file.writelines( data )
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
 
-    system('sudo mv temp.txt /etc/hosts')
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hosts"], check=True)
 
-    with open('/etc/hostname', 'r') as file:
-        data = file.readlines()
-    data[0] = newhostname
+        with open('/etc/hostname', 'r') as file:
+            data = file.readlines()
+        data[0] = newhostname
 
-    with open('temp.txt', 'w') as file:
-        file.writelines( data )
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
 
-    system('sudo mv temp.txt /etc/hostname')
-
-    system('sudo hostname %s' % newhostname)
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hostname"], check=True)
+        subprocess.run(["sudo", "/usr/bin/hostnamectl", "set-hostname", newhostname], check=True)
+    except Exception as e:
+        flexprint('[red]setHostname error: ' + str(e) + '[/red]')
 
 def setUserPassword(login,password):
     flexprint('setUserPassword')
     shadow_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
 
-    r = subprocess.call(['usermod', '-p', shadow_password, login])
+    r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
     if r != 0:
         flexprint('[red]error changing password[/red]')
+
+def filter_lines_by_hours(base_filepath, hours_back):
+    try:
+        flexprint('filter_lines_by_hours, hours: ' + str(hours_back))
+        now = datetime.now()
+        time_limit = now - timedelta(hours=hours_back)
+        matched_lines = []
+
+        if not path.exists(base_filepath):
+            return ""
+
+        log_files = []
+        index = 0
+        while True:
+            filename = base_filepath if index == 0 else f"{base_filepath}.{index}"
+            if path.exists(filename):
+                log_files.append(filename)
+                index += 1
+            else:
+                break
+
+        for filepath in reversed(log_files):
+            with open(filepath, 'r', encoding='utf-8') as file:
+                for line in file:
+                    try:
+                        timestamp_str = line[:17].strip()
+                        timestamp = datetime.strptime(timestamp_str, '%y-%m-%d %H:%M:%S')
+                        if time_limit <= timestamp <= now:
+                            matched_lines.append(line)
+                    except ValueError:
+                        continue
+            if matched_lines and timestamp < time_limit:
+                break
+
+        flexprint('filter_lines_by_hours, lines: ' + str(len(matched_lines)))
+        return "\n".join(line.rstrip() for line in matched_lines) if matched_lines else ""
+    except Exception as e:
+        flexprint('[red]filter_lines_by_hours error: ' + str(e) + '[/red]')
 
 def init_matrix():
     global serial
