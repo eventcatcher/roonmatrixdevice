@@ -230,6 +230,7 @@ show_vertical_music_label = eval(config['SYSTEM']['show_vertical_music_label']) 
 datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and time in output message
 datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
+screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) # screensaver timeout in seconds (0 = screensaver off)
 
 conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
 translate_map = {} # define key value map to use for language translation
@@ -362,7 +363,8 @@ async def rest_config():
                             {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                             {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['SYSTEM']['playing_headline']},
                             {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
-                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']}
+                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                            {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']}
                         ]
                     },
                     {
@@ -535,29 +537,42 @@ class SetupParams(BaseModel):
 
 @app.post("/setup/")
 async def rest_setup(params: SetupParams):
-    global config, reboot
+    global config, reboot, screensaver_seconds
     jsonObj = json.loads(params.data)
+    doReboot = False
 
     for idx,areaKey in enumerate(jsonObj,1):
         for idx,fieldKey in enumerate(jsonObj[areaKey],1):
-            fieldValue = jsonObj[areaKey][fieldKey]
-            config[areaKey][fieldKey] = str(jsonObj[areaKey][fieldKey])
+            fieldValue = str(jsonObj[areaKey][fieldKey])
+            if config[areaKey][fieldKey]!=fieldValue:
+                if fieldKey!='screensaver_seconds':
+                    config[areaKey][fieldKey] = fieldValue
+                    doReboot = True
             if areaKey!='SYSTEM' or fieldKey!='password':
-                flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + str(fieldValue))
+                flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
             if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
                 setHostname(config[areaKey][fieldKey])
+            if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
+                config[areaKey][fieldKey] = fieldValue
+                screensaver_seconds = int(fieldValue)
+                setScreensaver(config[areaKey][fieldKey])
             if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
                 if display_cover is True:
                     setUserPassword('coverplayer',config[areaKey][fieldKey])
                 else:
                     setUserPassword('rmuser',config[areaKey][fieldKey])
 
+    pwbackup = config['SYSTEM']['password']
     del config['SYSTEM']['password']
 
     with open(configFile, 'w') as fileRes:
         config.write(fileRes)
-    flexprint('successfully write of config file => do reboot now')
-    reboot = True
+    config['SYSTEM']['password'] = pwbackup
+    if doReboot is True:
+        flexprint('successfully write of config file => do reboot now')
+        reboot = True
+    else:
+        flexprint('successfully write of config file')
 
     return True
 
@@ -718,6 +733,34 @@ def setUserPassword(login,password):
     r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
     if r != 0:
         flexprint('[red]error changing password[/red]')
+
+def setScreensaver(seconds):
+    flexprint('setScreensaver: ' + str(seconds))
+    autostart_path = '/home/coverplayer/.config/autostart/xset.desktop'
+    data = []
+    data.append('[Desktop Entry]\n')
+    data.append('Type=Application\n')
+    try:
+        if int(seconds) == 0:
+            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset s off;xset -dpms"], check=True)
+            data.append('Exec=sh -c "sleep 5; xset s off; xset -dpms"\n')
+            data.append('Hidden=false\n')
+            data.append('NoDisplay=false\n')
+            data.append('X-GNOME-Autostart-enabled=true\n')
+            data.append('Name=Disable DPMS\n')
+            data.append('Comment=Disables DPMS and screen blanking\n')
+        else:
+            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset s " + str(seconds) + ";xset +dpms"], check=True)
+            data.append('Exec=sh -c "sleep 5; xset s ' + str(seconds) + '; xset +dpms"\n')
+            data.append('Hidden=false\n')
+            data.append('NoDisplay=false\n')
+            data.append('X-GNOME-Autostart-enabled=true\n')
+            data.append('Name=Enable DPMS\n')
+            data.append('Comment=Enables DPMS and screen blanking\n')
+        with open(autostart_path, 'w') as file:
+            file.writelines( data )
+    except Exception as e:
+        flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
 
 def filter_lines_by_hours(base_filepath, hours_back):
     try:
@@ -961,6 +1004,7 @@ def getInfoData():
         "zone_control_timeout": zone_control_timeout,
         "map_zone_control": map_zone_control,
         "socket_timeout": socket_timeout,
+        "screensaver_seconds": screensaver_seconds,
         "control_zone": control_zone,
         "playing_headline" : playing_headline,
         "exclusive_audio_mode": exclusive_audio_mode,
