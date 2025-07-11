@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.1.0, date: 08.07.2025
+# version 1.1.0, date: 11.07.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.1.0, date: 08.07.2025'
+scriptVersion = '1.1.0, date: 11.07.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta
@@ -379,8 +379,8 @@ async def rest_config():
                         "items": [
                             {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
                             {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                            {"name": "core_ip", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core IP address", "unit": "", "value": config['ROON']['core_ip']},
-                            {"name": "core_port", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core port", "unit": "", "value": config['ROON']['core_port']}
+                            {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                            {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                         ]
                     },
                     {
@@ -457,8 +457,8 @@ async def rest_config():
                         {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
                         {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
                         {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                        {"name": "core_ip", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core IP address", "unit": "", "value": config['ROON']['core_ip']},
-                        {"name": "core_port", "editable": True, "type": {"type": "string", "structure": []}, "label": "Core port", "unit": "", "value": config['ROON']['core_port']}
+                        {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                        {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                     ]
                 },
                 {
