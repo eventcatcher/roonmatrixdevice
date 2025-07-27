@@ -47,19 +47,19 @@ class Coverplayer:
                 self.logger.info(str, objStr)
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
 
     @classmethod
     def setpos(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = []):
         cls._ensure_running()
-        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, None, None, None))
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, None, None, None, None, None))
 
     @classmethod
     def setZones(cls, buttons):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, None, buttons or [], None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, buttons or [], None, None, None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -157,13 +157,15 @@ class Coverplayer:
             return None
 
     def _gui_loop(self):
+        self.maxpx_x = 720 # screen width in px
+        self.maxpx_y = 720 # screen height in px
         self.logger = logging.getLogger('coverplayer')
 
         self.root = Tk()
         self.root.focus_force()
         self.root.title("CoverImage")
         self.root.overrideredirect(True)
-        self.root.geometry("720x720+0+0")
+        self.root.geometry(str(self.maxpx_x) + 'x' + str(self.maxpx_y) + '+0+0')
         self.root.config(cursor="none")
         self.scriptpath = path.dirname(__file__) + '/'
         self.last_screen_on = time.time()
@@ -176,9 +178,8 @@ class Coverplayer:
         self.label.bind("<Button-1>", self._on_click_start)
         self.label.bind("<ButtonRelease-1>", self._on_click_end)
 
-        self.maxpx = 720					# screen size in px
         self.autoclose_in_seconds = 30
-        self.overlay_height = self.maxpx
+        self.overlay_height = self.maxpx_y
         self.overlay_relheight = 1
         self.overlay_bgcolor = "#222222"	# background color of control overlay
         self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
@@ -209,11 +210,21 @@ class Coverplayer:
         self.path = ''
         self.callback = None
         self.control_callback = None
+        self.search = ''
+        self.searchtype = ''
+        self.search_callback = None
+        self.itemclick_callback = None
         self.is_playing = True
         self.shuffle_on = False
         self.repeat_on = False
         self.control_icons = {}
         self._load_control_icons()
+
+        from vkeyboard import VirtualKeyboard
+        self.vkeyb = VirtualKeyboard()
+
+        from itemlist import ItemList
+        self.itemlistclass = ItemList()
 
         self.root.after(1000, self.update_playpos)
 
@@ -290,6 +301,7 @@ class Coverplayer:
                 "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
                 "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
+                "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
         }
         except Exception as e:
             self.flexprint(f"[red]Icon loading error:[/red] {e}")
@@ -315,7 +327,7 @@ class Coverplayer:
         total = len(self.buttons)
         rows = (total + max_per_row - 1) // max_per_row
         self.overlay_height = rows * self.zone_button_height + self.extra_space_height + self.control_button_height
-        self.overlay_relheight = 1/self.maxpx*self.overlay_height
+        self.overlay_relheight = 1/self.maxpx_y*self.overlay_height
 
         self.in_menu_mode = True
         self.overlay = Frame(self.root, bg = self.overlay_bgcolor)
@@ -334,7 +346,7 @@ class Coverplayer:
         for idx, label in enumerate(self.buttons):
             row = idx // max_per_row
             col = idx % max_per_row
-            self.zone_btn[label] = Button(zone_frame, text = label, bg = self.button_highlight_color if (self.zone is not None and label == self.zone) else None, wraplength = self.maxpx / 4 , font = self.buttonFont, command = lambda l = label: self._on_button_click(l), pady = 20, height = 1)
+            self.zone_btn[label] = Button(zone_frame, text = label, bg = self.button_highlight_color if (self.zone is not None and label == self.zone) else None, wraplength = self.maxpx_x / 4 , font = self.buttonFont, command = lambda l = label: self._on_button_click(l), pady = 20, height = 1)
             self.zone_btn[label].grid(row = row, column = col, padx = 10, pady = 10, sticky = "ew")
 
         # container for play control buttons (bottom)
@@ -349,7 +361,7 @@ class Coverplayer:
         self.play_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
         Button(control_frame, image = self.control_icons["forward"], bg = ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("forward"), takefocus = 0).pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
 
-		# shuffle button at the bottom left
+        # shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
         self.shuffle_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
@@ -357,24 +369,29 @@ class Coverplayer:
 		# repeat button at the bottom right
         icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
         self.repeat_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_repeat, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
-        self.repeat_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+        self.repeat_btn.place(relx = 0.14, rely = 1.0, anchor = "sw", x = 0, y = 0)
+
+        # keyboard button at the bottom left
+        icon = self.control_icons["keyb"]
+        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._open_keyb, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
 
         # back button at the bottom right
-        #back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, height = corner_btn_size, width = corner_btn_size)
-        #back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+        back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, takefocus=False, height = corner_btn_size, width = corner_btn_size)
+        back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
 
         if self.playpos is not None and self.playpos != -1:
             self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
             self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-            self.canvas=Canvas(self.overlay, width = self.maxpx - 240, height = 5)
+            self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
             self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-            self.canvas.create_line(0, 0, self.maxpx - 240,0, fill = "white", width = 14)
-            w = (self.maxpx - 243) / self.playlen * self.playpos
+            self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
+            w = (self.maxpx_x - 243) / self.playlen * self.playpos
             self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
 
         if self.playlen is not None and self.playlen != -1:
             self.playlen_text = Label(self.overlay, text = timedelta(seconds=self.playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
 
     def update_playpos(self):
         self.root.after(1000, self.update_playpos)
@@ -391,10 +408,10 @@ class Coverplayer:
                     self.playpos_text.config(text=timedelta(seconds=self.playpos))
                 self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                 if self.canvas is None:
-                    self.canvas=Canvas(self.overlay, width = self.maxpx - 240, height = 5)
+                    self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
                     self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-                self.canvas.create_line(0, 0, self.maxpx - 240,0, fill = "white", width = 14)
-                w = (self.maxpx - 243) / self.playlen * self.playpos
+                self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
+                w = (self.maxpx_x - 243) / self.playlen * self.playpos
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
         if self.debug is True:
             self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
@@ -470,10 +487,115 @@ class Coverplayer:
             self.overlay = None
             self.in_menu_mode = False
 
+    def close_keyb(self):
+        self.root.deiconify()
+
+    def close_list(self):
+        self.root.deiconify()
+        self._hide_overlay()
+    
+    def on_search(self, key):
+        self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
+        #self.close_keyb()
+        if self.search_callback is not None:
+            data = self.search_callback(key, self.zone)
+            if len(data) > 0:
+                meta = data[0]
+                self.flexprint("coverplayer => on_search, meta:" + str(meta))
+                if meta['type'] == 'albums':
+                    self.search = meta['artist']
+                    albums = data[1]
+                    if albums is not None and len(albums) > 0:
+                        if isinstance(albums[0], str) is True:
+                            print(*albums, sep="\n")
+                        else:
+                            album_names = list(map(lambda obj: obj['name'], albums))
+                            print(*album_names, sep="\n")
+                        #self.root.after(10, self._open_list(albums))
+                        meta['label'] = 'Artist'
+                        meta['listname'] = meta['artist']
+                        self._open_list(meta, albums)
+                    else:
+                        self.close_list()
+                if meta['type'] == 'artists' and len(data) == 2:
+                    self.search = meta['search']
+                    artists = data[1]
+                    if artists is not None and len(artists) > 0:
+                        print(*artists, sep="\n")
+                        #self.root.after(10, self._open_list(albums))
+                        meta['label'] = 'Select Artist'
+                        meta['listname'] = None
+                        self._open_list(meta, artists)
+                    else:
+                        self.close_list()
+
+    def on_itemclick(self, meta, name, id = None):
+        print('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
+        self.close_list()
+        if self.itemclick_callback is not None:
+            data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
+            print('coverplayer ==> itemclick_callback, data: ' + str(data))
+            if data is not None and len(data) > 0:
+                result_type = data[0]
+                if result_type == 'artist':
+                    self.search = data[1]
+                    self.on_search(self.search)
+                if result_type == 'albums':
+                    self.search = data[1]
+                    albums = data[2]
+                    if albums is not None and len(albums) > 0:
+                        if isinstance(albums[0], str) is True:
+                            print(*albums, sep="\n")
+                        else:
+                            album_names = list(map(lambda obj: obj['name'], albums))
+                            print(*album_names, sep="\n")
+                        #self.root.after(10, self._open_list(albums))
+                        meta['type'] = result_type
+                        meta['artist'] = self.search
+                        meta['artistId'] = id
+                        meta['label'] = 'Artist'
+                        meta['listname'] = self.search
+                        print('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self._open_list(meta, albums)
+                if meta['type']!='tracks' and result_type == 'tracks':
+                    self.search = data[1]
+                    album = data[2]
+                    tracks = data[3]
+                    print('coverplayer on_itemclick tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', album: ' + album)
+                    if tracks is not None and len(tracks) > 0:
+                        if isinstance(tracks[0], str) is True:
+                            print(*tracks, sep="\n")
+                        else:
+                            if meta['zonetype'] == 'Apple Music':
+                                tracks.insert(0, {"name": "Play Album", "id": "[FULLALBUM]"})
+                            if meta['zonetype'] == 'Spotify':
+                                tracks = list(map(lambda obj: {"name": str(obj['track_number']) + '. ' +  obj['name'], "id": 'spotify:track:' + obj['id']}, tracks))
+                                tracks.insert(0, {"name": "Play Album", "id": 'spotify:album:' + album})
+                            track_names = list(map(lambda obj: obj['name'], tracks))
+                            print(*track_names, sep="\n")
+                        #self.root.after(10, self._open_list(albums))
+                        meta['type'] = result_type
+                        meta['album'] = name
+                        meta['albumId'] = id # or maybe album
+                        meta['label'] = 'Select Track'
+                        meta['listname'] = None
+                        print('on_itemclick before _open_list2, meta: ' + str(meta))
+                        self._open_list(meta, tracks)
+                
+    def _open_keyb(self):
+        self.root.withdraw()
+        self.vkeyb.start(self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
+
+    def _open_list(self, meta, items):
+        self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
+        #self.root.withdraw()
+        print('_open_list before, meta: ' + str(meta) + ', items: ' + str(len(items)))
+        self.itemlistclass.start(self.maxpx_x, self.maxpx_y, meta, items, self.on_itemclick, self.close_list)
+
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback = self._queue.get_nowait()
+                func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen):
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
@@ -503,11 +625,11 @@ class Coverplayer:
                             self.flexprint('[red]CoverPlayer: poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
                     if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
                         if playlen == -1:
-                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
+                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
                             self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                         else:
                             self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                             if self.canvas_clear is not None:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
@@ -515,9 +637,11 @@ class Coverplayer:
                     self.playlen = playlen
                     self.callback = callback
                     self.control_callback = control_callback
+                    self.search_callback = search_callback
+                    self.itemclick_callback = itemclick_callback
                     paused = not playmode
                     icon_path = self.scriptpath + "icons/play.png"
-                    img = self._load_image(self.flexprint, self.maxpx, paused, icon_path, path, text)
+                    img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
                     if img:
                         self.label.config(image = img)
                         self.label.image = img
@@ -546,11 +670,11 @@ class Coverplayer:
                                 self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
                     if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
                         if playlen == -1:
-                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
+                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
                             self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                         else:
                             self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.maxpx - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                             if self.canvas_clear is not None:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
@@ -564,7 +688,7 @@ class Coverplayer:
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
                         icon_path = self.scriptpath + "icons/play.png"
-                        img = self._load_image(self.flexprint, self.maxpx, paused, icon_path, path, text)
+                        img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
                         if img:
                             self.label.config(image = img)
                             self.label.image = img

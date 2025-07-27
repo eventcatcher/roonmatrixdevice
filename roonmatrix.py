@@ -51,6 +51,8 @@ import crypt
 from rich import print
 import traceback
 import logging
+import spotipy
+from spotipy.oauth2 import SpotifyClientCredentials
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -1095,7 +1097,8 @@ def getInfoData():
         "audio_playing": audio_playing,
         "is_playing": is_playing,
         "shuffle_on": shuffle_on,
-        "repeat_on": repeat_on
+        "repeat_on": repeat_on,
+        "clients": list(map(lambda obj: str(obj.client), clients))
     }
 
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
@@ -1557,7 +1560,7 @@ def pressed_enter(channel):
         time.sleep(0.1)
         GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
 
-def send_webserver_zone_control(control_id, code):
+def send_webserver_zone_control(control_id, code, search = '', detail = '', detail2 = ''):
     if webservers_show == True and control_id is not None:
         url = ''
         name_parts = control_id.split('-')
@@ -1568,11 +1571,13 @@ def send_webserver_zone_control(control_id, code):
                 url = data['url']
                 break
         if channels[control_id] == 'webserver' and url != '':
-            payload = {'source':name_parts[1],'code':code}
+            payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
+            print('send_webserver_zone_control => payload: ' + str(payload))
             data = parse.urlencode(payload).encode()
             req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
             try:
                 result = str(urlopen(req).read())
+                return result
             except HTTPError as e:
                 if errorlog is True:
                     flexprint('The webserver couldn\'t fulfill the request.')
@@ -1792,6 +1797,197 @@ def on_control_click(action):
     if action=='repeat_off':
         set_repeat_mode(control_id, False, True)
 
+def roon_get_artists(output_id, name):
+    artists = roonapi.list_media(output_id, ["Library", "Artists", name ])
+    if artists is not None and len(artists) > 0:
+        return artists
+    artists = roonapi.list_media(output_id, ["Library", "Artists", name.title() ])
+    if artists is not None and len(artists) > 0:
+        return artists
+    artists = roonapi.list_media(output_id, ["Library", "Artists", name.upper() ])
+    if artists is not None and len(artists) > 0:
+        return artists
+    artists = roonapi.list_media(output_id, ["Library", "Artists", name.lower() ])
+    return artists
+
+def roon_get_artist_albums(output_id, artist):
+    albums = roonapi.list_media(output_id, ["Library", "Artists", artist, '__all__'])
+    if albums:
+        if "Play Artist" in albums:
+            albums.remove("Play Artist")
+    album = None
+    if albums and len(albums) > 0:
+        album = albums[0]
+        print("\nAlbums by artist", artist, ":\n")
+        return albums
+    if album is None:
+        print("No albums found")
+        return []
+    return []
+
+def roon_get_artist_album_tracks(output_id, artist, album):
+    tracks = roonapi.list_media(output_id, ["Library", "Artists", artist, album, '__all__'])
+    if tracks and len(tracks) > 0:
+        return tracks
+    return []
+
+def spotify_search_artist(artist_name):
+    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+
+    results = spotify.search(artist_name, limit=10, type='artist')
+    artists = results['artists']['items']
+    return artists
+
+def spotify_get_artist_albums(artist_id):
+    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+
+    results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
+    albums = results['items']
+    if len(albums) == 0:
+        return []
+
+    while results['next']:
+        results = spotify.next(results)
+        albums.extend(results['items'])
+
+    return albums
+
+def spotify_get_album_tracks(album_id):
+    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+
+    results = spotify.album_tracks(album_id)
+    tracks = results['items']
+
+    return tracks
+
+def on_search(value, zone):
+    control_id = None
+    albums = None
+    is_webserver = False
+    zonetype = ''
+    if zone in channels.keys() and channels[zone] == 'webserver':
+        zonetype = zone.split('-')[1] 
+        control_id = zone
+        is_webserver = True
+    else:
+        if zone in channels.values():
+            for id, name in channels.items():
+                if channels[id] != 'webserver' and name == zone:
+                    control_id = id
+                    break
+    flexprint("roonmatrix => on_search:" + value + ', zone: ' + zone + ', control_id: ' + control_id)
+    if is_webserver is True:
+        if zonetype == 'Spotify':
+            artists = spotify_search_artist(value)
+            if (len(artists) == 0):
+                meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                return [meta, []]
+            if (len(artists) != 1):
+                artists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, artists))
+                meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                return [meta, artists]
+            artist = artists[0]
+            albums = spotify_get_artist_albums(artist['id'])
+        if zonetype == 'Apple Music':
+            raw = send_webserver_zone_control(control_id, 'albums', value).replace('\\n','')
+            if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
+                raw = raw[2:-1]  # removes the prepended b' and appended '
+            raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
+            albums = json.loads(raw)
+        meta = {"zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
+        return [meta, albums]
+    if is_webserver is False and control_id is not None and zone in channels.values():
+        zonetype = 'Roon'
+        outputs = roonapi.outputs
+        output_id = None
+        for (k, v) in outputs.items():
+            if zone in v["display_name"]:
+                output_id = k
+                print("roonmatrix => output_id:" + output_id)
+        if output_id is not None:
+            artists = roon_get_artists(output_id, value)
+            print('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
+            if (len(artists) == 0):
+                meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                return [meta, []]
+            if (len(artists) != 1):
+                meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                return [meta, artists]
+            albums = roon_get_artist_albums(output_id, artists[0])
+            meta = {"zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
+            return [meta, albums]
+    meta = {"zonetype": zonetype, "type": 'search', 'search': value.title()}
+    return [meta, []]
+
+def on_itemclick(meta, search, itemname, zone):
+    control_id = None
+    is_webserver = False
+    is_spotify = False
+    if zone in channels.keys() and channels[zone] == 'webserver':
+        is_spotify = zone.split('-')[1] == 'Spotify'
+        control_id = zone
+        is_webserver = True
+    else:
+        if zone in channels.values():
+            for id, name in channels.items():
+                if channels[id] != 'webserver' and name == zone:
+                    control_id = id
+                    break
+    flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + search + ', itemname: ' + itemname + ', zone: ' + zone + ', control_id: ' + control_id)
+    if is_webserver is True:
+        if is_spotify is True:
+            if meta['type'] == 'artists':
+                albums = spotify_get_artist_albums(itemname)
+                albums = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, albums))
+                return ['albums', search, albums]
+            if meta['type'] == 'albums':
+                tracks = spotify_get_album_tracks(itemname)
+                tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
+                meta['tracks'] = tracknames
+                print('on_itemclick spotify api ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]['name']) + ', tracks('+str(len(tracks))+'): ' + str(tracknames))
+                return ['tracks', search, itemname, tracknames]
+            if meta['type'] == 'tracks':
+                print('spotify on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
+                send_webserver_zone_control(control_id, 'playtrack', itemname)
+                return ['track', meta['artist'], meta['album'], itemname]
+        else:
+            if meta['type'] == 'albums':
+                raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname).replace('\\n','')
+                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
+                    raw = raw[2:-1].encode('utf-8').decode('unicode_escape')  # removes the prepended b' and appended '
+                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
+                tracks = json.loads(raw)
+                tracks = list(map(lambda string: {"name": string.replace('|','. '),"id": string.split('|')[1]}, tracks))
+                meta['tracks'] = tracks
+                print('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                return ['tracks', search, itemname, tracks]
+            if meta['type'] == 'tracks':
+                print('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
+                if meta['zonetype'] == 'Apple Music' and itemname == '[FULLALBUM]':
+                    send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], meta['tracks'][1]['id'])
+                else:
+                    send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], itemname)
+                return ['track', meta['artist'], meta['album'], itemname]
+    if is_webserver is False and control_id is not None and zone in channels.values():
+        outputs = roonapi.outputs
+        output_id = None
+        for (k, v) in outputs.items():
+            if zone in v["display_name"]:
+                output_id = k
+                print("roonmatrix => output_id:" + output_id)
+        if output_id is not None:
+            if meta['type'] == 'artists':
+                return ['artist', itemname]
+            if meta['type'] == 'albums':
+                tracks = roon_get_artist_album_tracks(output_id, search, itemname) 
+                meta['tracks'] = tracks
+                return ['tracks', search, itemname, tracks]
+            if meta['type'] == 'tracks':
+                print('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', itemname: ' + meta['album'] + ', track: ' + itemname)
+                roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)
+                return ['track', meta['artist'], meta['album'], itemname]
+    return
+
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
     global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, data_changed
     if log is True: flexprint('get playing apple or spotify => start')
@@ -1855,7 +2051,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                     shuffle_on = False
                                     repeat_on = False
                                     flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
-                                    Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                    Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
                         else:
                             if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
                                 obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
@@ -1904,7 +2100,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
                                             zones = get_zone_names()
                                             flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')                                            
-                                            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
                                         else:
                                             Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)                                            
 
@@ -2632,7 +2828,7 @@ def build_output():
                                     repeat_on = repeat
                                     
                                     flexprint('[bold red]Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click)
+                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'
