@@ -243,6 +243,18 @@ weather_description = literal_eval(config['LANGUAGE']['weather_description']) # 
 weather_properties = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
 messages = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
 
+row1keyb = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
+row2keyb = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
+row3keyb = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
+row4keyb = literal_eval(config['LANGUAGE']['row4keyb']) if 'row4keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 4
+row1keyb_shift = literal_eval(config['LANGUAGE']['row1keyb_shift']) if 'row1keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 1
+row2keyb_shift = literal_eval(config['LANGUAGE']['row2keyb_shift']) if 'row2keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 2
+row4keyb_shift = literal_eval(config['LANGUAGE']['row4keyb_shift']) if 'row4keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 4
+row1keyb_alt = literal_eval(config['LANGUAGE']['row1keyb_alt']) if 'row1keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 1
+row2keyb_alt = literal_eval(config['LANGUAGE']['row2keyb_alt']) if 'row2keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 2
+row3keyb_alt = literal_eval(config['LANGUAGE']['row3keyb_alt']) if 'row3keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 3
+row4keyb_alt = literal_eval(config['LANGUAGE']['row4keyb_alt']) if 'row4keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 4
+
 clock_show = eval(config['CLOCK']['clock_show']) # show clock after idle time (True) or not (False)
 clock_without_idle_time = eval(config['CLOCK']['clock_without_idle_time']) # true: show clock always is no audio is played and only in music_required mode, false: show clock only for max time (clock_max_show_time)
 clock_refresh_per_second = int(config['CLOCK']['clock_refresh_per_second']) # clock refresh per second (should be more than once per second to prevent time glitches)
@@ -330,6 +342,16 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
+if display_cover is True:
+    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
+    try:
+        environ['SPOTIPY_CLIENT_ID'] = 'YOUR-SPOTIPY_CLIENT_ID'
+        environ['SPOTIPY_CLIENT_SECRET'] = 'YOUR-SPOTIPY_CLIENT_SECRET'
+    except EnvironmentError as e:
+        print(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
+    except Exception as e:
+        print(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
+
 # --- REST SERVER START ---
 
 app = FastAPI()
@@ -373,7 +395,18 @@ async def rest_config():
                         "name": "LANGUAGE",
                         "items": [
                             {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
-                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
+                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']},
+                            {"name": "row1keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row1", "unit": "", "value": config['LANGUAGE']['row1keyb']},
+                            {"name": "row2keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row2", "unit": "", "value": config['LANGUAGE']['row2keyb']},
+                            {"name": "row3keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row3", "unit": "", "value": config['LANGUAGE']['row3keyb']},
+                            {"name": "row4keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row4", "unit": "", "value": config['LANGUAGE']['row4keyb']},
+                            {"name": "row1keyb_shift", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Shift Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_shift']},
+                            {"name": "row2keyb_shift", "editable": True, "type": {"type": "list(1)", "structure": []}, "label": "Keyboard Shift Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_shift']},
+                            {"name": "row4keyb_shift", "editable": True, "type": {"type": "list(3)", "structure": []}, "label": "Keyboard Shift Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_shift']},
+                            {"name": "row1keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_alt']},
+                            {"name": "row2keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_alt']},
+                            {"name": "row3keyb_alt", "editable": True, "type": {"type": "list(9)", "structure": []}, "label": "Keyboard Alt Row3", "unit": "", "value": config['LANGUAGE']['row3keyb_alt']},
+                            {"name": "row4keyb_alt", "editable": True, "type": {"type": "list(10)", "structure": []}, "label": "Keyboard Alt Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_alt']}
                         ]
                     },
                     {
@@ -1832,14 +1865,22 @@ def roon_get_artist_album_tracks(output_id, artist, album):
     return []
 
 def spotify_search_artist(artist_name):
-    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    try:
+        spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    except Exception as e:
+        print('Spotify auth error')
+        return []
 
     results = spotify.search(artist_name, limit=10, type='artist')
     artists = results['artists']['items']
     return artists
 
 def spotify_get_artist_albums(artist_id):
-    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    try:
+        spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    except Exception as e:
+        print('Spotify auth error')
+        return []
 
     results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
     albums = results['items']
@@ -1853,7 +1894,11 @@ def spotify_get_artist_albums(artist_id):
     return albums
 
 def spotify_get_album_tracks(album_id):
-    spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    try:
+        spotify = spotipy.Spotify(client_credentials_manager=SpotifyClientCredentials())
+    except Exception as e:
+        print('Spotify auth error')
+        return []
 
     results = spotify.album_tracks(album_id)
     tracks = results['items']

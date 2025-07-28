@@ -22,6 +22,9 @@
 try {
 	$source = isset($_POST['source']) ? $_POST['source'] : ''; 
 	$code = isset($_POST['code']) ? $_POST['code'] : ''; 
+	$search = isset($_POST['search']) ? $_POST['search'] : ''; 
+	$detail = isset($_POST['detail']) ? $_POST['detail'] : ''; 
+	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : ''; 
 
 	if ($source=='Spotify' || $source=='Apple Music') {
 		$cmd = '';
@@ -91,11 +94,124 @@ try {
 						end if
 					end tell\';';
 				}
+				break;				
+			case 'artists':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+                        set searchTerm to "'.$search.'"
+                        set foundArtists to {}
+
+	                    set allTracks to every track of library playlist 1
+	                    repeat with aTrack in allTracks
+		                    set artistName to artist of aTrack
+		                    if artistName is not missing value then
+			                    if artistName starts with searchTerm then
+				                    if foundArtists does not contain artistName then
+					                    copy artistName to end of foundArtists
+				                    end if
+			                    end if
+		                    end if
+	                    end repeat
+
+                        return foundArtists	as list	
+			        end tell\';';
+				}
 				break;
+			case 'albums':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+	                    set targetArtist to "'.$search.'"
+	                    set albumList to {}
+	                    set trackList to every track of library playlist 1 whose artist is targetArtist
+	
+	                    repeat with aTrack in trackList
+	                    	set albumName to album of aTrack
+	                    	set albumStr to "\"" & albumName & "\""
+	                    	if albumStr is not in albumList then
+			                    set end of albumList to albumStr
+		                    end if
+	                    end repeat
+	
+                        return albumList as list
+					end tell\';';
+				}
+				break;
+			case 'albumtracks':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+	                    set targetArtist to "'.$search.'"
+	                    set targetAlbum to "'.$detail.'"
+	                    set trackList to {}
+	                    set albumSongs to every track of library playlist 1 whose artist is targetArtist and album is targetAlbum
+	
+	                    repeat with aSong in albumSongs
+	                    	set trackName to name of aSong
+	                        set trackNumber to (track number of aSong)
+	                        set trackStr to "\"" & trackNumber & "|" & trackName & "\""
+	                    	if trackStr is not in trackList then
+	                    	    set end of trackList to trackStr
+	                    	end if
+	                    end repeat
+	
+	                    return trackList
+					end tell\';';
+			    }
+			    break;
+			case 'playtrack':
+				if ($source == "Music") {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+	                    set targetArtist to "'.$search.'"
+	                    set targetAlbum to "'.$detail.'"
+	                    set albumTrack to "'.$detail2.'"
+
+	                    set playlistName to "Coverplayer"
+	                    set song repeat to off
+	                    set shuffle enabled to false
+	
+	                    if (exists user playlist playlistName) then
+		                    delete every track of user playlist playlistName
+	                    else
+		                    make new user playlist with properties {name:playlistName}
+	                    end if
+	
+	                    set thePlaylist to user playlist playlistName
+	                    set albumTracks to (every track of library playlist 1 whose artist is targetArtist and album is targetAlbum)
+	                    set found to false
+	
+	                    repeat with t in albumTracks
+		                    if name of t is albumTrack then
+			                    set found to true
+		                    end if
+	                        if found is true then
+		                        duplicate t to thePlaylist
+		                    end if
+	                    end repeat
+	
+	                    play thePlaylist
+					end tell\';';
+			    }
+			    if ($source == "Spotify") {
+					$cmd = 'osascript -e \'tell application "'.$source.'"
+	                    set playCommand to "'.$search.'"
+	                    play track playCommand
+					end tell\';';
+			    }
+			    break;
 		}
 
 		if ($cmd!='') {
-			shell_exec($cmd);
+			$json_str = shell_exec($cmd);
+
+            if ($code=='albums' || $code=='albumtracks') {
+		        if ($json_str != null) {
+			        $output = "[".$json_str."]";
+		        } else {
+        	        $output = 'script error';
+		        }
+		
+		        header('Content-Type: application/json; charset=utf-8');
+		        echo $output;
+		    }
 		}
 	} else {
 		$pyenvFolderName = '.pyenv';

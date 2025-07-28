@@ -89,8 +89,6 @@ class VirtualKeyboard:
             time.sleep(t0 - t)
         master.destroy()
     
-    # an exception to get the symbols ? and _ from the keyboard module's virtual hotkeys
-    # for some reason "SHIFT+-" or "SHIFT+/" don't work :/
     def quest_press(self, x):
         if self.row5buttons[0].cget('relief') == SUNKEN:
             if x == "-":
@@ -111,23 +109,108 @@ class VirtualKeyboard:
         #radius = self.dot_radius + c
         return x - radius, y - radius, x + radius, y + radius
 
+    def update_keyboard(self):
+        if self.alt_key_pressed is True:
+            # alt row 1
+            idx = 1
+            for key in self.row1keyb_alt:
+                self.row1buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 12:
+                    break
+
+            # alt row 2
+            idx = 1
+            for key in self.row2keyb_alt:
+                self.row2buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 11:
+                    break
+
+            # alt row 3
+            idx = 1
+            for key in self.row3keyb_alt:
+                self.row3buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 10:
+                    break
+           
+            # alt row 4
+            idx = 1
+            for key in self.row4keyb_alt:
+                self.row4buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+        else:
+            # shift row 1
+            idx = 1
+            for key in (self.row1keyb_shift if (self.capslock_key_enabled is True or self.shift_key_pressed is True) else self.row1keyb):
+                self.row1buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 12:
+                    break
+
+            # shift row 2
+            keysrc = (self.row2keyb_shift if (self.capslock_key_enabled is True or self.shift_key_pressed is True) else self.row2keyb)
+            self.row2buttons[0].config(text=keysrc[0], command=lambda x=keysrc[0]: self.vpresskey(x))
+            idx = 0
+            for key in self.row2keyb:
+                if idx == 0:
+                    idx += 1
+                    continue
+                self.row2buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 11:
+                    break
+
+            # shift row 3
+            idx = 0
+            for key in self.row3keyb:
+                if idx == 0:
+                    idx += 1
+                    continue
+                self.row3buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 10:
+                    break
+
+             # shift row 4
+            idx = 0
+            for key in self.row4keyb:
+                if idx == 0:
+                    idx += 1
+                    continue
+                self.row4buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1
+                if idx == 8:
+                    break
+            idx = 8 if (self.capslock_key_enabled is True or self.shift_key_pressed is True) else 0
+            for key in (self.row4keyb_shift if (self.capslock_key_enabled is True or self.shift_key_pressed is True) else self.row4keyb):
+                if idx == 0:
+                    idx += 1
+                    continue
+                self.row4buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
+                idx += 1   
+
+            for key in self.buttons.keys():
+                if len(key) == 1:
+                    ascode = ord(key)
+                    if ascode >= 97 and ascode <= 122:
+                        if self.capslock_key_enabled is True or self.shift_key_pressed is True or self.alt_key_pressed is True:
+                            self.buttons[key].config(text = key.title())
+                        else:
+                            self.buttons[key].config(text = key)
+    
     # function to press and release keys
     def vpresskey(self, x):
         cursor_pos = self.inp.index(INSERT)
         print ("The cursor is at: ", cursor_pos)
         #self.master.withdraw()
         actualValue = str(self.inpstr.get())
+        x = self.buttonsTranslate[x] if x in self.buttonsTranslate else x
+        print('vpresskey x: ' + str(x) + ', buttonsTranslate: ' + str(self.buttonsTranslate))
         if x == 'lock':
             self.capslock_key_enabled = (self.capslock_key_enabled is False)
-            
-            for key in self.buttons.keys():
-                if len(key) == 1:
-                    ascode = ord(key)
-                    if ascode >= 97 and ascode <= 122:
-                        if self.capslock_key_enabled is True:
-                            self.buttons[key].config(text = key.title())
-                        else:
-                            self.buttons[key].config(text = key)
+            self.update_keyboard()
             value = None
         elif x == 'back':
             if len(actualValue) > 0:
@@ -164,7 +247,7 @@ class VirtualKeyboard:
                 value = ''
                 if cursor_pos > 0:
                     value = actualValue[0:cursor_pos]
-                print('shift: ' + str(self.shift_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
+                print('shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
                 if (self.capslock_key_enabled is True or self.shift_key_pressed):
                     ascode = ord(x)
                     if x == '/':
@@ -193,12 +276,11 @@ class VirtualKeyboard:
         else:
             self.master.after(10, self.master.wm_deiconify())
         if self.shift_key_pressed is True and self.capslock_key_enabled is False:
-            for key in self.buttons.keys():
-                if len(key) == 1:
-                    ascode = ord(key)
-                    if ascode >= 97 and ascode <= 122:
-                        self.buttons[key].config(text = key)
             self.shift_key_pressed = False
+            self.update_keyboard()
+        if self.alt_key_pressed is True:
+            self.alt_key_pressed = False
+            self.update_keyboard()
 
     def shift_cursor_left(self):
         position = self.inp.index(INSERT)
@@ -213,20 +295,31 @@ class VirtualKeyboard:
         self.inp.icursor(position + 1)
 
     # function to hold SHIFT, CTRL, ALT or WIN keys
-    def vupdownkey(self, event, y, a):
+    def vupdownkey(self, event, type):
         self.master.after(80, self.donothing())
-        self.shift_key_pressed = True
-
-        for key in self.buttons.keys():
-            if len(key) == 1:
-                ascode = ord(key)
-                if ascode >= 97 and ascode <= 122:
-                    self.buttons[key].config(text = key.title())
-        
-        print('shift_key_pressed: ' + str(self.shift_key_pressed) + ', a: ' + str(a))
+        if type == 'shift':
+            self.shift_key_pressed = True
+            print('shift_key_pressed: ' + str(self.shift_key_pressed))
+            self.update_keyboard()
+        if type == 'alt':
+            self.alt_key_pressed = True
+            print('alt_key_pressed: ' + str(self.alt_key_pressed))
+            self.update_keyboard()
 
     # start keyboard
-    def start(self, width, height, kp_callback, close_callback):
+    def start(self, keyb_list, width, height, kp_callback, close_callback):
+        self.row1keyb = keyb_list[0]
+        self.row2keyb = keyb_list[1]
+        self.row3keyb = keyb_list[2]
+        self.row4keyb = keyb_list[3]
+        self.row1keyb_shift = keyb_list[4]
+        self.row2keyb_shift = keyb_list[5]
+        self.row4keyb_shift = keyb_list[6]
+        self.row1keyb_alt = keyb_list[7]
+        self.row2keyb_alt = keyb_list[8]
+        self.row3keyb_alt = keyb_list[9]
+        self.row4keyb_alt = keyb_list[10]
+        
         self.maxpx_x = width
         self.maxpx_y = height
         self.on_search = kp_callback
@@ -244,6 +337,7 @@ class VirtualKeyboard:
         self.minLength = 3
         self.showSpinner = False
         self.buttons = {}
+        self.buttonsTranslate = {}
 
         # Colors
         self.darkgray = "#242424"
@@ -274,20 +368,17 @@ class VirtualKeyboard:
         self.master.config(cursor="none")
         self.master.resizable(False, False)
 
-        self.row1keys = ["close", "1", "2", "3", "4", "5", "6", "7",
-                         "8", "9", "0", "-", "back"]
+        
+        self.row1keys = ["close"] #["close", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "back"]
+        self.row1keys.extend(self.row1keyb)
 
-        self.row2keys = ["", "q", "w", "e", "r", "t", "z", 'u',
-                         'i', 'o', 'p', 'enter']
+        self.row2keys = self.row2keyb # [";", "q", "w", "e", "r", "t", "z", 'u', 'i', 'o', 'p', 'enter']
 
-        self.row3keys = ["lock", 'a', 's', 'd', 'f', 'g', 'h', 'j',
-                         'k', 'l', 'del']
+        self.row3keys = self.row3keyb # ["lock", 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'del']
 
-        self.row4keys = ["left shift", 'y', 'x', 'c', 'v', 'b', 'n', 'm',
-                         ',', '.', '/']
+        self.row4keys = self.row4keyb # ["left shift", 'y', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/']
 
-        self.row5keys = ['spacebar', 'alt gr',
-                          'left', 'right']
+        self.row5keys = ['spacebar', 'alt gr', 'left', 'right']
 
         # buttons for each row
         self.row1buttons = []
@@ -306,7 +397,7 @@ class VirtualKeyboard:
         # shift_key_pressed is True if ALT, CTRL, SHIFT or WIN are held down using right click
         # if it is False, the 4 mentioned keys get released on clicking any other key
         self.shift_key_pressed = False
-
+        self.alt_key_pressed = False
 
         #   ROW 0
 
@@ -329,9 +420,11 @@ class VirtualKeyboard:
 
         # create row1buttons
         for key in self.row1keys:
+            origKey = key
             ind = self.row1keys.index(key)
-            if ind == 12:
+            if ind == 12: # back key
                 keyframe1.columnconfigure(ind, weight=3)
+                key = 'back'
             else:
                 keyframe1.columnconfigure(ind, weight=1)
             self.row1buttons.append(Button(
@@ -345,8 +438,10 @@ class VirtualKeyboard:
                 width=1,
                 relief=RAISED
             ))
-            if key == "back":
-                self.row1buttons[ind].config(font=("Arial", 20), text=key.title(), width=5)
+            self.buttons[key] = self.row1buttons[ind]
+            if key == 'back': # back key
+                self.buttonsTranslate[origKey] = key
+                self.row1buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=5)
 
             self.row1buttons[ind].grid(row=0, column=ind, sticky="NSEW")
 
@@ -371,9 +466,11 @@ class VirtualKeyboard:
 
         # create row2buttons
         for key in self.row2keys:
+            origKey = key
             ind = self.row2keys.index(key)
-            if ind == 11:
+            if ind == 11: # enter key
                 keyframe2.columnconfigure(ind, weight=2)
+                key = "enter"
             else:
                 keyframe2.columnconfigure(ind, weight=1)
             self.row2buttons.append(Button(
@@ -389,7 +486,8 @@ class VirtualKeyboard:
             ))
             self.buttons[key] = self.row2buttons[ind]
             if key == "enter":
-                self.row2buttons[ind].config(font=("Arial", 20), text="Enter", width=3)
+                self.buttonsTranslate[origKey] = key
+                self.row2buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
             else:
                 self.row2buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -403,9 +501,14 @@ class VirtualKeyboard:
 
         # create row3buttons
         for key in self.row3keys:
+            origKey = key
             ind = self.row3keys.index(key)
-            if ind == 11:
-                keyframe3.columnconfigure(ind, weight=3)
+            if ind == 0: # lock key
+                key = "lock"
+                keyframe3.columnconfigure(ind, weight=2)
+            if ind == 10: # del key
+                keyframe3.columnconfigure(ind, weight=2)
+                key = "del"
             else:
                 keyframe3.columnconfigure(ind, weight=1)
             self.row3buttons.append(Button(
@@ -421,9 +524,11 @@ class VirtualKeyboard:
             ))
             self.buttons[key] = self.row3buttons[ind]
             if key == "lock":
-                self.row3buttons[ind].config(font=("Arial", 20), text="Caps", width=5)
+                self.buttonsTranslate[origKey] = key
+                self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
             elif key == "del":
-                self.row3buttons[ind].config(font=("Arial", 20), text=key.title())
+                self.buttonsTranslate[origKey] = key
+                self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
             else:
                 self.row3buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -437,11 +542,11 @@ class VirtualKeyboard:
 
         # create row4buttons
         for key in self.row4keys:
+            origKey = key
             ind = self.row4keys.index(key)
-            if ind == 0:
-                keyframe4.columnconfigure(ind, weight=3)
-            elif ind == 11:
-                keyframe4.columnconfigure(ind, weight=5)
+            if ind == 0: # shift key
+                keyframe4.columnconfigure(ind, weight=1)
+                key = 'shift'
             else:
                 keyframe4.columnconfigure(ind, weight=1)
             self.row4buttons.append(Button(
@@ -456,10 +561,9 @@ class VirtualKeyboard:
                 relief=RAISED
             ))
             self.buttons[key] = self.row4buttons[ind]
-            if key == "/":
-                self.row4buttons[ind].config(text="?\n/")
-            elif key == "left shift":
-                self.row4buttons[ind].config(font=("Arial", 20), text="Shift", width=6)
+            if key == "shift":
+                self.buttonsTranslate[origKey] = key
+                self.row4buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=4)
             else:
                 self.row4buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -529,15 +633,11 @@ class VirtualKeyboard:
 
         for key in self.row4keys:
             ind = self.row4keys.index(key)
+            key = self.buttonsTranslate[key] if key in self.buttonsTranslate else key
             self.row4buttons[ind].config(command=lambda x=key: self.vpresskey(x))
-            if key == "/":
-                self.row4buttons[ind].config(command=lambda x='/': self.quest_press(x))
-            elif key == "left shift":
-                self.row4buttons[ind].config(command=lambda: self.vupdownkey(event="<Button-1>", y='shift', a="L"))
-                self.row4buttons[ind].bind('<Button-3>', lambda event="<Button-3>", y='shift', a="R": self.vupdownkey(event, y, a))
-            elif key == "right shift":
-                self.row4buttons[ind].config(command=lambda: self.vupdownkey(event="<Button-1>", y='shift', a="L"))
-                self.row4buttons[ind].bind('<Button-3>', lambda event="<Button-3>", y='shift', a="R": self.vupdownkey(event, y, a))
+            if key == "shift":
+                self.row4buttons[ind].config(command=lambda: self.vupdownkey(event="<Button-1>", type='shift'))
+                self.row4buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='shift': self.vupdownkey(event, type))
 
         for key in self.row5keys:
             ind = self.row5keys.index(key)
@@ -545,5 +645,5 @@ class VirtualKeyboard:
             if key == ":)":
                 self.row5buttons[ind].config(command=self.donothing)
             elif key == "alt gr":
-                self.row5buttons[ind].config(command=lambda: self.vupdownkey("<Button-1>", 'alt', "L"))
-                self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", y='alt', a="R": self.vupdownkey(event, y, a))
+                self.row5buttons[ind].config(command=lambda: self.vupdownkey("<Button-1>", type='alt'))
+                self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='alt': self.vupdownkey(event, type))

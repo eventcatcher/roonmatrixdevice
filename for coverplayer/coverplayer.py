@@ -47,6 +47,11 @@ class Coverplayer:
                 self.logger.info(str, objStr)
 
     @classmethod
+    def set_keyboard_codes(cls, keyb_list):
+        cls._ensure_running()
+        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
     def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
         cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
@@ -584,7 +589,7 @@ class Coverplayer:
                 
     def _open_keyb(self):
         self.root.withdraw()
-        self.vkeyb.start(self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
+        self.vkeyb.start(self.keyb_list, self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
@@ -657,6 +662,8 @@ class Coverplayer:
                             if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
                                 self.zone_btn[self.zone].config(bg = self.button_highlight_color)
                     self.path = path
+                if func == 'set_keyboard_codes':
+                    self.keyb_list = playpos
                 if func == 'setpos':
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
