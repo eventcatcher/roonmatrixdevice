@@ -189,6 +189,8 @@ webcheck_update_interval = int(config['WEBSERVERS']['webcheck_update_interval'])
 webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
 webserver_head_request_timeout = int(config['WEBSERVERS']['webserver_head_request_timeout']) # time in seconds a webserver should send a response to head request (onlinecheck)
 webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
+spotify_client_id = config['WEBSERVERS']['spotify_client_id'] if 'spotify_client_id' in config['WEBSERVERS'] else '' # spotify web api client id
+spotify_client_secret = config['WEBSERVERS']['spotify_client_secret'] if 'spotify_client_secret' in config['WEBSERVERS'] else '' # spotify web api client secret
 
 roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
 force_roon_update = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
@@ -347,13 +349,14 @@ socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
-    try:
-        environ['SPOTIPY_CLIENT_ID'] = 'YOUR-SPOTIPY_CLIENT_ID'
-        environ['SPOTIPY_CLIENT_SECRET'] = 'YOUR-SPOTIPY_CLIENT_SECRET'
-    except EnvironmentError as e:
-        print(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
-    except Exception as e:
-        print(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
+    if spotify_client_id!='' and spotify_client_secret!='':
+        try:
+            environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
+            environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
+        except EnvironmentError as e:
+            print(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
+        except Exception as e:
+            print(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
 
 # --- REST SERVER START ---
 
@@ -428,7 +431,9 @@ async def rest_config():
                             {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
                             {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
                             {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
+                            {"name": "spotify_client_id", "editable": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']}
                         ]
                     },
                 ]
@@ -595,8 +600,8 @@ async def rest_setup(params: SetupParams):
                         config_str_masked = config_str_masked.replace('\\','\\\\') # masking of percent char
                     if config_str_masked!=fieldValue:
                         config[areaKey][fieldKey] = fieldValue
-                        print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
-                        #doReboot = True
+                        #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
+                        doReboot = True
             if areaKey!='SYSTEM' or fieldKey!='password':
                 flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
             if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
@@ -1891,6 +1896,9 @@ def spotipy_init():
     Initializes Spotipy with forced IPv4, custom session and optional access data.
     If no access data is transferred, the environment variables are used.
     """
+
+    if spotify_client_id=='' or spotify_client_secret=='':
+        return None
 
     # IPv4-only Monkeypatch (for DS-Lite as example)
     try:
