@@ -2107,10 +2107,11 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['tracks', search, itemname, tracknames]
             if meta['type'] == 'tracks':
                 print('spotify on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
-                send_webserver_zone_control(control_id, 'playtrack', 'spotify:track:' + itemname)
-                if 'album' in meta:
-                    return ['track', meta['artist'], meta['album'], itemname]
+                if 'artist' in meta:
+                    send_webserver_zone_control(control_id, 'playtrack', itemname)
+                    return ['track', meta['artist'], itemname]
                 else:
+                    send_webserver_zone_control(control_id, 'playtrack', 'spotify:track:' + itemname)
                     return ['track', itemname]
         else:
             if meta['type'] == 'artists':
