@@ -23,15 +23,28 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 # if user has the keyboard module installed
 has_keyboard = True
 
-class VirtualKeyboard:
-    # nothing
-    def donothing(self):
-        """
-            This function is empty for now...
-            maybe a new feature for the [ :) ] button
-            """
-        pass
+class TouchFriendlyButton(Button):
+    def __init__(self, master, **kwargs):
+        self.bg_normal = "#383838"
+        self.bg_active = "#242424"
+        self.fg_normal = "white"
+        self.fg_active = "#bababa"
+        super().__init__(master, **kwargs)
+        self.bind("<ButtonPress-1>", self.on_press)
+        self.bind("<Leave>", self.on_leave)
+        self.bind("<ButtonRelease-1>", self.on_release)
 
+    def on_press(self, event):
+        self.config(activebackground=self.bg_active, activeforeground=self.fg_active)
+
+    def on_leave(self, event):
+        self.config(activebackground=self.bg_normal, activeforeground=self.fg_normal)
+
+    def on_release(self, event):
+        self.config(activebackground=self.bg_normal, activeforeground=self.fg_normal)
+        #self.invoke()  # Ruft das command auf
+
+class VirtualKeyboard:
     def circleProgress(self):
         self.center_x, self.center_y = self.maxpx_x / 2, self.maxpx_y / 2
         self.dots = 8
@@ -88,15 +101,6 @@ class VirtualKeyboard:
                 t0 += 1 / 60
             time.sleep(t0 - t)
         master.destroy()
-    
-    def quest_press(self, x):
-        if self.row5buttons[0].cget('relief') == SUNKEN:
-            if x == "-":
-                self.vpresskey("shift+_")
-            elif x == "/":
-                self.vpresskey("shift+?")
-        else:
-            self.vpresskey(x)
 
     def get_dot_coords(self, n: int, t: float, c: int):
         """Get the x0, y0, x1, y1 coords of dot at index 'n' at time 't'.
@@ -116,7 +120,7 @@ class VirtualKeyboard:
             for key in self.row1keyb_alt:
                 self.row1buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
                 idx += 1
-                if idx == 12:
+                if idx == 11:
                     break
 
             # alt row 2
@@ -146,7 +150,7 @@ class VirtualKeyboard:
             for key in (self.row1keyb_shift if (self.capslock_key_enabled is True or self.shift_key_pressed is True) else self.row1keyb):
                 self.row1buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
                 idx += 1
-                if idx == 12:
+                if idx == 11:
                     break
 
             # shift row 2
@@ -199,9 +203,10 @@ class VirtualKeyboard:
                             self.buttons[key].config(text = key.title())
                         else:
                             self.buttons[key].config(text = key)
-    
+        
     # function to press and release keys
     def vpresskey(self, x):
+        value = None
         cursor_pos = self.inp.index(INSERT)
         print ("The cursor is at: ", cursor_pos)
         #self.master.withdraw()
@@ -271,7 +276,7 @@ class VirtualKeyboard:
             self.master.destroy()
             executor = ThreadPoolExecutor(max_workers=1)
             job = executor.submit(self.circleProgress)
-            self.on_search(value)
+            self.on_search('track' if self.tracksearch is True else 'artist', value)
             self.showSpinner = False
         else:
             self.master.after(10, self.master.wm_deiconify())
@@ -296,15 +301,19 @@ class VirtualKeyboard:
 
     # function to hold SHIFT, CTRL, ALT or WIN keys
     def vupdownkey(self, event, type):
-        self.master.after(80, self.donothing())
         if type == 'shift':
-            self.shift_key_pressed = True
+            self.shift_key_pressed = self.shift_key_pressed is False
+            self.capslock_key_enabled = False
             print('shift_key_pressed: ' + str(self.shift_key_pressed))
             self.update_keyboard()
         if type == 'alt':
-            self.alt_key_pressed = True
+            self.alt_key_pressed = self.alt_key_pressed is False
             print('alt_key_pressed: ' + str(self.alt_key_pressed))
             self.update_keyboard()
+
+    def on_labelTap(self):
+        self.tracksearch = self.tracksearch is False
+        self.label.config(text='Track' if self.tracksearch is True else 'Artist')
 
     # start keyboard
     def start(self, keyb_list, width, height, kp_callback, close_callback):
@@ -351,6 +360,9 @@ class VirtualKeyboard:
         self.darkyellow = "#bfb967"
         self.yellow = "#ebe481"
 
+        self.searchlabel = "Artist"
+        self.tracksearch = False
+        
         self.master.configure(bg=self.gray)
 
         self.user_scr_width = int(self.master.winfo_screenwidth())
@@ -369,7 +381,7 @@ class VirtualKeyboard:
         self.master.resizable(False, False)
 
         
-        self.row1keys = ["close"] #["close", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "-", "back"]
+        self.row1keys = ["close"] #["close", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "back"]
         self.row1keys.extend(self.row1keyb)
 
         self.row2keys = self.row2keyb # [";", "q", "w", "e", "r", "t", "z", 'u', 'i', 'o', 'p', 'enter']
@@ -404,11 +416,13 @@ class VirtualKeyboard:
         # create a frame for row1buttons
         keyframe0 = Frame(self.master, height=1)
         keyframe0.rowconfigure(0, weight=1)
-        Label(keyframe0, text="Artist", font = "Arial 40", padx = 10).pack(side='left')
+        self.label = Label(keyframe0, text=self.searchlabel, font = "Arial 40", padx = 10)
+        self.label.bind("<Button-1>",lambda e:self.on_labelTap())
+        self.label.pack(side='left')
         
         style = ttk.Style(self.master)
         style.configure('My.TEntry', padding=(10,0, 10,0), foreground="blue", insertwidth=4)
-        self.inp = ttk.Entry(keyframe0, style='My.TEntry', font=("Arial",40), textvariable = self.inpstr, text="bebe")        
+        self.inp = ttk.Entry(keyframe0, style='My.TEntry', font=("Arial",40), textvariable = self.inpstr, text="")        
         self.inp.pack(side='left', expand = True, fill = 'both')
         self.inp.focus_force()
         
@@ -422,12 +436,12 @@ class VirtualKeyboard:
         for key in self.row1keys:
             origKey = key
             ind = self.row1keys.index(key)
-            if ind == 12: # back key
+            if ind == 11: # back key
                 keyframe1.columnconfigure(ind, weight=3)
                 key = 'back'
             else:
                 keyframe1.columnconfigure(ind, weight=1)
-            self.row1buttons.append(Button(
+            btn = TouchFriendlyButton(
                 keyframe1,
                 font=("Arial", 24),
                 border=7,
@@ -437,15 +451,18 @@ class VirtualKeyboard:
                 fg="white",
                 width=1,
                 relief=RAISED
-            ))
+            )
+            self.row1buttons.append(btn)
             self.buttons[key] = self.row1buttons[ind]
             if key == 'back': # back key
                 self.buttonsTranslate[origKey] = key
-                self.row1buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=5)
-
+                if origKey.startswith('u+'):
+                    self.row1buttons[ind].config(font=("Arial", 20), text=chr(int(origKey.lower()[2:], 16)), width=5, padx=0, pady=0)
+                else:
+                    self.row1buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=5)                
             self.row1buttons[ind].grid(row=0, column=ind, sticky="NSEW")
 
-        self.row1buttons[0].config(font=("Arial", 24), text="\u2716", bg=self.red, activebackground=self.darkred)
+        self.row1buttons[0].config(font=("Arial", 24), text="\u2716", bg=self.red, activebackground=self.darkred, padx=12)
         self.row1buttons[1].config(text="1")
         self.row1buttons[2].config(text="2")
         self.row1buttons[3].config(text="3")
@@ -456,7 +473,6 @@ class VirtualKeyboard:
         self.row1buttons[8].config(text="8")
         self.row1buttons[9].config(text="9")
         self.row1buttons[10].config(text="0")
-        self.row1buttons[11].config(text="-")
 
         #   ROW 2   #
 
@@ -473,21 +489,25 @@ class VirtualKeyboard:
                 key = "enter"
             else:
                 keyframe2.columnconfigure(ind, weight=1)
-            self.row2buttons.append(Button(
+            btn = TouchFriendlyButton(
                 keyframe2,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,
-                activebackground=self.darkgray,
+                bg=self.gray,	# background color is not clicked
+                activebackground=self.darkgray, # background color if clicked
                 activeforeground="#bababa",
                 fg="white",
                 width=1,
                 relief=RAISED
-            ))
+            )
+            self.row2buttons.append(btn)
             self.buttons[key] = self.row2buttons[ind]
             if key == "enter":
                 self.buttonsTranslate[origKey] = key
-                self.row2buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
+                if origKey.startswith('u+'):
+                    self.row2buttons[ind].config(font=("Arial", 25), text=chr(int(origKey.lower()[2:], 16)), width=2)
+                else:
+                    self.row2buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
             else:
                 self.row2buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -511,7 +531,7 @@ class VirtualKeyboard:
                 key = "del"
             else:
                 keyframe3.columnconfigure(ind, weight=1)
-            self.row3buttons.append(Button(
+            btn = TouchFriendlyButton(
                 keyframe3,
                 font=("Arial", 24),
                 border=7,
@@ -521,14 +541,18 @@ class VirtualKeyboard:
                 fg="white",
                 width=2,
                 relief=RAISED
-            ))
+            )                
+            self.row3buttons.append(btn)
             self.buttons[key] = self.row3buttons[ind]
             if key == "lock":
                 self.buttonsTranslate[origKey] = key
-                self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
+                if origKey.startswith('u+'):
+                    self.row3buttons[ind].config(font=("Arial", 28), text=chr(int(origKey.lower()[2:], 16)), width=4, padx=0, pady=0)
+                else:
+                    self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
             elif key == "del":
                 self.buttonsTranslate[origKey] = key
-                self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=3)
+                self.row3buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=4)
             else:
                 self.row3buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -549,7 +573,7 @@ class VirtualKeyboard:
                 key = 'shift'
             else:
                 keyframe4.columnconfigure(ind, weight=1)
-            self.row4buttons.append(Button(
+            btn = TouchFriendlyButton(
                 keyframe4,
                 font=("Arial", 24),
                 border=7,
@@ -559,11 +583,15 @@ class VirtualKeyboard:
                 fg="white",
                 width=1,
                 relief=RAISED
-            ))
+            )
+            self.row4buttons.append(btn)
             self.buttons[key] = self.row4buttons[ind]
             if key == "shift":
                 self.buttonsTranslate[origKey] = key
-                self.row4buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=4)
+                if origKey.startswith('u+'):
+                    self.row4buttons[ind].config(font=("Arial", 28), text=chr(int(origKey.lower()[2:], 16)), width=5, padx=0, pady=0)
+                else:
+                    self.row4buttons[ind].config(font=("Arial", 20), text=origKey.title(), width=4)                
             else:
                 self.row4buttons[ind].config(text = key if len(key) == 1 else key.title())
 
@@ -582,7 +610,7 @@ class VirtualKeyboard:
                 keyframe5.columnconfigure(ind, weight=12)
             else:
                 keyframe5.columnconfigure(ind, weight=1)
-            self.row5buttons.append(Button(
+            btn = TouchFriendlyButton(
                 keyframe5,
                 font=("Arial", 24),
                 border=7,
@@ -592,7 +620,8 @@ class VirtualKeyboard:
                 fg="white",
                 width=1,
                 relief=RAISED
-            ))
+            )
+            self.row5buttons.append(btn)
 
             if key == "left":
                 self.row5buttons[ind].config(text="←")
@@ -621,7 +650,6 @@ class VirtualKeyboard:
         for key in self.row1keys:
             ind = self.row1keys.index(key)
             self.row1buttons[ind].config(command=lambda x=key: self.vpresskey(x))
-        self.row1buttons[11].config(command=lambda x='-': self.quest_press(x))
 
         for key in self.row2keys:
             ind = self.row2keys.index(key)
@@ -642,8 +670,6 @@ class VirtualKeyboard:
         for key in self.row5keys:
             ind = self.row5keys.index(key)
             self.row5buttons[ind].config(command=lambda x=key: self.vpresskey(x))
-            if key == ":)":
-                self.row5buttons[ind].config(command=self.donothing)
-            elif key == "alt gr":
+            if key == "alt gr":
                 self.row5buttons[ind].config(command=lambda: self.vupdownkey("<Button-1>", type='alt'))
                 self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='alt': self.vupdownkey(event, type))

@@ -499,11 +499,11 @@ class Coverplayer:
         self.root.deiconify()
         self._hide_overlay()
     
-    def on_search(self, key):
+    def on_search(self, type, key):
         self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
         #self.close_keyb()
         if self.search_callback is not None:
-            data = self.search_callback(key, self.zone)
+            data = self.search_callback(key, self.zone, type)
             if len(data) > 0:
                 meta = data[0]
                 self.flexprint("coverplayer => on_search, meta:" + str(meta))
@@ -531,6 +531,17 @@ class Coverplayer:
                         meta['label'] = 'Select Artist'
                         meta['listname'] = None
                         self._open_list(meta, artists)
+                    else:
+                        self.close_list()
+                if meta['type'] == 'tracks' and len(data) == 2:
+                    self.search = meta['search']
+                    tracks = data[1]
+                    if tracks is not None and len(tracks) > 0:
+                        print(*tracks, sep="\n")
+                        #self.root.after(10, self._open_list(albums))
+                        meta['label'] = 'Select Track'
+                        meta['listname'] = meta['search']
+                        self._open_list(meta, tracks)
                     else:
                         self.close_list()
 

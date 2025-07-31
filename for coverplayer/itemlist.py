@@ -218,7 +218,10 @@ class ItemList:
             if isinstance(item, str) is True:
                 self.listbox.insert('', END, text=item, tags = (tag,))
             else:
-                self.listbox.insert('', END, text=item['name'], iid = item['id'])
+                if self.meta['type']=='tracks' and 'artist' in item and item['artist'] is not None:
+                    self.listbox.insert('', END, text=item['name'] + ' [' + item['artist'] + ']', iid = item['id'])
+                else:
+                    self.listbox.insert('', END, text=item['name'], iid = item['id'])
         self.listbox.setItems(len(self.items))
     
         self.listbox.tag_configure('evenrow', background='#f0f0f0')

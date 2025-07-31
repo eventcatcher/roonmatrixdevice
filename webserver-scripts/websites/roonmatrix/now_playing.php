@@ -94,27 +94,29 @@ try {
 						end if
 					end tell\';';
 				}
-				break;				
+				break;
 			case 'artists':
 				if ($source == "Music") {
 					$cmd = 'osascript -e \'tell application "'.$source.'"
-                        set searchTerm to "'.$search.'"
-                        set foundArtists to {}
+	                    set myList to get artist of every track of library playlist 1
+                    end tell
+                    set list_ref to a reference to myList
+                    set r to remove_duplicates(list_ref)
+                    return r
 
-	                    set allTracks to every track of library playlist 1
-	                    repeat with aTrack in allTracks
-		                    set artistName to artist of aTrack
+                    on remove_duplicates(the_list)
+	                    set searchTerm to "'.$search.'"
+	                    set return_list to {}
+	                    repeat with artistName in the_list
 		                    if artistName is not missing value then
 			                    if artistName starts with searchTerm then
-				                    if foundArtists does not contain artistName then
-					                    copy artistName to end of foundArtists
-				                    end if
+				                    set artistStr to "\"" & artistName & "\""
+				                    if return_list does not contain artistStr then set end of return_list to (contents of artistStr)
 			                    end if
 		                    end if
 	                    end repeat
-
-                        return foundArtists	as list	
-			        end tell\';';
+	                    return return_list
+                    end remove_duplicates\';';
 				}
 				break;
 			case 'albums':
@@ -157,38 +159,59 @@ try {
 					end tell\';';
 			    }
 			    break;
-			case 'playtrack':
+			case 'tracks':
 				if ($source == "Music") {
 					$cmd = 'osascript -e \'tell application "'.$source.'"
-	                    set targetArtist to "'.$search.'"
-	                    set targetAlbum to "'.$detail.'"
-	                    set albumTrack to "'.$detail2.'"
-
-	                    set playlistName to "Coverplayer"
-	                    set song repeat to off
-	                    set shuffle enabled to false
-	
-	                    if (exists user playlist playlistName) then
-		                    delete every track of user playlist playlistName
-	                    else
-		                    make new user playlist with properties {name:playlistName}
-	                    end if
-	
-	                    set thePlaylist to user playlist playlistName
-	                    set albumTracks to (every track of library playlist 1 whose artist is targetArtist and album is targetAlbum)
-	                    set found to false
-	
-	                    repeat with t in albumTracks
-		                    if name of t is albumTrack then
-			                    set found to true
-		                    end if
-	                        if found is true then
-		                        duplicate t to thePlaylist
-		                    end if
+					    set searchTerm to "'.$search.'"
+	                    set return_list to {}
+	                    set results to name of (every track of playlist 1 whose name contains searchTerm) as list
+	                    repeat with trackName in results
+		                    set trackStr to "\"" & trackName & "\""
+		                    if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
 	                    end repeat
+	                    return return_list
+                    end tell\';';
+				}
+				break;
+			case 'playtrack':
+				if ($source == "Music") {
+				    if ($detail == '' && $detail2 == '') {
+					    $cmd = 'osascript -e \'tell application "'.$source.'"
+	                        set myTrack to "'.$search.'"
+	                        play (first track of library playlist 1 whose name is myTrack)
+					    end tell\';';
+				    } else {
+					    $cmd = 'osascript -e \'tell application "'.$source.'"
+	                        set targetArtist to "'.$search.'"
+	                        set targetAlbum to "'.$detail.'"
+	                        set albumTrack to "'.$detail2.'"
+
+	                        set playlistName to "Coverplayer"
+	                        set song repeat to off
+	                        set shuffle enabled to false
 	
-	                    play thePlaylist
-					end tell\';';
+	                        if (exists user playlist playlistName) then
+		                        delete every track of user playlist playlistName
+	                        else
+		                        make new user playlist with properties {name:playlistName}
+	                        end if
+	
+	                        set thePlaylist to user playlist playlistName
+	                        set albumTracks to (every track of library playlist 1 whose artist is targetArtist and album is targetAlbum)
+	                        set found to false
+	
+	                        repeat with t in albumTracks
+		                        if name of t is albumTrack then
+			                        set found to true
+		                        end if
+	                            if found is true then
+		                            duplicate t to thePlaylist
+		                        end if
+	                        end repeat
+	
+	                        play thePlaylist
+					    end tell\';';
+				    }
 			    }
 			    if ($source == "Spotify") {
 					$cmd = 'osascript -e \'tell application "'.$source.'"
@@ -202,7 +225,7 @@ try {
 		if ($cmd!='') {
 			$json_str = shell_exec($cmd);
 
-            if ($code=='albums' || $code=='albumtracks') {
+            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks') {
 		        if ($json_str != null) {
 			        $output = "[".$json_str."]";
 		        } else {
