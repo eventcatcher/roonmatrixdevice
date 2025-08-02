@@ -307,6 +307,7 @@ class Coverplayer:
                 "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
                 "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
+                "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
         }
         except Exception as e:
             self.flexprint(f"[red]Icon loading error:[/red] {e}")
@@ -378,12 +379,17 @@ class Coverplayer:
 
         # keyboard button at the bottom left
         icon = self.control_icons["keyb"]
-        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._open_keyb, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
 
+        # tracklist button at the bottom right
+        icon = self.control_icons["tracklist"]
+        self.tracklist_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = lambda: self._open_keyb('tracklist'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.tracklist_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+
         # back button at the bottom right
-        back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, takefocus=False, height = corner_btn_size, width = corner_btn_size)
-        back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+        #back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, takefocus=False, height = corner_btn_size, width = corner_btn_size)
+        #back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
 
         if self.playpos is not None and self.playpos != -1:
             self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
@@ -598,9 +604,23 @@ class Coverplayer:
                         print('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
                 
-    def _open_keyb(self):
+    def _open_keyb(self, type):
         self.root.withdraw()
-        self.vkeyb.start(self.keyb_list, self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
+        if type=='tracklist' and len(self.text) > 3:
+            zone = self.text[0].split(':')[1].strip()
+            zonetype = zone.split('-')[1].strip()
+            if (zonetype!='Apple Music' and zonetype!='Spotify'):
+                zonetype = 'Roon'
+            artist = self.text[1].split(':')[1].strip()
+            if '/' in artist:
+                artist = artist.split('/')[0].strip()
+            album = self.text[2].split(':')[1].strip()
+            track = self.text[3].split(':')[1].strip()
+            meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': 'Artist', 'listname': artist}   
+            self.search = artist
+            self.on_itemclick(meta, album)
+        else:
+            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))

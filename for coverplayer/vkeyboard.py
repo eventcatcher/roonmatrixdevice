@@ -316,7 +316,10 @@ class VirtualKeyboard:
         self.label.config(text='Track' if self.tracksearch is True else 'Artist')
 
     # start keyboard
-    def start(self, keyb_list, width, height, kp_callback, close_callback):
+    def start(self, type, data, keyb_list, width, height, kp_callback, close_callback):
+        self.type = type
+        self.data = data
+        
         self.row1keyb = keyb_list[0]
         self.row2keyb = keyb_list[1]
         self.row3keyb = keyb_list[2]

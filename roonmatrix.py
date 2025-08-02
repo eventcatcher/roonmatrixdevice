@@ -1936,6 +1936,17 @@ def spotify_search_artist(artist_name):
     artists = results['artists']['items']
     return artists
 
+def spotify_search_artist_album(artist_name, album_name):
+    spotify = spotipy_init()
+    if spotify is None:
+        return []
+
+    query='artist:"'+artist_name+'" album:"'+album_name + '"'
+    results = spotify.search(query, limit=10, type='album')
+    album = results['albums']['items'][0] if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0 else None
+
+    return album
+
 def spotify_get_artist_albums(artist_id):
     spotify = spotipy_init()
     if spotify is None:
@@ -2100,6 +2111,11 @@ def on_itemclick(meta, search, itemname, zone):
                 albums = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, albums))
                 return ['albums', search, albums]
             if meta['type'] == 'albums':
+                if 'searchtype' in meta and meta['searchtype']=='tracklist':
+                    album_obj = spotify_search_artist_album(meta['artist'], meta['album'])
+                    if album_obj is None:
+                        return ['tracks', search, itemname, []]
+                    itemname = album_obj['id']
                 tracks = spotify_get_album_tracks(itemname)
                 tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
                 meta['tracks'] = tracknames
@@ -2132,6 +2148,11 @@ def on_itemclick(meta, search, itemname, zone):
                 if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
                     raw = raw[2:-1].encode('utf-8').decode('unicode_escape')  # removes the prepended b' and appended '
                 raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
+                parts = raw.split(',')
+                for idx, part in enumerate(parts):
+                    if len(parts[idx]) > 4 and '"' in parts[idx][2:-2]:
+                        parts[idx] = parts[idx][:2] + parts[idx][2:-2].replace('"', '\\"') + parts[idx][-2:]
+                raw = ','.join(parts)
                 tracks = json.loads(raw)
                 tracks = list(map(lambda string: {"name": string.replace('|','. '),"id": string.split('|')[1]}, tracks))
                 meta['tracks'] = tracks
@@ -2143,9 +2164,13 @@ def on_itemclick(meta, search, itemname, zone):
                     if meta['zonetype'] == 'Apple Music' and itemname == '[FULLALBUM]':
                         send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], meta['tracks'][1]['id'])
                     else:
+                        if len(itemname) > 0 and '"' in itemname:
+                            itemname = itemname.replace('"', '\\"')
                         send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], itemname)
                     return ['track', meta['artist'], meta['album'], itemname]
                 else:
+                    if len(itemname) > 0 and '"' in itemname:
+                        itemname = itemname.replace('"', '\\"')
                     send_webserver_zone_control(control_id, 'playtrack', itemname)
                     return ['track', itemname]
                 
@@ -2203,7 +2228,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
             req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
 
             try:
-                result = str(convert_special_chars(urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf-8')).replace('\n',''))
+                result = str(urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf-8').replace('\n',''))
             except HTTPError as e:
                 if errorlog is True:
                     flexprint('The webserver couldn\'t fulfill the request.')
@@ -2276,11 +2301,11 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                         cover_text_line_parts = []
                                         cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
                                         if 'artist' in obj and obj["artist"] != '':
-                                            cover_text_line_parts.append(get_message('Artist') + ': "' + filterIllegalChars(obj["artist"]) + '"')
+                                            cover_text_line_parts.append(get_message('Artist') + ': ' + filterIllegalChars(obj["artist"]))
                                         if show_album is True and 'album' in obj and obj["album"] != '':
-                                            cover_text_line_parts.append(get_message('Album') + ': "' + filterIllegalChars(obj["album"]) + '"')
+                                            cover_text_line_parts.append(get_message('Album') + ': ' + filterIllegalChars(obj["album"]))
                                         if 'track' in obj and obj["track"] != '':
-                                            cover_text_line_parts.append(get_message('Track') + ': "' + filterIllegalChars(obj["track"]) + '"')
+                                            cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
                                         if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
                                             last_cover_url = obj["cover"]
                                             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
@@ -2332,11 +2357,11 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                         displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
                                         displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
                                     if 'artist' in obj and obj["artist"] != '':
-                                        displaystr += get_message('Artist') + ': "' + obj["artist"] + '" / '
+                                        displaystr += get_message('Artist') + ': "' + convert_special_chars(obj["artist"]) + '" / '
                                     if show_album is True and 'album' in obj and obj["album"] != '':
-                                        displaystr += get_message('Album') + ': "' + obj["album"] + '" / '
+                                        displaystr += get_message('Album') + ': "' + convert_special_chars(obj["album"]) + '" / '
                                     if 'track' in obj:
-                                        displaystr += get_message('Track') + ': "' + obj["track"] + '"'
+                                        displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
                                         displaystr = convert_special_chars(displaystr)
 
                             if name not in web_playouts_raw or web_playouts_raw[name] != result:
@@ -2606,11 +2631,11 @@ def roon_state_callback(event, changed_ids):
                     cover_text_line_parts = []
                     cover_text_line_parts.append(get_message('Zone') + ': ' + name)
                     if artistFiltered != '':
-                        cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered)
+                        cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered[1:-1] if (len(artistFiltered) > 1 and artistFiltered[0:1]=='"' and artistFiltered[-1:]=='"') else artistFiltered)
                     if show_album is True and albumFiltered != '':
-                        cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered)
+                        cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered[1:-1] if (len(albumFiltered) > 1 and albumFiltered[0:1]=='"' and albumFiltered[-1:]=='"') else albumFiltered)
                     if trackFiltered != '':
-                        cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered)
+                        cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
 
                     playpos = zone.get("seek_position")
                     playlen = zone["now_playing"].get("length")                                   
@@ -2993,11 +3018,11 @@ def build_output():
                                 cover_text_line_parts = []
                                 cover_text_line_parts.append(get_message('Zone') + ': ' + zone["display_name"])
                                 if artistFiltered != '':
-                                    cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered)
+                                    cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered[1:-1] if (len(artistFiltered) > 1 and artistFiltered[0:1]=='"' and artistFiltered[-1:]=='"') else artistFiltered)
                                 if show_album is True and albumFiltered != '':
-                                    cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered)
+                                    cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered[1:-1] if (len(albumFiltered) > 1 and albumFiltered[0:1]=='"' and albumFiltered[-1:]=='"') else albumFiltered)
                                 if trackFiltered != '':
-                                    cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered)
+                                    cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
 
                                 if (cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or is_playing != is_playing_last or shuffle_on != shuffle_on_last or repeat_on != repeat_on_last):
                                     last_cover_url = cover_url
