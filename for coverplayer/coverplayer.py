@@ -15,7 +15,7 @@
 # fallback image loaded from /home/coverplayer/FTP/cover_fallback.png
 # logs saved to /home/coverplayer/FTP/logs
 
-from tkinter import Tk, Label, Button, Frame, Canvas, font as tkFont
+from tkinter import Tk, Label, Button, Frame, Canvas, font as tkFont, NORMAL, DISABLED
 from PIL import Image, ImageTk, ImageDraw, ImageFont
 import queue
 import threading
@@ -187,6 +187,7 @@ class Coverplayer:
         self.overlay_height = self.maxpx_y
         self.overlay_relheight = 1
         self.overlay_bgcolor = "#222222"	# background color of control overlay
+        self.btn_disabled_color = "#555555"	# background color of disabled button
         self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
         self.button_highlight_color = '#80ed99'
 
@@ -321,6 +322,12 @@ class Coverplayer:
             self.root.after_cancel(self.overlay_timer)
             self.overlay_timer = None
 
+    def switch_button_state(self, btn, enabled):
+        if enabled is True:
+            btn.config(state=NORMAL, bg = self.overlay_bgcolor)
+        else:
+            btn.config(state=DISABLED, bg = self.btn_disabled_color)
+
     def _show_overlay(self):
         self._start_overlay_timer()
         
@@ -379,13 +386,21 @@ class Coverplayer:
 
         # keyboard button at the bottom left
         icon = self.control_icons["keyb"]
-        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
+        icon_enabled = self.zone is not None
+        self.switch_button_state(self.keyb_btn, icon_enabled)
 
-        # tracklist button at the bottom right
+        # tracklist button at the bottom right        
         icon = self.control_icons["tracklist"]
-        self.tracklist_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = lambda: self._open_keyb('tracklist'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.tracklist_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('tracklist'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.tracklist_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
+        if self.text is not None and len(self.text) > 3:
+            zone = self.text[0].split(':')[1].strip()
+            icon_enabled = self.zone is not None and zone == self.zone
+            self.switch_button_state(self.tracklist_btn, icon_enabled)
+        else:
+            self.switch_button_state(self.tracklist_btn, False)
 
         # back button at the bottom right
         #back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, takefocus=False, height = corner_btn_size, width = corner_btn_size)
@@ -481,6 +496,18 @@ class Coverplayer:
         if self.callback:
             self.zone = value
             self.callback(value)
+
+            if self.in_menu_mode is True and self.tracklist_btn is not None:
+                if self.text is not None and len(self.text) > 3:
+                    zone = self.text[0].split(':')[1].strip()
+                    icon_enabled = self.zone is not None and zone == self.zone
+                    self.switch_button_state(self.tracklist_btn, icon_enabled)
+                else:
+                    self.switch_button_state(self.tracklist_btn, False)
+            if self.in_menu_mode is True and self.keyb_btn is not None:
+                icon_enabled = self.zone is not None
+                self.switch_button_state(self.keyb_btn, icon_enabled)
+
         self._hide_overlay()
 
     def _hide_overlay(self):
@@ -606,19 +633,21 @@ class Coverplayer:
                 
     def _open_keyb(self, type):
         self.root.withdraw()
-        if type=='tracklist' and len(self.text) > 3:
-            zone = self.text[0].split(':')[1].strip()
-            zonetype = zone.split('-')[1].strip()
-            if (zonetype!='Apple Music' and zonetype!='Spotify'):
-                zonetype = 'Roon'
-            artist = self.text[1].split(':')[1].strip()
-            if '/' in artist:
-                artist = artist.split('/')[0].strip()
-            album = self.text[2].split(':')[1].strip()
-            track = self.text[3].split(':')[1].strip()
-            meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': 'Artist', 'listname': artist}   
-            self.search = artist
-            self.on_itemclick(meta, album)
+        if type=='tracklist':
+            if len(self.text) > 3:
+                zone = self.text[0].split(':')[1].strip()
+                zonetype = zone.split('-')[1].strip()
+                if (zonetype!='Apple Music' and zonetype!='Spotify'):
+                    zonetype = 'Roon'
+                artist = self.text[1].split(':')[1].strip()
+                if '/' in artist:
+                    artist = artist.split('/')[0].strip()
+                album = self.text[2].split(':')[1].strip()
+                track = self.text[3].split(':')[1].strip()
+                if zone == self.zone:
+                    meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': 'Artist', 'listname': artist}   
+                    self.search = artist
+                    self.on_itemclick(meta, album)
         else:
             self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
 
@@ -692,6 +721,16 @@ class Coverplayer:
                             self.zone = line_parts[1].strip()
                             if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
                                 self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                            if self.in_menu_mode is True and self.tracklist_btn is not None:
+                                if self.text is not None and len(self.text) > 3:
+                                    zone = self.text[0].split(':')[1].strip()
+                                    icon_enabled = self.zone is not None and zone == self.zone
+                                    self.switch_button_state(self.tracklist_btn, icon_enabled)
+                                else:
+                                    self.switch_button_state(self.tracklist_btn, False)                                
+                            if self.in_menu_mode is True and self.keyb_btn is not None:
+                                icon_enabled = self.zone is not None
+                                self.switch_button_state(self.keyb_btn, icon_enabled)
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
@@ -742,6 +781,16 @@ class Coverplayer:
                                 self.zone = line_parts[1].strip()
                                 if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
                                     self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                                if self.in_menu_mode is True and self.tracklist_btn is not None:
+                                    if self.text is not None and len(self.text) > 3:
+                                        zone = self.text[0].split(':')[1].strip()
+                                        icon_enabled = self.zone is not None and zone == self.zone
+                                        self.switch_button_state(self.tracklist_btn, icon_enabled)
+                                    else:
+                                        self.switch_button_state(self.tracklist_btn, False)
+                                if self.in_menu_mode is True and self.keyb_btn is not None:
+                                    icon_enabled = self.zone is not None
+                                    self.switch_button_state(self.keyb_btn, icon_enabled)
                         if playpos is None:
                             self.playpos_next = 0
 
