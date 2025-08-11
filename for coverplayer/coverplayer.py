@@ -725,11 +725,10 @@ class Coverplayer:
                     self.on_itemclick(meta, album)
         else:
             self.hasRadioSearch = False
-            if len(self.text) > 3:
-                zone = self.text[0].split(':')[1].strip()
-                zonetype = zone.split('-')[1].strip()
-                if (zonetype!='Apple Music' and zonetype!='Spotify'):
-                    self.hasRadioSearch = True
+            zonetype = self.zone.split('-')[1].strip()
+            if (zonetype!='Apple Music' and zonetype!='Spotify'):
+                self.hasRadioSearch = True
+            print('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
             self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.hasRadioSearch, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
