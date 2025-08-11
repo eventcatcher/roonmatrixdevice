@@ -24,208 +24,398 @@ try {
 	$code = isset($_POST['code']) ? $_POST['code'] : ''; 
 	$search = isset($_POST['search']) ? $_POST['search'] : ''; 
 	$detail = isset($_POST['detail']) ? $_POST['detail'] : ''; 
-	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : ''; 
+	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : '';
+
+$replaceText = <<<EOD
+                    on replaceText(find, replace, theText)
+                        set {TID, text item delimiters} to {text item delimiters, find}
+                        set textItems to text items of theText
+                        set text item delimiters to replace
+                        set newText to textItems as text
+                        set text item delimiters to TID
+                        return newText
+                    end replaceText
+                EOD;
 
 	if ($source=='Spotify' || $source=='Apple Music') {
-		$cmd = '';
+		$script = '';
 		if ($source == 'Apple Music') {
 			$source = 'Music';
 		}
 		
 		switch ($code) {
 			case 'previous':
-				$cmd = 'osascript -e \'tell application "'.$source.'" to previous track\';';
+				$script = <<<EOD
+                tell application "$source" to previous track
+                EOD;    
 				break;
 			case 'next':
-				$cmd = 'osascript -e \'tell application "'.$source.'" to next track\';';
+				$script = <<<EOD
+                tell application "$source" to next track
+                EOD;    
 				break;
 			case 'stop':
-				$cmd = 'osascript -e \'tell application "'.$source.'" to pause\';';
+				$script = <<<EOD
+                tell application "$source" to pause
+                EOD;    
 				break;
 			case 'play':
-				$cmd = 'osascript -e \'tell application "'.$source.'" to play\';';
+				$script = <<<EOD
+                tell application "$source" to play
+                EOD;    
 				break;
 			case 'shuffle':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'" to set shuffle enabled to true\';';
+					$script = <<<EOD
+                    tell application "$source" to set shuffle enabled to true
+                    EOD;    
 				} else {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-						if shuffling is false then
-							set shuffling to true
-							if repeating is false then
-								set repeating to true
-							end if
-						end if
-					end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        if shuffling is false then
+                            set shuffling to true
+                            if repeating is false then
+                                set repeating to true
+                            end if
+                        end if
+                    end tell
+                    EOD;    
 				}
 				break;
 			case 'noshuffle':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'" to set shuffle enabled to false\';';
+					$script = <<<EOD
+                    tell application "$source" to set shuffle enabled to false
+                    EOD;
 				} else {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-						if shuffling is true then
-							set shuffling to false
-							if repeating is true then
-								set repeating to false
-							end if
-						end if
-					end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        if shuffling is true then
+                            set shuffling to false
+                            if repeating is true then
+                                set repeating to false
+                            end if
+                        end if
+                    end tell
+                    EOD;    
 				}
 				break;
 			case 'repeat':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'" to set song repeat to all\';';
+					$script = <<<EOD
+                    tell application "$source" to set song repeat to all
+                    EOD;
 				} else {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-						if repeating is false then
-							set repeating to true
-						end if
-					end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        if repeating is false then
+                            set repeating to true
+                        end if
+                    end tell
+                    EOD;    
 				}
 				break;
 			case 'norepeat':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'" to set song repeat to off\';';
+					$script = <<<EOD
+                    tell application "$source" to set song repeat to off
+                    EOD;
 				} else {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-						if repeating is true then
-							set repeating to false
-						end if
-					end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        if repeating is true then
+                            set repeating to false
+                        end if
+                    end tell
+                    EOD;    
 				}
 				break;
 			case 'artists':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-	                    set myList to get artist of every track of library playlist 1
+					$script = <<<EOD
+                    tell application "$source"
+                        set myList to get artist of every track of library playlist 1
                     end tell
                     set list_ref to a reference to myList
                     set r to remove_duplicates(list_ref)
                     return r
 
                     on remove_duplicates(the_list)
-	                    set searchTerm to "'.$search.'"
-	                    set return_list to {}
-	                    repeat with artistName in the_list
-		                    if artistName is not missing value then
-			                    if artistName starts with searchTerm then
-				                    set artistStr to "\"" & artistName & "\""
-				                    if return_list does not contain artistStr then set end of return_list to (contents of artistStr)
-			                    end if
-		                    end if
-	                    end repeat
-	                    return return_list
-                    end remove_duplicates\';';
+                        set searchTerm to "$search"
+                        set return_list to {}
+                        repeat with artistName in the_list
+                            if artistName is not missing value then
+                                if artistName starts with searchTerm then
+                                    set artistName to my replaceText("\"", "[dq]", artistName)
+                                    set artistStr to "\"" & artistName & "\""
+                                    if return_list does not contain artistStr then set end of return_list to (contents of artistStr)
+                                end if
+                            end if
+                        end repeat
+                        return return_list
+                    end remove_duplicates
+                    $replaceText
+                    EOD;
+				}
+				break;
+			case 'playlists':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                    	set searchTerm to "$search"
+                    	set foundPlaylists to {}
+
+                        set allPlaylists to every playlist
+                        repeat with aPlaylist in allPlaylists
+                            set playlistName to name of aPlaylist
+                            set playlistNameEscaped to my replaceText("\"", "[dq]", playlistName)
+                            if playlistName is not missing value then
+                                if playlistName starts with searchTerm then
+                    				set playlistStr to "\"" & playlistNameEscaped & "\""
+                    				if playlistStr is not in foundPlaylists then
+                    					set end of foundPlaylists to playlistStr
+                    				end if
+                    			end if
+                    		end if
+                    	end repeat
+
+                    	return foundPlaylists as list
+                    end tell
+                    $replaceText
+                    EOD;
 				}
 				break;
 			case 'albums':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-	                    set targetArtist to "'.$search.'"
-	                    set albumList to {}
-	                    set trackList to every track of library playlist 1 whose artist is targetArtist
-	
-	                    repeat with aTrack in trackList
-	                    	set albumName to album of aTrack
-	                    	set albumStr to "\"" & albumName & "\""
-	                    	if albumStr is not in albumList then
-			                    set end of albumList to albumStr
-		                    end if
-	                    end repeat
-	
+					$script = <<<EOD
+                    tell application "$source"
+                        set targetArtist to "$search"
+                        set albumList to {}
+                        set trackList to every track of library playlist 1 whose artist is targetArtist
+
+                        repeat with aTrack in trackList
+                            set albumName to album of aTrack
+                            set albumName to my replaceText("\"", "[dq]", albumName)
+                            set albumStr to "\"" & albumName & "\""
+                            if albumStr is not in albumList then
+                                set end of albumList to albumStr
+                            end if
+                        end repeat
+
                         return albumList as list
-					end tell\';';
+                    end tell
+                    $replaceText
+                    EOD;    
 				}
 				break;
 			case 'albumtracks':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-	                    set targetArtist to "'.$search.'"
-	                    set targetAlbum to "'.$detail.'"
-	                    set trackList to {}
-	                    set albumSongs to every track of library playlist 1 whose artist is targetArtist and album is targetAlbum
-	
-	                    repeat with aSong in albumSongs
-	                    	set trackName to name of aSong
-	                        set trackNumber to (track number of aSong)
-	                        set trackStr to "\"" & trackNumber & "|" & trackName & "\""
-	                    	if trackStr is not in trackList then
-	                    	    set end of trackList to trackStr
-	                    	end if
-	                    end repeat
-	
-	                    return trackList
-					end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        set targetArtist to "$search"
+                        set targetAlbum to "$detail"
+                        set trackList to {}
+                        set albumSongs to every track of library playlist 1 whose artist is targetArtist and album is targetAlbum
+
+                        repeat with aSong in albumSongs
+                            set trackName to name of aSong
+                            set trackName to my replaceText("\"", "[dq]", trackName)
+                            set trackNumber to (track number of aSong)
+                            set trackStr to "\"" & trackNumber & "|" & trackName & "\""
+                            if trackStr is not in trackList then
+                                set end of trackList to trackStr
+                            end if
+                        end repeat
+
+                        return trackList
+                    end tell
+                    $replaceText
+                    EOD;    
+			    }
+			    break;
+			case 'playlist-tracks':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set targetPlaylist to "$search"
+                        set trackList to {}
+                        set playlistSongs to every track of playlist targetPlaylist
+
+                        repeat with aSong in playlistSongs
+                            set trackName to name of aSong
+                            set trackName to my replaceText("\"", "[dq]", trackName)
+                            set artistName to artist of aSong
+                            set artistName to my replaceText("\"", "[dq]", artistName)
+                            set trackStr to "\"" & trackName & "|" & artistName & "\""
+                            if trackStr is not in trackList then
+                                set end of trackList to trackStr
+                            end if
+                        end repeat
+
+                        return trackList
+                    end tell
+                    $replaceText
+                    EOD;    
 			    }
 			    break;
 			case 'tracks':
 				if ($source == "Music") {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-					    set searchTerm to "'.$search.'"
-	                    set return_list to {}
-	                    set results to name of (every track of playlist 1 whose name contains searchTerm) as list
-	                    repeat with trackName in results
-		                    set trackStr to "\"" & trackName & "\""
-		                    if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
-	                    end repeat
-	                    return return_list
-                    end tell\';';
+					$script = <<<EOD
+                    tell application "$source"
+                        set searchTerm to "$search"
+                        set return_list to {}
+                        set results to name of (every track of playlist 1 whose name contains searchTerm) as list
+                        repeat with trackName in results
+                            set trackName to my replaceText("\"", "[dq]", trackName)
+                            set trackStr to "\"" & trackName & "\""
+                            if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
+                        end repeat
+                        return return_list
+                    end tell
+                    $replaceText
+                    EOD;    
+				}
+				break;
+			case 'tracks-with-artist':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set searchTerm to "$search"
+                        set return_list to {}
+                        repeat with obj in (every track of playlist 1 whose name contains searchTerm)
+                            set trackName to name of obj
+                            set trackName to my replaceText("\"", "[dq]", trackName)
+                            set trackArtist to artist of obj
+                            set trackArtist to my replaceText("\"", "[dq]", trackArtist)
+                            set trackStr to "\"" & trackName & "|" & trackArtist & "\""
+                            if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
+                        end repeat
+                        return return_list
+                    end tell
+                    $replaceText
+                    EOD;    
 				}
 				break;
 			case 'playtrack':
 				if ($source == "Music") {
 				    if ($detail == '' && $detail2 == '') {
-					    $cmd = 'osascript -e \'tell application "'.$source.'"
-	                        set myTrack to "'.$search.'"
-	                        play (first track of library playlist 1 whose name is myTrack)
-					    end tell\';';
+                        $script = <<<EOD
+                        tell application "$source"
+                            set myTrack to "$search"
+                            play (first track of library playlist 1 whose name is myTrack)
+                        end tell
+                        EOD;
+				    } else if ($detail != '' && $detail2 == '') {
+                        $script = <<<EOD
+                        tell application "$source"
+                            set myTrack to "$search"
+                            set targetArtist to "$detail"
+                            play (first track of library playlist 1 whose name is myTrack and artist is targetArtist)					    
+                        end tell
+                        EOD;
 				    } else {
-					    $cmd = 'osascript -e \'tell application "'.$source.'"
-	                        set targetArtist to "'.$search.'"
-	                        set targetAlbum to "'.$detail.'"
-	                        set albumTrack to "'.$detail2.'"
+                        $script = <<<EOD
+                        tell application "$source"
+                            set targetArtist to "$search"
+                            set targetAlbum to "$detail"
+                            set albumTrack to "$detail2"
 
-	                        set playlistName to "Coverplayer"
-	                        set song repeat to off
-	                        set shuffle enabled to false
-	
-	                        if (exists user playlist playlistName) then
-		                        delete every track of user playlist playlistName
-	                        else
-		                        make new user playlist with properties {name:playlistName}
-	                        end if
-	
-	                        set thePlaylist to user playlist playlistName
-	                        set albumTracks to (every track of library playlist 1 whose artist is targetArtist and album is targetAlbum)
-	                        set found to false
-	
-	                        repeat with t in albumTracks
-		                        if name of t is albumTrack then
-			                        set found to true
-		                        end if
-	                            if found is true then
-		                            duplicate t to thePlaylist
-		                        end if
-	                        end repeat
-	
-	                        play thePlaylist
-					    end tell\';';
+                            set playlistName to "Coverplayer"
+                            set song repeat to off
+                            set shuffle enabled to false
+
+                            if (exists user playlist playlistName) then
+                                delete every track of user playlist playlistName
+                            else
+                                make new user playlist with properties {name:playlistName}
+                            end if
+
+                            set thePlaylist to user playlist playlistName
+                            set albumTracks to (every track of library playlist 1 whose artist is targetArtist and album is targetAlbum)
+                            set found to false
+
+                            repeat with t in albumTracks
+                                if name of t is albumTrack then
+                                    set found to true
+                                end if
+                                if found is true then
+                                    duplicate t to thePlaylist
+                                end if
+                            end repeat
+
+                            play thePlaylist
+                        end tell
+                        EOD;
 				    }
 			    }
 			    if ($source == "Spotify") {
-					$cmd = 'osascript -e \'tell application "'.$source.'"
-	                    set playCommand to "'.$search.'"
-	                    play track playCommand
-					end tell\';';
+                    $script = <<<EOD
+                    tell application "$source"
+                        set playCommand to "$search"
+                        play track playCommand
+                    end tell
+                    EOD;
+			    }
+			    break;
+			case 'play-playlist-track':
+				if ($source == "Music") {
+				    if ($detail == '' && $detail2 == '') {
+                        $script = <<<EOD
+                        tell application "$source"
+                            set thePlaylist to user playlist "$search"
+                            play thePlaylist
+                        end tell
+                        EOD;
+				    } else if ($detail != '' && $detail2 == '') {
+                        $script = <<<EOD
+                        tell application "$source"
+                            set sourcePlaylist to "$search"
+                            set playlistTrack to "$detail"
+
+                            set playlistName to "Coverplayer"
+                            set song repeat to off
+                            set shuffle enabled to false
+
+                            if (exists user playlist playlistName) then
+                                delete every track of user playlist playlistName
+                            else
+                                make new user playlist with properties {name:playlistName}
+                            end if
+
+                            set thePlaylist to user playlist playlistName
+                            set playlistTracks to (every track of user playlist sourcePlaylist)
+                            set found to false
+
+                            repeat with t in playlistTracks
+                                if name of t is playlistTrack then
+                                    set found to true
+                                end if
+                                if found is true then
+                                    duplicate t to thePlaylist
+                                end if
+                            end repeat
+
+                            play thePlaylist
+                        end tell
+                        EOD;
+				    }
+			    }
+			    if ($source == "Spotify") {
+                    $script = <<<EOD
+                    tell application "$source"
+                        set playCommand to "$search"
+                        play track playCommand
+                    end tell
+                    EOD;
 			    }
 			    break;
 		}
 
-		if ($cmd!='') {
+		if ($script!='') {
+		    $cmd = 'osascript -e ' . escapeshellarg($script);
 			$json_str = shell_exec($cmd);
 
-            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks') {
+            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks' || $code=='tracks-with-artist' || $code=='playlists' || $code=='playlist-tracks' || $code=='play-playlist-track') {
 		        if ($json_str != null) {
 			        $output = "[".$json_str."]";
 		        } else {
@@ -235,6 +425,10 @@ try {
 		        header('Content-Type: application/json; charset=utf-8');
 		        echo $output;
 		    }
+            if ($code=='playtrack') {
+		        header('Content-Type: application/json; charset=utf-8');
+		        echo $cmd;
+            }
 		}
 	} else {
 		$pyenvFolderName = '.pyenv';
