@@ -271,7 +271,7 @@ class VirtualKeyboard:
             self.inp.insert(0, value) #inserts new value assigned by 2nd parameter
             self.inp.icursor(cursor_pos + 1)
             self.search = value
-        if x == 'enter' and len(value) >= self.minLength:
+        if x == 'enter' and len(value) >= (0 if self.searchtype=='playlist' or self.searchtype=='radio' else self.minLength ):
             self.showSpinner = True
             self.master.destroy()
             executor = ThreadPoolExecutor(max_workers=1)

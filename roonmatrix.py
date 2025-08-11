@@ -1875,6 +1875,8 @@ def roon_get_artists(output_id, name):
 
 def roon_get_radios(output_id, name):
     try:
+        if name == '':
+            name = '__all__'
         radios = roonapi.list_media(output_id, ["My Live Radio", name ])
         if radios is not None and len(radios) > 0:
             return radios
@@ -1932,6 +1934,8 @@ def roon_get_tracks(output_id, track):
 
 def roon_get_playlists(output_id, name):
     try:
+        if name == '':
+            name = '__all__'
         playlists = roonapi.list_media(output_id, ["Playlists", name])
         if playlists and len(playlists) > 0:
             return playlists

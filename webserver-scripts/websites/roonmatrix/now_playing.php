@@ -170,7 +170,7 @@ $replaceText = <<<EOD
                             set playlistName to name of aPlaylist
                             set playlistNameEscaped to my replaceText("\"", "[dq]", playlistName)
                             if playlistName is not missing value then
-                                if playlistName starts with searchTerm then
+                                if searchTerm = "" or playlistName starts with searchTerm then
                     				set playlistStr to "\"" & playlistNameEscaped & "\""
                     				if playlistStr is not in foundPlaylists then
                     					set end of foundPlaylists to playlistStr

@@ -417,10 +417,10 @@ class Coverplayer:
             self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
             self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
             self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
-            w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen != -1 else 1
+            w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen > 0 else 1
             self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
 
-        if self.playlen is not None and self.playlen != -1:
+        if self.playlen is not None and self.playlen > 0:
             self.playlen_text = Label(self.overlay, text = timedelta(seconds=self.playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
             self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
 
@@ -442,7 +442,7 @@ class Coverplayer:
                     self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
                     self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
                 self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
-                w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen != -1 else 1
+                w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen > 0 else 1
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
         if self.debug is True:
             self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
@@ -745,6 +745,7 @@ class Coverplayer:
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     playmode = playlen is not None and playlen != -1 and is_playing is True
+                    #playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
@@ -839,6 +840,7 @@ class Coverplayer:
                                 self.canvas_clear = None
 
                     playmode = playlen is not None and playlen != -1 and is_playing is True
+                    #playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
