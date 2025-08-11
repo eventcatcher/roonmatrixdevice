@@ -264,9 +264,9 @@ class ItemList:
         self.refresh_row_tags()
         selected_item = self.listbox.focus()  # ID des selektierten Elements
         item_text = self.listbox.item(selected_item, 'text')
-        print(f"itemlist ==> on_select: {item_text}, iid: {selected_item}")
+        print(f"itemlist ==> type: {self.meta['type']}, on_select: {item_text}, iid: {selected_item}")
 
-        if self.meta['type'] == 'tracks':
+        if self.meta['type'] == 'tracks' or self.meta['type'] == 'radios':
             print('itemlist ==> track selected: ' + str(item_text))
             #self.master.destroy()
         else:         

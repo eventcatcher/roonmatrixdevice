@@ -317,6 +317,8 @@ class VirtualKeyboard:
         elif self.searchtype == 'track':
             self.searchtype = 'playlist'
         elif self.searchtype == 'playlist':
+            self.searchtype = 'radio' if self.hasRadioSearch is True else 'artist'
+        elif self.searchtype == 'radio':
             self.searchtype = 'artist'
         self.label.config(text=self.lang[self.searchtype])
 
@@ -328,7 +330,7 @@ class VirtualKeyboard:
         return el
     
     # start keyboard
-    def start(self, type, data, keyb_list, width, height, lang, kp_callback, close_callback):
+    def start(self, type, data, keyb_list, width, height, lang, hasRadioSearch, kp_callback, close_callback):
         self.type = type
         self.data = data
         
@@ -348,6 +350,7 @@ class VirtualKeyboard:
         self.maxpx_x = width
         self.maxpx_y = height
         self.lang = lang
+        self.hasRadioSearch = hasRadioSearch
         self.on_search = kp_callback
         self.on_close = close_callback
      

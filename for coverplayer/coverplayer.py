@@ -607,6 +607,18 @@ class Coverplayer:
                         self._open_list(meta, playlists)
                     else:
                         self.vkeyb.notfound()
+                if meta['type'] == 'radios' and len(data) == 2:
+                    self.search = meta['search']
+                    radios = data[1]
+                    if radios is not None and len(radios) > 0:
+                        print(*radios, sep="\n")
+                        meta['label'] = self.lang['select_radio'].title()
+                        meta['listname'] = None
+                        self._open_list(meta, radios)
+                    else:
+                        self.vkeyb.notfound()
+                if meta['type'] == 'radio':
+                    self.close_list()
 
     def on_itemclick(self, meta, name, id = None):
         print('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
@@ -691,7 +703,7 @@ class Coverplayer:
                         self._open_list(meta, tracks)
                     else:
                         self.itemlistclass.notfound()
-                if result_type =='track':
+                if result_type =='track' or result_type =='radio':
                     self.itemlistclass.close()
                 
     def _open_keyb(self, type):
@@ -712,7 +724,13 @@ class Coverplayer:
                     self.search = artist
                     self.on_itemclick(meta, album)
         else:
-            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.on_search, self.close_keyb)
+            self.hasRadioSearch = False
+            if len(self.text) > 3:
+                zone = self.text[0].split(':')[1].strip()
+                zonetype = zone.split('-')[1].strip()
+                if (zonetype!='Apple Music' and zonetype!='Spotify'):
+                    self.hasRadioSearch = True
+            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.hasRadioSearch, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))

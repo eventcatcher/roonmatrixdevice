@@ -350,8 +350,8 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
-    #cp_lang = {"notfound":"not found", "artist": "Artist", "select_artist": "Select Artist", "track": "Track", "select_track": "Select Track", "playlist": "Playlist", "select_playlist": "Select Playlist", "image_notfound": "Image not found", "play_album":"Play Album",  "play_playlist":"Play Playlist", "searchfor":"Searching for"}
-    cp_lang = {"notfound":"nichts gefunden", "artist": "Künstler", "select_artist": "Auswahl Künstler", "track": "Titel", "select_track": "Auswahl Titel", "playlist": "Playliste", "select_playlist": "Auswahl Playliste", "image_notfound": "Bild nicht gefunden", "play_album":"Album abspielen", "play_playlist":"Playliste abspielen", "searchfor":"Suche nach"}
+    #cp_lang = {"notfound":"not found", "artist": "Artist", "select_artist": "Select Artist", "track": "Track", "select_track": "Select Track", "select_radio": "Select Radio", "playlist": "Playlist", "radio": "Radio", "select_playlist": "Select Playlist", "image_notfound": "Image not found", "play_album":"Play Album",  "play_playlist":"Play Playlist", "searchfor":"Searching for"}
+    cp_lang = {"notfound":"nichts gefunden", "artist": "Künstler", "select_artist": "Auswahl Künstler", "track": "Titel", "select_track": "Auswahl Titel", "select_radio": "Auswahl Radio", "playlist": "Playliste", "radio": "Radio", "select_playlist": "Auswahl Playliste", "image_notfound": "Bild nicht gefunden", "play_album":"Album abspielen", "play_playlist":"Playliste abspielen", "searchfor":"Suche nach"}
     Coverplayer.set_translations(cp_lang)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     if spotify_client_id!='' and spotify_client_secret!='':
@@ -1873,6 +1873,22 @@ def roon_get_artists(output_id, name):
     except Exception as e:
         return []
 
+def roon_get_radios(output_id, name):
+    try:
+        radios = roonapi.list_media(output_id, ["My Live Radio", name ])
+        if radios is not None and len(radios) > 0:
+            return radios
+        radios = roonapi.list_media(output_id, ["My Live Radio", name.title() ])
+        if radios is not None and len(radios) > 0:
+            return radios
+        radios = roonapi.list_media(output_id, ["My Live Radio", name.upper() ])
+        if radios is not None and len(radios) > 0:
+            return radios
+        radios = roonapi.list_media(output_id, ["My Live Radio", name.lower() ])
+        return radios
+    except Exception as e:
+        return []
+
 def roon_get_artist_albums(output_id, artist):
     try:
         albums = roonapi.list_media(output_id, ["Library", "Artists", artist, '__all__'])
@@ -1906,6 +1922,9 @@ def roon_get_tracks(output_id, track):
         if tracks and len(tracks) > 0:
             if "Play Album" in tracks:
                 tracks.remove("Play Album")
+            return tracks
+        tracks = roonapi.list_media(output_id, ["Library", "Tracks", track.title() ])
+        if tracks and len(tracks) > 0:
             return tracks
         return []
     except Exception as e:
@@ -2239,6 +2258,22 @@ def on_search(value, zone, type):
                 tracks = roon_get_playlist_tracks(output_id, playlists[0])
                 meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
                 return [meta, tracks]
+            if type == 'radio':
+                radios = roon_get_radios(output_id, value)
+                print('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
+                if (len(radios) == 0):
+                    meta = {"zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                    return [meta, []]
+                if (len(radios) != 1):
+                    meta = {"zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                    return [meta, radios]
+                radio = radios[0]
+                meta = {"zonetype": zonetype, "type": 'radio', 'search': value.title(), "radio":radios[0]}
+                try:
+                    roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
+                except Exception as e:
+                    print('roonapi.play_media error: ' + str(e))
+                return [meta, radios]
     meta = {"zonetype": zonetype, "type": 'search', 'search': value.title()}
     return [meta, []]
 
@@ -2355,7 +2390,6 @@ def on_itemclick(meta, search, itemname, zone):
                     else:
                         send_webserver_zone_control(control_id, 'playtrack', itemname)                    
                     return ['track', itemname]
-                
     if is_webserver is False and control_id is not None and zone in channels.values():
         outputs = roonapi.outputs
         output_id = None
@@ -2403,6 +2437,12 @@ def on_itemclick(meta, search, itemname, zone):
                     except Exception as e:
                         print('roonapi.play_media error: ' + str(e))
                     return ['track', itemname]
+            if meta['type'] == 'radios':
+                try:
+                    roonapi.play_media(output_id, ["My Live Radio", itemname], None, False)
+                except Exception as e:
+                    print('roonapi.play_media error: ' + str(e))
+                return ['radio', itemname]
     return
 
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
