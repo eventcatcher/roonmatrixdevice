@@ -626,7 +626,7 @@ async def rest_setup(params: SetupParams):
 
     with open(configFile, 'w') as fileRes:
         config.write(fileRes)
-    print(config)
+    #print(config)
     config['SYSTEM']['password'] = pwbackup
     if doReboot is True:
         flexprint('successfully write of config file => do reboot now')
@@ -1632,7 +1632,7 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
             payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
             print('send_webserver_zone_control => payload: ' + str(payload))
             data = parse.urlencode(payload).encode()
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0;'}, data=data)
+            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
             try:
                 raw_bytes = urlopen(req, timeout=170).read()
                 result = raw_bytes.decode("utf-8")
