@@ -116,7 +116,7 @@ class ItemList:
     
         canvas = Canvas(master, width=self.maxpx_x, height=self.maxpx_y, background="black", bd=0, highlightthickness=0, relief='ridge')
         canvas.pack(fill=BOTH, expand=1)
-        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = 'Searching for\n' + self.search)
+        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = self.lang['searchfor'] + '\n' + self.search)
                         
         # Radius in pixels of a single dot.
         self.dot_radius = self.maxpx_x * 0.05
@@ -266,7 +266,8 @@ class ItemList:
         print(f"itemlist ==> on_select: {item_text}, iid: {selected_item}")
 
         if self.meta['type'] == 'tracks':
-            self.master.destroy()
+            print('itemlist ==> track selected: ' + str(item_text))
+            #self.master.destroy()
         else:         
             self.showSpinner = True
             self.master.destroy()
@@ -285,14 +286,37 @@ class ItemList:
         self.on_close()
         self.master.destroy()
 
+    def notfound(self):
+        print('itemlist ==> NOT FOUND!')
+        self.master = Tk()
+        self.trans_value = 0.7
+        self.master.attributes('-alpha', self.trans_value)
+        self.master.attributes('-topmost', True)
+        self.master.overrideredirect(True)
+        self.master.geometry(str(self.maxpx_x) + 'x' + str(self.maxpx_y) + '+0+0')
+        self.master.config(cursor="none", background="black")
+        self.master.resizable(False, False)
+        parent = Frame(self.master)
+        fontsize = int(self.maxpx_x / len(self.lang['notfound']))
+        Label(parent, text = self.lang['notfound'].upper(), font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
+        parent.pack(expand=1)
+        self.master.after(4000, self.close)
+        self.master.mainloop()
+
+    def close(self):
+        self.showSpinner = False
+        self.master.destroy()
+        self.on_close()
+    
     # start item list
-    def start(self, width, height, meta, items, itemclick_callback, close_callback):
+    def start(self, width, height, meta, items, lang, itemclick_callback, close_callback):
         print('itemlist ==> start, meta' + str(meta) + ', items: ' + str(len(items)))
 
         self.maxpx_x = width
         self.maxpx_y = height
         self.meta = meta
         self.items = items
+        self.lang = lang
         self.on_list_selection = itemclick_callback
         self.on_close = close_callback
         

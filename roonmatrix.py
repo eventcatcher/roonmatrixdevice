@@ -56,6 +56,8 @@ import logging
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from collections import OrderedDict
+from operator import is_not
+from functools import partial
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -348,6 +350,9 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
+    #cp_lang = {"notfound":"not found", "artist": "Artist", "select_artist": "Select Artist", "track": "Track", "select_track": "Select Track", "playlist": "Playlist", "select_playlist": "Select Playlist", "image_notfound": "Image not found", "play_album":"Play Album",  "play_playlist":"Play Playlist", "searchfor":"Searching for"}
+    cp_lang = {"notfound":"nichts gefunden", "artist": "Künstler", "select_artist": "Auswahl Künstler", "track": "Titel", "select_track": "Auswahl Titel", "playlist": "Playliste", "select_playlist": "Auswahl Playliste", "image_notfound": "Bild nicht gefunden", "play_album":"Album abspielen", "play_playlist":"Playliste abspielen", "searchfor":"Suche nach"}
+    Coverplayer.set_translations(cp_lang)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
@@ -590,7 +595,7 @@ async def rest_setup(params: SetupParams):
             if '%' in fieldValue and '%%' not in fieldValue: 
                 fieldValue = fieldValue.replace('%','%%') # masking of percent char
             if '\\' in fieldValue and '\\\\' not in fieldValue: 
-                fieldValue = fieldValue.replace('\\','\\\\') # masking of percent char
+                fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
             if config[areaKey][fieldKey]!=fieldValue:
                 if fieldKey!='screensaver_seconds':
                     config_str_masked = config[areaKey][fieldKey]
@@ -621,6 +626,7 @@ async def rest_setup(params: SetupParams):
 
     with open(configFile, 'w') as fileRes:
         config.write(fileRes)
+    print(config)
     config['SYSTEM']['password'] = pwbackup
     if doReboot is True:
         flexprint('successfully write of config file => do reboot now')
@@ -1626,9 +1632,11 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
             payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
             print('send_webserver_zone_control => payload: ' + str(payload))
             data = parse.urlencode(payload).encode()
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
+            req = Request(url, headers={'User-Agent': 'Mozilla/5.0;'}, data=data)
             try:
-                result = str(urlopen(req, timeout=170).read())
+                raw_bytes = urlopen(req, timeout=170).read()
+                result = raw_bytes.decode("utf-8")
+
                 return result
             except HTTPError as e:
                 if errorlog is True:
@@ -1850,46 +1858,85 @@ def on_control_click(action):
         set_repeat_mode(control_id, False, True)
 
 def roon_get_artists(output_id, name):
-    artists = roonapi.list_media(output_id, ["Library", "Artists", name ])
-    if artists is not None and len(artists) > 0:
+    try:
+        artists = roonapi.list_media(output_id, ["Library", "Artists", name ])
+        if artists is not None and len(artists) > 0:
+            return artists
+        artists = roonapi.list_media(output_id, ["Library", "Artists", name.title() ])
+        if artists is not None and len(artists) > 0:
+            return artists
+        artists = roonapi.list_media(output_id, ["Library", "Artists", name.upper() ])
+        if artists is not None and len(artists) > 0:
+            return artists
+        artists = roonapi.list_media(output_id, ["Library", "Artists", name.lower() ])
         return artists
-    artists = roonapi.list_media(output_id, ["Library", "Artists", name.title() ])
-    if artists is not None and len(artists) > 0:
-        return artists
-    artists = roonapi.list_media(output_id, ["Library", "Artists", name.upper() ])
-    if artists is not None and len(artists) > 0:
-        return artists
-    artists = roonapi.list_media(output_id, ["Library", "Artists", name.lower() ])
-    return artists
+    except Exception as e:
+        return []
 
 def roon_get_artist_albums(output_id, artist):
-    albums = roonapi.list_media(output_id, ["Library", "Artists", artist, '__all__'])
-    if albums:
-        if "Play Artist" in albums:
-            albums.remove("Play Artist")
-    album = None
-    if albums and len(albums) > 0:
-        album = albums[0]
-        print("\nAlbums by artist", artist, ":\n")
-        return albums
-    if album is None:
-        print("No albums found")
+    try:
+        albums = roonapi.list_media(output_id, ["Library", "Artists", artist, '__all__'])
+        if albums:
+            if "Play Artist" in albums:
+                albums.remove("Play Artist")
+        album = None
+        if albums and len(albums) > 0:
+            album = albums[0]
+            print("\nAlbums by artist", artist, ":\n")
+            return albums
+        if album is None:
+            print("No albums found")
+            return []
         return []
-    return []
+    except Exception as e:
+        return []
 
 def roon_get_artist_album_tracks(output_id, artist, album):
-    tracks = roonapi.list_media(output_id, ["Library", "Artists", artist, album, '__all__'])
-    if tracks and len(tracks) > 0:
-        return tracks
-    return []
+    try:
+        tracks = roonapi.list_media(output_id, ["Library", "Artists", artist, album, '__all__'])
+        if tracks and len(tracks) > 0:
+            return tracks
+        return []
+    except Exception as e:
+        return []
 
 def roon_get_tracks(output_id, track):
-    tracks = roonapi.list_media(output_id, ["Library", "Tracks", track])
-    if tracks and len(tracks) > 0:
-        if "Play Album" in tracks:
-            tracks.remove("Play Album")
-        return tracks
-    return []
+    try:
+        tracks = roonapi.list_media(output_id, ["Library", "Tracks", track])
+        if tracks and len(tracks) > 0:
+            if "Play Album" in tracks:
+                tracks.remove("Play Album")
+            return tracks
+        return []
+    except Exception as e:
+        return []
+
+def roon_get_playlists(output_id, name):
+    try:
+        playlists = roonapi.list_media(output_id, ["Playlists", name])
+        if playlists and len(playlists) > 0:
+            return playlists
+        playlists = roonapi.list_media(output_id, ["Playlists", name.title() ])
+        if playlists and len(playlists) > 0:
+            return playlists
+        playlists = roonapi.list_media(output_id, ["Playlists", name.upper() ])
+        if playlists and len(playlists) > 0:
+            return playlists
+        playlists = roonapi.list_media(output_id, ["Playlists", name.lower() ])
+        if playlists and len(playlists) > 0:
+            return playlists
+        return []
+    except Exception as e:
+        return []
+
+def roon_get_playlist_tracks(output_id, playlist):
+    try:
+        tracks = roonapi.list_media(output_id, ["Playlists", playlist, '__all__'])
+        if tracks and len(tracks) > 0:
+            return tracks
+        return []
+    except Exception as e:
+        return []
 
 def spotipy_init():
     """
@@ -1928,59 +1975,115 @@ def spotipy_init():
     return spotify
 
 def spotify_search_artist(artist_name):
-    spotify = spotipy_init()
-    if spotify is None:
-        return []
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
 
-    results = spotify.search(artist_name, limit=10, type='artist')
-    artists = results['artists']['items']
-    return artists
+        results = spotify.search(artist_name, limit=10, type='artist')
+        artists = results['artists']['items']
+        return artists
+    except Exception as e:
+        return []
 
 def spotify_search_artist_album(artist_name, album_name):
-    spotify = spotipy_init()
-    if spotify is None:
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        query='artist:"'+artist_name+'" album:"'+album_name + '"'
+        results = spotify.search(query, limit=10, type='album')
+        album = results['albums']['items'][0] if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0 else None
+
+        return album
+    except Exception as e:
         return []
-
-    query='artist:"'+artist_name+'" album:"'+album_name + '"'
-    results = spotify.search(query, limit=10, type='album')
-    album = results['albums']['items'][0] if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0 else None
-
-    return album
 
 def spotify_get_artist_albums(artist_id):
-    spotify = spotipy_init()
-    if spotify is None:
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
+        albums = results['items']
+        if len(albums) == 0:
+            return []
+
+        while results['next']:
+            results = spotify.next(results)
+            albums.extend(results['items'])
+
+        return albums
+    except Exception as e:
         return []
 
-    results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
-    albums = results['items']
-    if len(albums) == 0:
+def spotify_get_playlist_tracks(playlist_id):
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.playlist_items(playlist_id, fields="items", additional_types=('tracks'))
+        
+        tracks = results['items']
+        if len(tracks) == 0:
+            return []
+
+        #while results['next']:
+            #results = spotify.next(results)
+            #tracks.extend(results['items'])
+
+        return tracks
+    except Exception as e:
         return []
-
-    while results['next']:
-        results = spotify.next(results)
-        albums.extend(results['items'])
-
-    return albums
 
 def spotify_get_album_tracks(album_id):
-    spotify = spotipy_init()
-    if spotify is None:
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.album_tracks(album_id)
+        tracks = results['items']
+
+        return tracks
+    except Exception as e:
         return []
-
-    results = spotify.album_tracks(album_id)
-    tracks = results['items']
-
-    return tracks
 
 def spotify_search_track(track_name):
-    spotify = spotipy_init()
-    if spotify is None:
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.search(track_name, limit=10, type='track')
+        tracks = results['tracks']['items']
+        return tracks
+    except Exception as e:
         return []
 
-    results = spotify.search(track_name, limit=10, type='track')
-    tracks = results['tracks']['items']
-    return tracks
+def spotify_search_playlist(playlist_name):
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.search(playlist_name, limit=10, type='playlist')
+        playlists = list(filter(partial(is_not, None), results['playlists']['items']))
+        return playlists
+    except Exception as e:
+        return []
+
+def replace_escaped_item(item):
+    return item.replace('[dq]','"')
+
+def replace_escaped_list(items):
+    filteredItems = []
+    for item in items:
+        filteredItems.append(replace_escaped_item(item))
+    return filteredItems
 
 def on_search(value, zone, type):
     control_id = None
@@ -2014,40 +2117,78 @@ def on_search(value, zone, type):
             if type == 'track':
                 tracks = spotify_search_track(value)
                 tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "artist": obj['artists'][0]['name'] if ('artists' in obj and len(obj['artists']) > 0 and 'name' in obj['artists'][0]) else None}, tracks))
+            if type == 'playlist':
+                playlists = spotify_search_playlist(value)
+                if (len(playlists) == 0):
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    return [meta, []]
+                if (len(playlists) != 1):
+                    playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    return [meta, playlists]
+                playlist = playlists[0]
+                tracks = spotify_get_playlist_tracks(playlist['id'])
         if zonetype == 'Apple Music':
             if type == 'artist':
+                value = value.replace('"','\\"')
+                print('************ Apple Music artist search value: ' + str(value))
                 raw = send_webserver_zone_control(control_id, 'artists', value)
                 if raw is None:
                     return [meta, []]
-                raw = raw.replace('\\n','')
-                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
-                    raw = raw[2:-1]  # removes the prepended b' and appended '
-                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
+                print('************ Apple Music artist search raw response: ' + str(raw))
                 artists = json.loads(raw)
                 if (len(artists) == 0):
                     meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, []]
+                artists = replace_escaped_list(artists)
                 if (len(artists) != 1):
                     meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, artists]
-                artist = artists[0]
+                artist = artists[0].replace('"','\\\"')
                 raw = send_webserver_zone_control(control_id, 'albums', artist)
+                value = artist
+                print('artist '+str(artist)+' albums raw: ' + str(raw))
                 if raw is None:
                     return [meta, []]
-                raw = raw.replace('\\n','')
-                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
-                    raw = raw[2:-1]  # removes the prepended b' and appended '
-                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
                 albums = json.loads(raw)
-            if type == 'track':
-                raw = send_webserver_zone_control(control_id, 'tracks', value)
+                albums = replace_escaped_list(albums)
+            if type == 'playlist':
+                value = value.replace('"','\\"')
+                #value = value.replace('"','[dq]')
+                raw = send_webserver_zone_control(control_id, 'playlists', value)
                 if raw is None:
                     return [meta, []]
-                raw = raw.replace('\\n','')
-                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
-                    raw = raw[2:-1]  # removes the prepended b' and appended '
-                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
+                print('playlist apple music raw: ' + str(raw))
+                playlists = json.loads(raw)
+                if (len(playlists) == 0):
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    return [meta, []]
+                playlists = replace_escaped_list(playlists)
+                if (len(playlists) != 1):
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    return [meta, playlists]
+                playlist = playlists[0].replace('"','\\\"')
+                print('single playlist: ' + str(playlist))
+                raw = send_webserver_zone_control(control_id, 'playlist-tracks', playlist)
+                print('#applemusic raw: ' + str(raw))
+                if raw is None:
+                    return [meta, []]
+                print('#applemusic before loads: ' + str(raw))
                 tracks = json.loads(raw)
+                tracks = replace_escaped_list(tracks)
+                #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
+                print('#applemusic tracks escaped: ' + str(tracks))
+                meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlist, 'playlist': playlist}
+                return [meta, tracks]
+            if type == 'track':
+                value = value.replace('"','\\"')
+                print('************ Apple Music track search value: ' + str(value))
+                raw = send_webserver_zone_control(control_id, 'tracks-with-artist', value)
+                if raw is None:
+                    return [meta, []]
+                print('************ Apple Music track search raw response: ' + str(raw))
+                tracks = json.loads(raw)
+                tracks = replace_escaped_list(tracks)
         if type == 'artist':
             meta = {"zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
             return [meta, albums]
@@ -2086,6 +2227,18 @@ def on_search(value, zone, type):
                 else:
                     meta = {"zonetype": zonetype, "type": 'tracks', 'search': value.title()}
                     return [meta, []]
+            if type == 'playlist':
+                playlists = roon_get_playlists(output_id, value)
+                print('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
+                if (len(playlists) == 0):
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    return [meta, []]
+                if (len(playlists) != 1):
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    return [meta, playlists]
+                tracks = roon_get_playlist_tracks(output_id, playlists[0])
+                meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
+                return [meta, tracks]
     meta = {"zonetype": zonetype, "type": 'search', 'search': value.title()}
     return [meta, []]
 
@@ -2119,13 +2272,21 @@ def on_itemclick(meta, search, itemname, zone):
                 tracks = spotify_get_album_tracks(itemname)
                 tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
                 meta['tracks'] = tracknames
-                print('on_itemclick spotify api ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]['name']) + ', tracks('+str(len(tracks))+'): ' + str(tracknames))
+                return ['tracks', search, itemname, tracknames]
+            if meta['type'] == 'playlists':
+                tracks = spotify_get_playlist_tracks(itemname)
+                tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
+                meta['tracks'] = tracknames
                 return ['tracks', search, itemname, tracknames]
             if meta['type'] == 'tracks':
-                print('spotify on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
                 if 'artist' in meta:
                     send_webserver_zone_control(control_id, 'playtrack', itemname)
                     return ['track', meta['artist'], itemname]
+                elif 'playlist' in meta:
+                    if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
+                        itemname = itemname.replace('"', '\\"')
+                    send_webserver_zone_control(control_id, 'play-playlist-track', itemname)
+                    return ['track', meta['playlist'], itemname]
                 else:
                     send_webserver_zone_control(control_id, 'playtrack', 'spotify:track:' + itemname)
                     return ['track', itemname]
@@ -2134,44 +2295,65 @@ def on_itemclick(meta, search, itemname, zone):
                 raw = send_webserver_zone_control(control_id, 'albums', itemname)
                 if raw is None:
                     return ['albums', search, []]
-                raw = raw.replace('\\n','')
-                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
-                    raw = raw[2:-1]  # removes the prepended b' and appended '
-                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
                 albums = json.loads(raw)
+                albums = replace_escaped_list(albums)
                 return ['albums', search, albums]
             if meta['type'] == 'albums':
+                itemname = itemname.replace('"', '\\\"')
                 raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname)
                 if raw is None:
                     return ['tracks', search, itemname, []]
-                raw = raw.replace('\\n','')
-                if ( (raw.startswith("b'") or raw.startswith('b"')) and (raw.endswith("'") or raw.endswith('"')) ):
-                    raw = raw[2:-1].encode('utf-8').decode('unicode_escape')  # removes the prepended b' and appended '
-                raw = raw.encode('utf-8').decode('unicode_escape')  # encode to utf-8 and decode escaped chars
-                parts = raw.split(',')
-                for idx, part in enumerate(parts):
-                    if len(parts[idx]) > 4 and '"' in parts[idx][2:-2]:
-                        parts[idx] = parts[idx][:2] + parts[idx][2:-2].replace('"', '\\"') + parts[idx][-2:]
-                raw = ','.join(parts)
                 tracks = json.loads(raw)
-                tracks = list(map(lambda string: {"name": string.replace('|','. '),"id": string.split('|')[1]}, tracks))
+                tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
                 meta['tracks'] = tracks
                 print('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                return ['tracks', search, itemname, tracks]
+            if meta['type'] == 'playlists':
+                print('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
+                itemname = itemname.replace('"', '\\\"')
+                raw = send_webserver_zone_control(control_id, 'playlist-tracks', itemname)
+                if raw is None:
+                    return ['tracks', search, itemname, []]
+                tracks = json.loads(raw)
+                tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
+                meta['tracks'] = tracks
+                print('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'tracks':
                 print('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
                 if 'album' in meta:
-                    if meta['zonetype'] == 'Apple Music' and itemname == '[FULLALBUM]':
-                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], meta['tracks'][1]['id'])
+                    album = meta['album']
+                    album = album.replace('"', '\\"')
+                    if itemname == '[FULLALBUM]':
+                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
                     else:
-                        if len(itemname) > 0 and '"' in itemname:
+                        if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
-                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], meta['album'], itemname)
+                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, itemname)
                     return ['track', meta['artist'], meta['album'], itemname]
+                elif 'playlist' in meta:
+                    playlist = meta['playlist']
+                    if len(playlist) > 0 and '"' in playlist and '\\\"' not in playlist:
+                        playlist = playlist.replace('"', '\\"')                        
+                    if itemname == '[FULLPLAYLIST]':
+                        send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
+                    else:
+                        print('HEREEE')
+                        if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
+                            itemname = itemname.replace('"', '\\"')
+                        send_webserver_zone_control(control_id, 'play-playlist-track', playlist, itemname)
+                    return ['track', meta['playlist'], itemname]
                 else:
-                    if len(itemname) > 0 and '"' in itemname:
+                    if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                         itemname = itemname.replace('"', '\\"')
-                    send_webserver_zone_control(control_id, 'playtrack', itemname)
+                    if len(itemname.split('|')) == 2:
+                        itemparts = itemname.split('|')
+                        itemname = itemparts[0]
+                        artist = itemparts[1]
+                        send_webserver_zone_control(control_id, 'playtrack', itemname, artist)
+                        return ['track', itemname, artist]
+                    else:
+                        send_webserver_zone_control(control_id, 'playtrack', itemname)                    
                     return ['track', itemname]
                 
     if is_webserver is False and control_id is not None and zone in channels.values():
@@ -2184,18 +2366,42 @@ def on_itemclick(meta, search, itemname, zone):
         if output_id is not None:
             if meta['type'] == 'artists':
                 return ['artist', itemname]
+            if meta['type'] == 'playlists':
+                try:
+                    tracks = roon_get_playlist_tracks(output_id, search)
+                except Exception as e:
+                    tracks = []
+                meta['tracks'] = tracks
+                print('playlist tracks: ' + str(tracks))
+                return ['tracks', search, itemname, tracks]
             if meta['type'] == 'albums':
-                tracks = roon_get_artist_album_tracks(output_id, search, itemname) 
+                try:
+                    tracks = roon_get_artist_album_tracks(output_id, search, itemname)
+                except Exception as e:
+                    tracks = []
                 meta['tracks'] = tracks
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'tracks':
                 if 'album' in meta:
                     print('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', album: ' + meta['album'] + ', track: ' + itemname)
-                    roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)
+                    try:
+                        roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)                        
+                    except Exception as e:
+                        print('roonapi.play_media error: ' + str(e))
                     return ['track', meta['artist'], meta['album'], itemname]
+                elif 'playlist' in meta:
+                    print('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
+                    try:
+                        roonapi.play_media(output_id, ["Playlists", meta['playlist'], itemname], None, False)                        
+                    except Exception as e:
+                        print('roonapi.play_media error: ' + str(e))
+                    return ['track', meta['playlist'], itemname]
                 else:
                     print('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
-                    roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
+                    try:
+                        roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
+                    except Exception as e:
+                        print('roonapi.play_media error: ' + str(e))
                     return ['track', itemname]
     return
 

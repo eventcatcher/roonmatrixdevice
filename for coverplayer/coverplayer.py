@@ -52,6 +52,11 @@ class Coverplayer:
         cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
+    def set_translations(cls, lang):
+        cls._ensure_running()
+        cls._queue.put(('set_translations', lang, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
     def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
         cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
@@ -526,15 +531,27 @@ class Coverplayer:
             self.in_menu_mode = False
 
     def close_keyb(self):
+        print('close_keyb')
         self.root.deiconify()
 
     def close_list(self):
         self.root.deiconify()
         self._hide_overlay()
     
+    def unescape_quotes(self, str):
+        return str.replace('\\"',"\"")
+
+    def filter_list_to_unique_id(self, items):
+        filtered_items = []
+        idlist = []
+        for item in items:
+            if item['id'] not in idlist:
+                filtered_items.append(item)
+                idlist.append(item['id'])
+        return filtered_items
+    
     def on_search(self, type, key):
         self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
-        #self.close_keyb()
         if self.search_callback is not None:
             data = self.search_callback(key, self.zone, type)
             if len(data) > 0:
@@ -549,34 +566,47 @@ class Coverplayer:
                         else:
                             album_names = list(map(lambda obj: obj['name'], albums))
                             print(*album_names, sep="\n")
-                        #self.root.after(10, self._open_list(albums))
-                        meta['label'] = 'Artist'
-                        meta['listname'] = meta['artist']
+                        meta['label'] = self.lang['artist'].title()
+                        meta['listname'] = self.unescape_quotes(meta['artist'])
                         self._open_list(meta, albums)
                     else:
-                        self.close_list()
+                        self.vkeyb.notfound()
                 if meta['type'] == 'artists' and len(data) == 2:
                     self.search = meta['search']
                     artists = data[1]
                     if artists is not None and len(artists) > 0:
                         print(*artists, sep="\n")
-                        #self.root.after(10, self._open_list(albums))
-                        meta['label'] = 'Select Artist'
+                        meta['label'] = self.lang['select_artist'].title()
                         meta['listname'] = None
                         self._open_list(meta, artists)
                     else:
-                        self.close_list()
+                        self.vkeyb.notfound()
                 if meta['type'] == 'tracks' and len(data) == 2:
                     self.search = meta['search']
                     tracks = data[1]
+                    if meta['zonetype'] == 'Apple Music':
+                        tracks = list(map(lambda name: {"name": (name.split('|')[0] + ' [' + name.split('|')[1] + ']') if len(name.split('|')) == 2 else name, "id": name.split('|')[0]}, tracks))
+                        tracks = self.filter_list_to_unique_id(tracks)
+                        if 'playlist' in meta:
+                            tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
                     if tracks is not None and len(tracks) > 0:
                         print(*tracks, sep="\n")
-                        #self.root.after(10, self._open_list(albums))
-                        meta['label'] = 'Select Track'
-                        meta['listname'] = meta['search']
+                        meta['label'] = self.lang['select_track'].title()
+                        meta['listname'] = self.unescape_quotes(meta['search'])
+                        print('coverplayer applemusic playlist tracks: ' + str(tracks))
                         self._open_list(meta, tracks)
                     else:
-                        self.close_list()
+                        self.vkeyb.notfound()
+                if meta['type'] == 'playlists' and len(data) == 2:
+                    self.search = meta['search']
+                    playlists = data[1]
+                    if playlists is not None and len(playlists) > 0:
+                        print(*playlists, sep="\n")
+                        meta['label'] = self.lang['select_playlist'].title()
+                        meta['listname'] = None
+                        self._open_list(meta, playlists)
+                    else:
+                        self.vkeyb.notfound()
 
     def on_itemclick(self, meta, name, id = None):
         print('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
@@ -598,15 +628,17 @@ class Coverplayer:
                         else:
                             album_names = list(map(lambda obj: obj['name'], albums))
                             print(*album_names, sep="\n")
-                        #self.root.after(10, self._open_list(albums))
                         meta['type'] = result_type
                         meta['artist'] = self.search
                         meta['artistId'] = id
-                        meta['label'] = 'Artist'
-                        meta['listname'] = self.search
+                        meta['label'] = self.lang['artist'].title()
+                        meta['listname'] = self.unescape_quotes(self.search)
                         print('on_itemclick before _open_list1, meta: ' + str(meta))
                         self._open_list(meta, albums)
-                if meta['type']!='tracks' and result_type == 'tracks':
+                    else:
+                        self.itemlistclass.notfound()
+                print('#### coverplayer on_itemclick result_type: ' + result_type + ', meta: ' + str(meta))                 
+                if meta['type']!='playlists' and meta['type']!='tracks' and result_type == 'tracks':
                     self.search = data[1]
                     album = data[2]
                     tracks = data[3]
@@ -615,21 +647,52 @@ class Coverplayer:
                         if isinstance(tracks[0], str) is True:
                             print(*tracks, sep="\n")
                         else:
+                            tracks = self.filter_list_to_unique_id(tracks)
                             if meta['zonetype'] == 'Apple Music':
-                                tracks.insert(0, {"name": "Play Album", "id": "[FULLALBUM]"})
+                                tracks.insert(0, {"name": self.lang['play_album'].title(), "id": "[FULLALBUM]"})
                             if meta['zonetype'] == 'Spotify':
                                 tracks = list(map(lambda obj: {"name": str(obj['track_number']) + '. ' +  obj['name'], "id": 'spotify:track:' + obj['id']}, tracks))
-                                tracks.insert(0, {"name": "Play Album", "id": 'spotify:album:' + album})
+                                tracks.insert(0, {"name": self.lang['play_album'].title(), "id": 'spotify:album:' + album})
                             track_names = list(map(lambda obj: obj['name'], tracks))
                             print(*track_names, sep="\n")
-                        #self.root.after(10, self._open_list(albums))
                         meta['type'] = result_type
                         meta['album'] = name
                         meta['albumId'] = id # or maybe album
-                        meta['label'] = 'Select Track'
-                        meta['listname'] = None
+                        meta['label'] = self.lang['select_track'].title()
+                        meta['listname'] = meta['artist'] + ' - ' + meta['album']
                         print('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
+                    else:
+                        self.itemlistclass.notfound()
+                if meta['type']=='playlists' and result_type == 'tracks':
+                    self.search = data[1]
+                    playlist = data[2]
+                    tracks = data[3]
+                    #print('coverplayer on_itemclick playlist tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', playlist: ' + str(playlist))
+                    if tracks is not None and len(tracks) > 0:
+                        if isinstance(tracks[0], str) is True:
+                            print(*tracks, sep="\n")
+                        else:
+                            tracks = self.filter_list_to_unique_id(tracks)
+                            if meta['zonetype'] == 'Apple Music':
+                                tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
+                            if meta['zonetype'] == 'Spotify':
+                                tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, tracks))
+                                tracks = self.filter_list_to_unique_id(tracks)
+                                tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": 'spotify:playlist:' + playlist})
+                            track_names = list(map(lambda obj: obj['name'], tracks))
+                            print(*track_names, sep="\n")
+                        meta['type'] = result_type
+                        meta['playlist'] = name
+                        meta['playlistId'] = id # or maybe playlist
+                        meta['label'] = self.lang['select_track'].title()
+                        meta['listname'] = name
+                        #print('on_itemclick before _open_list2, meta: ' + str(meta))
+                        self._open_list(meta, tracks)
+                    else:
+                        self.itemlistclass.notfound()
+                if result_type =='track':
+                    self.itemlistclass.close()
                 
     def _open_keyb(self, type):
         self.root.withdraw()
@@ -645,17 +708,16 @@ class Coverplayer:
                 album = self.text[2].split(':')[1].strip()
                 track = self.text[3].split(':')[1].strip()
                 if zone == self.zone:
-                    meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': 'Artist', 'listname': artist}   
+                    meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': self.lang['artist'].title(), 'listname': artist}   
                     self.search = artist
                     self.on_itemclick(meta, album)
         else:
-            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.on_search, self.close_keyb)
+            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
         #self.root.withdraw()
-        print('_open_list before, meta: ' + str(meta) + ', items: ' + str(len(items)))
-        self.itemlistclass.start(self.maxpx_x, self.maxpx_y, meta, items, self.on_itemclick, self.close_list)
+        self.itemlistclass.start(self.maxpx_x, self.maxpx_y, meta, items, self.lang, self.on_itemclick, self.close_list)
 
     def _poll_queue(self):
         try:
@@ -711,7 +773,7 @@ class Coverplayer:
                         self.label.config(image = img)
                         self.label.image = img
                     else:
-                        self.label.config(text = "Image not found", image = "")
+                        self.label.config(text = self.lang['image_notfound'].title(), image = "")
                     self.text = text
                     if len(text) > 0:
                         line_parts = text[0].split(':')
@@ -734,6 +796,8 @@ class Coverplayer:
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
+                if func == 'set_translations':
+                    self.lang = playpos
                 if func == 'setpos':
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
@@ -770,7 +834,7 @@ class Coverplayer:
                             self.label.config(image = img)
                             self.label.image = img
                         else:
-                            self.label.config(text = "Image not found", image = "")
+                            self.label.config(text = self.lang['image_notfound'].title(), image = "")
                         self.path = path
                         self.text = text
                         if len(text) > 0:

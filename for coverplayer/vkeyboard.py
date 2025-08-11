@@ -60,7 +60,7 @@ class VirtualKeyboard:
     
         canvas = Canvas(master, width=self.maxpx_x, height=self.maxpx_y, background="black", bd=0, highlightthickness=0, relief='ridge')
         canvas.pack(fill=BOTH, expand=1)
-        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = 'Searching for\n' + self.search)
+        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = self.lang['searchfor'] + '\n' + self.search)
                         
         # Radius in pixels of a single dot.
         self.dot_radius = self.maxpx_x * 0.05
@@ -276,7 +276,7 @@ class VirtualKeyboard:
             self.master.destroy()
             executor = ThreadPoolExecutor(max_workers=1)
             job = executor.submit(self.circleProgress)
-            self.on_search('track' if self.tracksearch is True else 'artist', value)
+            self.on_search(self.searchtype, value)
             self.showSpinner = False
         else:
             self.master.after(10, self.master.wm_deiconify())
@@ -312,28 +312,42 @@ class VirtualKeyboard:
             self.update_keyboard()
 
     def on_labelTap(self):
-        self.tracksearch = self.tracksearch is False
-        self.label.config(text='Track' if self.tracksearch is True else 'Artist')
+        if self.searchtype == 'artist':
+            self.searchtype = 'track'
+        elif self.searchtype == 'track':
+            self.searchtype = 'playlist'
+        elif self.searchtype == 'playlist':
+            self.searchtype = 'artist'
+        self.label.config(text=self.lang[self.searchtype])
 
+    def unescape(self, el):
+        if el=='[q]':
+            el = '\''
+        if el=='[dq]':
+            el = '\"'
+        return el
+    
     # start keyboard
-    def start(self, type, data, keyb_list, width, height, kp_callback, close_callback):
+    def start(self, type, data, keyb_list, width, height, lang, kp_callback, close_callback):
         self.type = type
         self.data = data
         
         self.row1keyb = keyb_list[0]
-        self.row2keyb = keyb_list[1]
-        self.row3keyb = keyb_list[2]
-        self.row4keyb = keyb_list[3]
-        self.row1keyb_shift = keyb_list[4]
-        self.row2keyb_shift = keyb_list[5]
-        self.row4keyb_shift = keyb_list[6]
-        self.row1keyb_alt = keyb_list[7]
-        self.row2keyb_alt = keyb_list[8]
-        self.row3keyb_alt = keyb_list[9]
-        self.row4keyb_alt = keyb_list[10]
+        self.row1keyb = list(map(lambda el: self.unescape(el), keyb_list[0]))
+        self.row2keyb = list(map(lambda el: self.unescape(el), keyb_list[1]))
+        self.row3keyb = list(map(lambda el: self.unescape(el), keyb_list[2]))
+        self.row4keyb = list(map(lambda el: self.unescape(el), keyb_list[3]))
+        self.row1keyb_shift = list(map(lambda el: self.unescape(el), keyb_list[4]))
+        self.row2keyb_shift = list(map(lambda el: self.unescape(el), keyb_list[5]))
+        self.row4keyb_shift = list(map(lambda el: self.unescape(el), keyb_list[6]))
+        self.row1keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[7]))
+        self.row2keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[8]))
+        self.row3keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[9]))
+        self.row4keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[10]))
         
         self.maxpx_x = width
         self.maxpx_y = height
+        self.lang = lang
         self.on_search = kp_callback
         self.on_close = close_callback
      
@@ -363,8 +377,8 @@ class VirtualKeyboard:
         self.darkyellow = "#bfb967"
         self.yellow = "#ebe481"
 
-        self.searchlabel = "Artist"
-        self.tracksearch = False
+        self.searchlabel = self.lang['artist']
+        self.searchtype = 'artist'
         
         self.master.configure(bg=self.gray)
 
@@ -676,3 +690,25 @@ class VirtualKeyboard:
             if key == "alt gr":
                 self.row5buttons[ind].config(command=lambda: self.vupdownkey("<Button-1>", type='alt'))
                 self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='alt': self.vupdownkey(event, type))
+
+    def notfound(self):
+        print('vkeyb ==> NOT FOUND!')
+        self.master = Tk()
+        self.trans_value = 0.7
+        self.master.attributes('-alpha', self.trans_value)
+        self.master.attributes('-topmost', True)
+        self.master.overrideredirect(True)
+        self.master.geometry(str(self.maxpx_x) + 'x' + str(self.maxpx_y) + '+0+0')
+        self.master.config(cursor="none", background="black")
+        self.master.resizable(False, False)
+        parent = Frame(self.master)
+        fontsize = int(self.maxpx_x / len(self.lang['notfound']))
+        Label(parent, text = self.lang['notfound'].upper(), font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
+        parent.pack(expand=1)
+        self.master.after(4000, self.close)
+        self.master.mainloop()
+
+    def close(self):
+        self.showSpinner = False
+        self.master.destroy()
+        self.on_close()
