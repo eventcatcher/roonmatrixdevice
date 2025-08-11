@@ -80,6 +80,7 @@ class TouchTreeview(ttk.Treeview):
 
 class ItemList:
     def init(self):
+    
         # Main Window
         self.master = Tk()
         self.inpstr = StringVar()
@@ -319,6 +320,8 @@ class ItemList:
         self.lang = lang
         self.on_list_selection = itemclick_callback
         self.on_close = close_callback
+        
+        self.search = ''
         
         self.init()
         self.engine()

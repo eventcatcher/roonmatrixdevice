@@ -417,7 +417,7 @@ class Coverplayer:
             self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
             self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
             self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
-            w = (self.maxpx_x - 243) / self.playlen * self.playpos
+            w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen != -1 else 1
             self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
 
         if self.playlen is not None and self.playlen != -1:
@@ -429,8 +429,8 @@ class Coverplayer:
         if self.playpos_next != None:
             self.playpos = self.playpos_next
             self.playpos_next = None
-        if self.is_playing is True and self.playpos is not None and self.playpos != -1 and self.playlen is not None and self.playlen != -1:
-            if self.playpos < self.playlen:
+        if self.is_playing is True and self.playpos is not None and self.playpos != -1:
+            if self.playlen is None or self.playpos < self.playlen:
                 self.playpos += 1
             if self.in_menu_mode is True:
                 if self.playpos_text is None:
@@ -442,7 +442,7 @@ class Coverplayer:
                     self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
                     self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
                 self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
-                w = (self.maxpx_x - 243) / self.playlen * self.playpos
+                w = (self.maxpx_x - 243) / (self.playlen * self.playpos) if self.playlen is not None and self.playlen != -1 else 1
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
         if self.debug is True:
             self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
@@ -805,7 +805,7 @@ class Coverplayer:
                         if self.debug is True:
                             self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
                     else:
-                        if self.playlen is not None and self.playlen != -1:
+                        if self.playpos is not None and self.playpos != -1:
                             self.playpos_next = playpos
                             if self.debug is True:
                                 self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
