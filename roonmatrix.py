@@ -227,7 +227,6 @@ control_zone = config['SYSTEM']['control_zone'] # name of default roon or webser
 zone_control_map = literal_eval(config['SYSTEM']['zone_control_map']) # map names of control zones to shorter variant (for matrix with less modules)
 zone_control_timeout = int(config['SYSTEM']['zone_control_timeout']) # max time in seconds the zone control mode is displayed (before the message playout restarts)
 map_zone_control = eval(config['SYSTEM']['map_zone_control']) # true: map zone control names, false: no mapping
-playing_headline = config['SYSTEM']['playing_headline'] # headline text to display in front of audio informations
 exclusive_audio_mode = eval(config['SYSTEM']['exclusive_audio_mode']) # true: display audio messages, show other content (rss, weather) if no audio is played, false: show all
 exclusive_active_zone = eval(config['SYSTEM']['exclusive_active_zone']) # true: display only active zone
 music_required = eval(config['SYSTEM']['music_required']) # true: music playing is required to display anything (silent if no music is playing)
@@ -241,6 +240,7 @@ datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show o
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) # screensaver timeout in seconds (0 = screensaver off)
 
+playing_headline = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
 conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
 translate_map = {} # define key value map to use for language translation
 for key, val in conversions.items():
@@ -250,6 +250,7 @@ weather_description = literal_eval(config['LANGUAGE']['weather_description']) # 
 weather_properties = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
 messages = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
 
+coverplayer_lang = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
 row1keyb = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
 row2keyb = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
 row3keyb = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
@@ -350,9 +351,7 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
-    #cp_lang = {"notfound":"not found", "artist": "Artist", "select_artist": "Select Artist", "track": "Track", "select_track": "Select Track", "select_radio": "Select Radio", "playlist": "Playlist", "radio": "Radio", "select_playlist": "Select Playlist", "image_notfound": "Image not found", "play_album":"Play Album",  "play_playlist":"Play Playlist", "searchfor":"Searching for"}
-    cp_lang = {"notfound":"nichts gefunden", "artist": "Künstler", "select_artist": "Auswahl Künstler", "track": "Titel", "select_track": "Auswahl Titel", "select_radio": "Auswahl Radio", "playlist": "Playliste", "radio": "Radio", "select_playlist": "Auswahl Playliste", "image_notfound": "Bild nicht gefunden", "play_album":"Album abspielen", "play_playlist":"Playliste abspielen", "searchfor":"Suche nach"}
-    Coverplayer.set_translations(cp_lang)
+    Coverplayer.set_translations(coverplayer_lang)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
@@ -393,10 +392,9 @@ async def rest_config():
                             {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                             {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                             {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
                             {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
                             {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
-                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['SYSTEM']['playing_headline']},
                             {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
                             {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']}
@@ -405,8 +403,10 @@ async def rest_config():
                     {
                         "name": "LANGUAGE",
                         "items": [
+                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
                             {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
                             {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']},
+                            {"name": "coverplayer", "editable": True, "type": {"type": "list(13)", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Coverplayer", "unit": "json", "value": config['LANGUAGE']['coverplayer']},
                             {"name": "row1keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row1", "unit": "", "value": config['LANGUAGE']['row1keyb']},
                             {"name": "row2keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row2", "unit": "", "value": config['LANGUAGE']['row2keyb']},
                             {"name": "row3keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row3", "unit": "", "value": config['LANGUAGE']['row3keyb']},
@@ -424,7 +424,7 @@ async def rest_config():
                         "name": "ROON",
                         "items": [
                             {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
-                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
                             {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
                             {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                         ]
@@ -468,15 +468,14 @@ async def rest_config():
                         {"name": "controlswitch_gpio_right", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button right", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_right']},
                         {"name": "controlswitch_bouncetime", "editable": True, "type": {"type": "int", "structure": []}, "label": "Button bounce time", "unit": "ms", "value": config['SYSTEM']['controlswitch_bouncetime']},
                         {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                        {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
-                        {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Separator", "unit": "", "value": config['SYSTEM']['separator']},
+                        {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                        {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
                         {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
                         {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
                         {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                         {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
-                        {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['SYSTEM']['playing_headline']},
                         {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
-                        {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive active zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
+                        {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
                         {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
                         {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
                         {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
@@ -491,9 +490,10 @@ async def rest_config():
                 {
                     "name": "LANGUAGE",
                     "items": [
+                        {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
                         {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
                         {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
-                        {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description", "unit": "json", "value": config['LANGUAGE']['weather_description']},
+                        {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
                         {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
                         {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
                     ]
@@ -504,7 +504,7 @@ async def rest_config():
                         {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
                         {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
                         {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
-                        {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                        {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
                         {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
                         {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                     ]
@@ -530,12 +530,12 @@ async def rest_config():
                         {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
                         {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
                         {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
-                        {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed", "unit": "", "value": config['WEATHER']['with_wind_spd']},
+                        {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
                         {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
                         {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
-                        {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure", "unit": "", "value": config['WEATHER']['with_pressure']},
-                        {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
-                        {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
+                        {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
+                        {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
+                        {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
                         {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
                         {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
                         {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
@@ -555,8 +555,8 @@ async def rest_config():
                         {"name": "clock_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock", "unit": "", "value": config['CLOCK']['clock_show']},
                         {"name": "clock_without_idle_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock always is no audio is played (in music_required mode only)", "unit": "", "value": config['CLOCK']['clock_without_idle_time']},
                         {"name": "clock_refresh_per_second", "editable": True, "type": {"type": "int", "structure": []}, "label": "Display refresh rate", "unit": "frames/s", "value": config['CLOCK']['clock_refresh_per_second']},
-                        {"name": "max_idle_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max idle time", "unit": "minutes", "value": config['CLOCK']['max_idle_time']},
-                        {"name": "max_show_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max show time", "unit": "minutes", "value": config['CLOCK']['max_show_time']},
+                        {"name": "max_idle_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max idle time from inactive output to next time to display clock", "unit": "minutes", "value": config['CLOCK']['max_idle_time']},
+                        {"name": "max_show_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max show time [automatically quit by activity of zones]", "unit": "minutes", "value": config['CLOCK']['max_show_time']},
                         {"name": "audioinfo_timer", "editable": True, "type": {"type": "int", "structure": []}, "label": "Check audio zones refresh time", "unit": "seconds", "value": config['CLOCK']['audioinfo_timer']}
                     ]
                 }
