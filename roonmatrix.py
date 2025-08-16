@@ -19,7 +19,7 @@
 scriptVersion = '1.1.0, date: 11.07.2025'
 
 from threading import Timer
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dateutil import tz
 import time
 import requests
@@ -31,7 +31,7 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system, environ
+from os import path, system, environ, stat, remove, rename
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -58,6 +58,8 @@ from spotipy.oauth2 import SpotifyClientCredentials
 from collections import OrderedDict
 from operator import is_not
 from functools import partial
+from pathlib import Path
+import hashlib
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -76,6 +78,8 @@ startlog = True # log start and config information
 log = True      # log infos on or off
 errorlog = True # log errors
 display_cover = False
+downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
+base_translations_path = '../FTP/translations/'
 
 def init_logging():
     max_size_in_mb = 10
@@ -107,10 +111,9 @@ idfile = base_path + 'coreid.txt'
 tokenfile = base_path + 'roontoken.txt'
 # read config file
 configFile = base_path + 'roon_api.ini'
+print('read main ini')
 config = configparser.ConfigParser()
 config.read(configFile)
-
-hostName = socket.gethostname()
 
 if 'display_cover' in config['SYSTEM']:
     display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
@@ -159,6 +162,179 @@ def flexprint(str, objStr = None):
             print(str, objStr)
         else:
             logger.info(str, objStr)
+
+def get_countrycode_from_public_ip():
+    cc = 'en'
+    try:
+        req = Request('https://ident.me/json', headers={'User-Agent': 'Mozilla/5.0'})
+        ipdata = urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf8')
+        if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
+            flexprint('ipdata: ' + str(ipdata))
+            jsonObj = json.loads(ipdata)
+            cc = str(jsonObj['cc']).lower()
+    except Exception as e:
+        flexprint('[red]setHostname error: ' + str(e) + '[/red]')
+    return cc
+
+def creation_date(path_to_file):
+    return path.getctime(path_to_file)
+    
+
+def translation_exist(cc, update):
+    current_path = Path(__file__).parent
+    fileName = 'translations_' + cc + '.ini'
+    relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+    
+    file_path = str((current_path / relative_path).resolve())
+    exist = Path(file_path).is_file()
+    if exist is False:
+        return [exist]
+    
+    creationDate = creation_date(file_path)
+    creationDate = datetime.fromtimestamp(creationDate)
+    if debug is True:
+        flexprint('creationDate_' + ('update' if update is True else 'main') + ': ' + str(format(creationDate.isoformat())))
+
+    return [exist, creationDate]
+
+def translation_fileinfo(cc, update):
+    current_path = Path(__file__).parent
+    fileName = 'translations_' + cc + '.ini'
+    relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+    
+    file_path = str((current_path / relative_path).resolve())
+    exist = Path(file_path).is_file()
+    
+    if exist is True:
+        creationDate = creation_date(file_path)
+        creationDate = datetime.fromtimestamp(creationDate)
+
+        with open(file_path, 'r') as fileRead:
+            langdata = fileRead.read()
+        hash = hashlib.md5(langdata.encode()).hexdigest()
+
+        return [exist, creationDate, hash, file_path]
+    else:
+        return [exist]
+
+def get_translation_path(cc):
+    current_path = Path(__file__).parent
+    relative_path = base_translations_path + 'translations_' + cc + '.ini'
+    
+    file_path = (current_path / relative_path).resolve()
+    return file_path
+
+def delete_translation(cc, update):
+    current_path = Path(__file__).parent
+    filename = 'translations_' + cc + '.ini'
+    local_filename = ('update_' + filename) if update is True else filename
+    relative_path = base_translations_path + local_filename
+    file_path = str((current_path / relative_path).resolve())
+    remove(file_path)
+
+def update_translation(cc):
+    current_path = Path(__file__).parent
+    relative_path_old = base_translations_path + 'update_translations_' + cc + '.ini'
+    relative_path_new = base_translations_path + 'translations_' + cc + '.ini'
+
+    file_path_old = str((current_path / relative_path_old).resolve())
+    file_path_new = str((current_path / relative_path_new).resolve())
+
+    delete_translation(cc, False)
+    rename(file_path_old, file_path_new)
+
+def download_translation(cc, update):
+    remote_filename = 'translations_' + cc + '.ini'
+    local_filename = ('update_' + remote_filename) if update is True else remote_filename
+    try:
+        req = Request(downloadserver + remote_filename, headers={'User-Agent': 'Mozilla/5.0'})
+        langdata = urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf8')
+        current_path = Path(__file__).parent
+        relative_path = base_translations_path + local_filename
+    
+        file_path = str((current_path / relative_path).resolve())
+        with open(file_path, 'w') as fileRes:
+            fileRes.write(langdata)
+        fileinfo = translation_exist(cc, update)
+        exist = fileinfo[0]
+        if exist:
+            creationDate = fileinfo[1]
+            hash = hashlib.md5(langdata.encode()).hexdigest()
+
+            return [exist, creationDate, hash, file_path]
+        else:
+            return [exist]
+    except Exception as e:
+        flexprint('[red]translation download error: ' + str(e) + '[/red]')
+    return None
+
+translation_hash = config['LANGUAGE']['translation_hash']
+countrycode = config['SYSTEM']['countrycode']
+webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout'])
+
+if countrycode == 'auto' or countrycode == '':
+    countrycode = get_countrycode_from_public_ip()
+flexprint('countrycode: ' + countrycode)
+
+updateHash = ''
+fileinfo = translation_exist(countrycode, False)
+exist = fileinfo[0]
+if exist:
+    translation_changed = False
+    hash_main = ''
+    max_download_age_in_days = -1
+    download_age_in_days = -1
+    fileinfo_main = translation_fileinfo(countrycode, False)
+    if len(fileinfo_main) > 2:
+        creationDate_main = fileinfo[1]
+        hash_main = fileinfo_main[2]
+        delta = datetime.now() - creationDate_main
+        download_age_in_days = delta.days
+        flexprint('days since last translation download: ' + str(download_age_in_days))
+    if debug is True:
+        flexprint('fileinfo_main: ' + str(fileinfo_main))
+    
+    if download_age_in_days > max_download_age_in_days:
+        fileinfo = download_translation(countrycode, True)
+        if fileinfo is not None:
+            if debug is True:
+                flexprint('fileinfo: ' + str(fileinfo))
+            exist = fileinfo[0]
+            creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
+            hash = fileinfo[2] if len(fileinfo) > 2 else ''
+            updateFile = fileinfo[3] if len(fileinfo) > 3 else ''
+            if hash_main == hash:
+                flexprint('hash is equal (' + hash + ') => file not changed')
+                delete_translation(countrycode, True)
+            else:
+                flexprint('hash is NOT equal (' + hash_main + ' / ' + hash + ') => take updated file')
+                translation_changed = True
+                update_translation(countrycode)
+                hash_main = hash
+
+    overrideFile = get_translation_path(countrycode)
+    updateHash = hash_main
+    load_with_override = (translation_hash != updateHash)
+    flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
+    if load_with_override is True:
+        config.read([configFile, str(overrideFile)])
+    else:
+        config.read([configFile])
+
+else:
+    fileinfo = download_translation(countrycode, False)
+    if fileinfo is not None:
+        if debug is True:
+            flexprint('fileinfo: ' + str(fileinfo))
+        exist = fileinfo[0]
+        creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
+        hash = fileinfo[2] if len(fileinfo) > 2 else ''
+        overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
+        if exist is True and overrideFile is not None and len(overrideFile) > 0:
+            updateHash = hash
+            config.read([configFile, overrideFile])
+
+hostName = socket.gethostname()
 
 sys.stdout.reconfigure(encoding='utf-8')
 from_zone = tz.tzutc()
@@ -239,6 +415,7 @@ datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and ti
 datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) # screensaver timeout in seconds (0 = screensaver off)
+countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
 
 playing_headline = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
 conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
@@ -391,6 +568,7 @@ async def rest_config():
                         "items": [
                             {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                             {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
+                            {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
                             {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
                             {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
                             {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
@@ -454,6 +632,7 @@ async def rest_config():
                     "items": [
                         {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                         {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
+                        {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
                         {"name": "led_modules", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED modules", "unit": "", "value": config['SYSTEM']['led_modules']},
                         {"name": "led_block_orientation", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED Block Orientation", "unit": "", "value": config['SYSTEM']['led_block_orientation']},
                         {"name": "led_rotate", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED rotation", "unit": "", "value": config['SYSTEM']['led_rotate']},
@@ -623,10 +802,17 @@ async def rest_setup(params: SetupParams):
 
     pwbackup = config['SYSTEM']['password']
     del config['SYSTEM']['password']
+        
+    fileinfo = translation_exist(countrycode, False)
+    exist = fileinfo[0]
+    if exist:
+        flexprint('translation file ' + countrycode + 'exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
+        if updateHash!='':
+            config['LANGUAGE']['translation_hash'] = updateHash
 
     with open(configFile, 'w') as fileRes:
         config.write(fileRes)
-    #print(config)
+
     config['SYSTEM']['password'] = pwbackup
     if doReboot is True:
         flexprint('successfully write of config file => do reboot now')
@@ -1630,7 +1816,7 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
                 break
         if channels[control_id] == 'webserver' and url != '':
             payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
-            print('send_webserver_zone_control => payload: ' + str(payload))
+            flexprint('send_webserver_zone_control => payload: ' + str(payload))
             data = parse.urlencode(payload).encode()
             req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
             try:
@@ -1900,10 +2086,10 @@ def roon_get_artist_albums(output_id, artist):
         album = None
         if albums and len(albums) > 0:
             album = albums[0]
-            print("\nAlbums by artist", artist, ":\n")
+            flexprint("\nAlbums by artist", artist, ":\n")
             return albums
         if album is None:
-            print("No albums found")
+            flexprint("No albums found")
             return []
         return []
     except Exception as e:
@@ -1975,7 +2161,7 @@ def spotipy_init():
         import urllib3.util.connection as urllib3_cn
         urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
     except Exception as e:
-        print("Warning: IPv4 forcing failed:", e)
+        flexprint("Warning: IPv4 forcing failed:", e)
 
     # Prepare session with SSL context
     class IPv4OnlyAdapter(requests.adapters.HTTPAdapter):
@@ -1992,7 +2178,7 @@ def spotipy_init():
     try:
         spotify = spotipy.Spotify(auth_manager=auth_manager, requests_session=session)
     except Exception as e:
-        print('Spotify auth error')
+        flexprint('Spotify auth error')
         return None
 
     return spotify
@@ -2154,11 +2340,11 @@ def on_search(value, zone, type):
         if zonetype == 'Apple Music':
             if type == 'artist':
                 value = value.replace('"','\\"')
-                print('************ Apple Music artist search value: ' + str(value))
+                flexprint('************ Apple Music artist search value: ' + str(value))
                 raw = send_webserver_zone_control(control_id, 'artists', value)
                 if raw is None:
                     return [meta, []]
-                print('************ Apple Music artist search raw response: ' + str(raw))
+                flexprint('************ Apple Music artist search raw response: ' + str(raw))
                 artists = json.loads(raw)
                 if (len(artists) == 0):
                     meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
@@ -2170,7 +2356,7 @@ def on_search(value, zone, type):
                 artist = artists[0].replace('"','\\\"')
                 raw = send_webserver_zone_control(control_id, 'albums', artist)
                 value = artist
-                print('artist '+str(artist)+' albums raw: ' + str(raw))
+                flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
                 if raw is None:
                     return [meta, []]
                 albums = json.loads(raw)
@@ -2181,7 +2367,7 @@ def on_search(value, zone, type):
                 raw = send_webserver_zone_control(control_id, 'playlists', value)
                 if raw is None:
                     return [meta, []]
-                print('playlist apple music raw: ' + str(raw))
+                flexprint('playlist apple music raw: ' + str(raw))
                 playlists = json.loads(raw)
                 if (len(playlists) == 0):
                     meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
@@ -2191,25 +2377,25 @@ def on_search(value, zone, type):
                     meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
                     return [meta, playlists]
                 playlist = playlists[0].replace('"','\\\"')
-                print('single playlist: ' + str(playlist))
+                flexprint('single playlist: ' + str(playlist))
                 raw = send_webserver_zone_control(control_id, 'playlist-tracks', playlist)
-                print('#applemusic raw: ' + str(raw))
+                flexprint('#applemusic raw: ' + str(raw))
                 if raw is None:
                     return [meta, []]
-                print('#applemusic before loads: ' + str(raw))
+                flexprint('#applemusic before loads: ' + str(raw))
                 tracks = json.loads(raw)
                 tracks = replace_escaped_list(tracks)
                 #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
-                print('#applemusic tracks escaped: ' + str(tracks))
+                flexprint('#applemusic tracks escaped: ' + str(tracks))
                 meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlist, 'playlist': playlist}
                 return [meta, tracks]
             if type == 'track':
                 value = value.replace('"','\\"')
-                print('************ Apple Music track search value: ' + str(value))
+                flexprint('************ Apple Music track search value: ' + str(value))
                 raw = send_webserver_zone_control(control_id, 'tracks-with-artist', value)
                 if raw is None:
                     return [meta, []]
-                print('************ Apple Music track search raw response: ' + str(raw))
+                flexprint('************ Apple Music track search raw response: ' + str(raw))
                 tracks = json.loads(raw)
                 tracks = replace_escaped_list(tracks)
         if type == 'artist':
@@ -2217,7 +2403,7 @@ def on_search(value, zone, type):
             return [meta, albums]
         if type == 'track':
             meta = {"zonetype": zonetype, "type": 'tracks', 'search': value}
-            print('track search: ' + str(tracks))
+            flexprint('track search: ' + str(tracks))
             return [meta, tracks]
     if is_webserver is False and control_id is not None and zone in channels.values():
         zonetype = 'Roon'
@@ -2226,11 +2412,11 @@ def on_search(value, zone, type):
         for (k, v) in outputs.items():
             if zone in v["display_name"]:
                 output_id = k
-                print("roonmatrix => output_id:" + output_id)
+                flexprint("roonmatrix => output_id:" + output_id)
         if output_id is not None:
             if type == 'artist':
                 artists = roon_get_artists(output_id, value)
-                print('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
+                flexprint('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
                 if (len(artists) == 0):
                     meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, []]
@@ -2243,7 +2429,7 @@ def on_search(value, zone, type):
             if type == 'track':
                 tracks = roon_get_tracks(output_id, value)
                 tracks = list(OrderedDict.fromkeys(tracks)) # remove doubles
-                print('roon_get_tracks count: ' + str(len(tracks)) + ' for search of: ' + value)
+                flexprint('roon_get_tracks count: ' + str(len(tracks)) + ' for search of: ' + value)
                 if (len(tracks) > 0):
                     meta = {"zonetype": zonetype, "type": 'tracks', 'search': value.title()}
                     return [meta, tracks]
@@ -2252,7 +2438,7 @@ def on_search(value, zone, type):
                     return [meta, []]
             if type == 'playlist':
                 playlists = roon_get_playlists(output_id, value)
-                print('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
+                flexprint('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
                 if (len(playlists) == 0):
                     meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
                     return [meta, []]
@@ -2264,7 +2450,7 @@ def on_search(value, zone, type):
                 return [meta, tracks]
             if type == 'radio':
                 radios = roon_get_radios(output_id, value)
-                print('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
+                flexprint('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
                 if (len(radios) == 0):
                     meta = {"zonetype": zonetype, "type": 'radios', 'search': value.title()}
                     return [meta, []]
@@ -2276,7 +2462,7 @@ def on_search(value, zone, type):
                 try:
                     roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
                 except Exception as e:
-                    print('roonapi.play_media error: ' + str(e))
+                    flexprint('roonapi.play_media error: ' + str(e))
                 return [meta, radios]
     meta = {"zonetype": zonetype, "type": 'search', 'search': value.title()}
     return [meta, []]
@@ -2345,10 +2531,10 @@ def on_itemclick(meta, search, itemname, zone):
                 tracks = json.loads(raw)
                 tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
                 meta['tracks'] = tracks
-                print('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                flexprint('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'playlists':
-                print('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
+                flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
                 itemname = itemname.replace('"', '\\\"')
                 raw = send_webserver_zone_control(control_id, 'playlist-tracks', itemname)
                 if raw is None:
@@ -2356,10 +2542,10 @@ def on_itemclick(meta, search, itemname, zone):
                 tracks = json.loads(raw)
                 tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
                 meta['tracks'] = tracks
-                print('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                flexprint('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'tracks':
-                print('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
+                flexprint('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
                 if 'album' in meta:
                     album = meta['album']
                     album = album.replace('"', '\\"')
@@ -2377,7 +2563,6 @@ def on_itemclick(meta, search, itemname, zone):
                     if itemname == '[FULLPLAYLIST]':
                         send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
                     else:
-                        print('HEREEE')
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
                         send_webserver_zone_control(control_id, 'play-playlist-track', playlist, itemname)
@@ -2400,7 +2585,7 @@ def on_itemclick(meta, search, itemname, zone):
         for (k, v) in outputs.items():
             if zone in v["display_name"]:
                 output_id = k
-                print("roonmatrix => output_id:" + output_id)
+                flexprint("roonmatrix => output_id:" + output_id)
         if output_id is not None:
             if meta['type'] == 'artists':
                 return ['artist', itemname]
@@ -2410,7 +2595,7 @@ def on_itemclick(meta, search, itemname, zone):
                 except Exception as e:
                     tracks = []
                 meta['tracks'] = tracks
-                print('playlist tracks: ' + str(tracks))
+                flexprint('playlist tracks: ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'albums':
                 try:
@@ -2421,31 +2606,31 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['tracks', search, itemname, tracks]
             if meta['type'] == 'tracks':
                 if 'album' in meta:
-                    print('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', album: ' + meta['album'] + ', track: ' + itemname)
+                    flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', album: ' + meta['album'] + ', track: ' + itemname)
                     try:
                         roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)                        
                     except Exception as e:
-                        print('roonapi.play_media error: ' + str(e))
+                        flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', meta['artist'], meta['album'], itemname]
                 elif 'playlist' in meta:
-                    print('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
+                    flexprint('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
                     try:
                         roonapi.play_media(output_id, ["Playlists", meta['playlist'], itemname], None, False)                        
                     except Exception as e:
-                        print('roonapi.play_media error: ' + str(e))
+                        flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', meta['playlist'], itemname]
                 else:
-                    print('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
+                    flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
                     try:
                         roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
                     except Exception as e:
-                        print('roonapi.play_media error: ' + str(e))
+                        flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', itemname]
             if meta['type'] == 'radios':
                 try:
                     roonapi.play_media(output_id, ["My Live Radio", itemname], None, False)
                 except Exception as e:
-                    print('roonapi.play_media error: ' + str(e))
+                    flexprint('roonapi.play_media error: ' + str(e))
                 return ['radio', itemname]
     return
 

@@ -124,7 +124,7 @@ class VirtualKeyboard:
                     break
 
             # alt row 2
-            idx = 1
+            idx = 0
             for key in self.row2keyb_alt:
                 self.row2buttons[idx].config(text=key, command=lambda x=key: self.vpresskey(x))
                 idx += 1
