@@ -2059,6 +2059,33 @@ def roon_get_artists(output_id, name):
     except Exception as e:
         return []
 
+def roon_get_genres(output_id, name):
+    try:
+        if name == '':
+            name = '__all__'
+        genres = roonapi.list_media(output_id, ["Genres", name])
+        if genres is not None and len(genres) > 0:
+            #genres.sort()
+            return genres
+        if name == '__all__':
+            return []
+        genres = roonapi.list_media(output_id, ["Genres", name.title() ])
+        if genres is not None and len(genres) > 0:
+            #genres.sort()
+            return genres
+        return []
+    except Exception as e:
+        return []
+
+def roon_get_genre_artists(output_id, genre):
+    try:
+        artists = roonapi.list_media(output_id,["Genres", genre, "Artists", '__all__'])
+        if artists and len(artists) > 0:
+            return artists
+        return []
+    except Exception as e:
+        return []
+
 def roon_get_radios(output_id, name):
     try:
         if name == '':
@@ -2086,7 +2113,6 @@ def roon_get_artist_albums(output_id, artist):
         album = None
         if albums and len(albums) > 0:
             album = albums[0]
-            flexprint("\nAlbums by artist", artist, ":\n")
             return albums
         if album is None:
             flexprint("No albums found")
@@ -2209,6 +2235,30 @@ def spotify_search_artist_album(artist_name, album_name):
     except Exception as e:
         return []
 
+def spotify_search_artists_by_genre(genre_name):
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.search('' + ' genre:' + genre_name, limit=20, type='artist')
+        artists = list(filter(partial(is_not, None), results['artists']['items']))
+        return artists
+    except Exception as e:
+        return []
+
+def spotify_search_playlists_by_genre(genre_name):
+    try:
+        spotify = spotipy_init()
+        if spotify is None:
+            return []
+
+        results = spotify.search('' + ' genre:' + genre_name, limit=20, type='playlist')
+        playlists = list(filter(partial(is_not, None), results['playlists']['items']))
+        return playlists
+    except Exception as e:
+        return []
+
 def spotify_get_artist_albums(artist_id):
     try:
         spotify = spotipy_init()
@@ -2309,7 +2359,7 @@ def on_search(value, zone, type):
                 if channels[id] != 'webserver' and name == zone:
                     control_id = id
                     break
-    flexprint("roonmatrix => on_search:" + value + ', zone: ' + zone + ', control_id: ' + control_id)
+    flexprint("roonmatrix => on_search:" + value + ', zone: ' + zone + ', control_id: ' + control_id + ', type:' + type)
     if is_webserver is True:
         if zonetype == 'Spotify':
             if type == 'artist':
@@ -2323,6 +2373,24 @@ def on_search(value, zone, type):
                     return [meta, artists]
                 artist = artists[0]
                 albums = spotify_get_artist_albums(artist['id'])
+            if type == 'genre':
+                genretype = 'playlists'
+                if genretype=='artists':
+                    artists = spotify_search_artists_by_genre(value)
+                    if (len(artists) == 0):
+                        meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                        return [meta, []]
+                    artists = list(map(lambda obj: {"name": obj['name'] + ((' [' + ','.join(obj['genres']) + ']') if len(obj['genres']) > 0 else ''), "id": obj['id']}, artists))
+                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                    return [meta, artists]
+                if genretype=='playlists':
+                    playlists = spotify_search_playlists_by_genre(value)
+                    if (len(playlists) == 0):
+                        meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                        return [meta, []]
+                    playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
+                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    return [meta, playlists]
             if type == 'track':
                 tracks = spotify_search_track(value)
                 tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "artist": obj['artists'][0]['name'] if ('artists' in obj and len(obj['artists']) > 0 and 'name' in obj['artists'][0]) else None}, tracks))
@@ -2361,6 +2429,29 @@ def on_search(value, zone, type):
                     return [meta, []]
                 albums = json.loads(raw)
                 albums = replace_escaped_list(albums)
+            if type == 'genre':
+                value = value.replace('"','\\"')
+                flexprint('************ Apple Music genre search value: ' + str(value))
+                raw = send_webserver_zone_control(control_id, 'genres', value)
+                if raw is None:
+                    return [meta, []]
+                flexprint('************ Apple Music genre search raw response: ' + str(raw))
+                genres = json.loads(raw)
+                if (len(genres) == 0):
+                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value}
+                    return [meta, []]
+                genres = replace_escaped_list(genres)
+                if (len(genres) != 1):
+                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    return [meta, genres]
+                genre = genres[0].replace('"','\\\"')
+                raw = send_webserver_zone_control(control_id, 'artists-in-genre', genre)
+                value = genre
+                flexprint('genre '+str(genre)+' artists raw: ' + str(raw))
+                if raw is None:
+                    return [meta, []]
+                artists = json.loads(raw)
+                artists = replace_escaped_list(artists)
             if type == 'playlist':
                 value = value.replace('"','\\"')
                 #value = value.replace('"','[dq]')
@@ -2401,6 +2492,9 @@ def on_search(value, zone, type):
         if type == 'artist':
             meta = {"zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
             return [meta, albums]
+        if type == 'genre':
+            meta = {"zonetype": zonetype, "type": 'artists', 'search': value, "genre": value}
+            return [meta, artists]
         if type == 'track':
             meta = {"zonetype": zonetype, "type": 'tracks', 'search': value}
             flexprint('track search: ' + str(tracks))
@@ -2426,6 +2520,18 @@ def on_search(value, zone, type):
                 albums = roon_get_artist_albums(output_id, artists[0])
                 meta = {"zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
                 return [meta, albums]
+            if type == 'genre':
+                genres = roon_get_genres(output_id, value)
+                flexprint('roon_get_genres count: ' + str(len(genres)) + ' for search of: ' + value)
+                if (len(genres) == 0):
+                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    return [meta, []]
+                if (len(genres) != 1):
+                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    return [meta, genres]
+                artists = roon_get_genre_artists(output_id, genres[0])
+                meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title(), "genre":genres[0]}
+                return [meta, artists]
             if type == 'track':
                 tracks = roon_get_tracks(output_id, value)
                 tracks = list(OrderedDict.fromkeys(tracks)) # remove doubles
@@ -2523,6 +2629,13 @@ def on_itemclick(meta, search, itemname, zone):
                 albums = json.loads(raw)
                 albums = replace_escaped_list(albums)
                 return ['albums', search, albums]
+            if meta['type'] == 'genres':
+                raw = send_webserver_zone_control(control_id, 'artists-in-genre', itemname)
+                if raw is None:
+                    return ['artists', search, []]
+                artists = json.loads(raw)
+                artists = replace_escaped_list(artists)
+                return ['artists', search, artists]
             if meta['type'] == 'albums':
                 itemname = itemname.replace('"', '\\\"')
                 raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname)
@@ -2588,7 +2701,20 @@ def on_itemclick(meta, search, itemname, zone):
                 flexprint("roonmatrix => output_id:" + output_id)
         if output_id is not None:
             if meta['type'] == 'artists':
-                return ['artist', itemname]
+                if 'genre' in meta:
+                    try:
+                        albums = roon_get_artist_albums(output_id, search)
+                    except Exception as e:
+                        albums = []
+                    return ['albums', itemname, albums]
+                else:
+                    return ['artist', itemname]
+            if meta['type'] == 'genres':
+                try:
+                    artists = roon_get_genre_artists(output_id, itemname)
+                except Exception as e:
+                    artists = []
+                return ['artists', itemname, artists]
             if meta['type'] == 'playlists':
                 try:
                     tracks = roon_get_playlist_tracks(output_id, search)

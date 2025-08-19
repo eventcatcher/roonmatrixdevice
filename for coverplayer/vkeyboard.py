@@ -60,6 +60,9 @@ class VirtualKeyboard:
     
         canvas = Canvas(master, width=self.maxpx_x, height=self.maxpx_y, background="black", bd=0, highlightthickness=0, relief='ridge')
         canvas.pack(fill=BOTH, expand=1)
+        searchkey = self.search
+        if self.search == '':
+            self.search = self.lang[self.searchtype]
         canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = self.lang['searchfor'] + '\n' + self.search)
                         
         # Radius in pixels of a single dot.
@@ -271,7 +274,7 @@ class VirtualKeyboard:
             self.inp.insert(0, value) #inserts new value assigned by 2nd parameter
             self.inp.icursor(cursor_pos + 1)
             self.search = value
-        if x == 'enter' and len(value) >= (0 if self.searchtype=='playlist' or self.searchtype=='radio' else self.minLength ):
+        if x == 'enter' and len(value) >= (0 if self.searchtype=='playlist' or self.searchtype=='genre' or self.searchtype=='radio' else self.minLength ):
             self.showSpinner = True
             self.master.destroy()
             executor = ThreadPoolExecutor(max_workers=1)
@@ -317,6 +320,8 @@ class VirtualKeyboard:
         elif self.searchtype == 'track':
             self.searchtype = 'playlist'
         elif self.searchtype == 'playlist':
+            self.searchtype = 'genre'
+        elif self.searchtype == 'genre':
             self.searchtype = 'radio' if self.hasRadioSearch is True else 'artist'
         elif self.searchtype == 'radio':
             self.searchtype = 'artist'

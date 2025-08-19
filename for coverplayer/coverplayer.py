@@ -587,6 +587,16 @@ class Coverplayer:
                         self._open_list(meta, artists)
                     else:
                         self.vkeyb.notfound()
+                if meta['type'] == 'genres' and len(data) == 2:
+                    self.search = meta['search']
+                    genres = data[1]
+                    if genres is not None and len(genres) > 0:
+                        print(*genres, sep="\n")
+                        meta['label'] = self.lang['select_genre'].title()
+                        meta['listname'] = None
+                        self._open_list(meta, genres)
+                    else:
+                        self.vkeyb.notfound()
                 if meta['type'] == 'tracks' and len(data) == 2:
                     self.search = meta['search']
                     tracks = data[1]
@@ -637,6 +647,24 @@ class Coverplayer:
                 if result_type == 'artist':
                     self.search = data[1]
                     self.on_search(self.search)
+                if result_type == 'artists':
+                    self.search = data[1]
+                    artists = data[2]
+                    if artists is not None and len(artists) > 0:
+                        if isinstance(artists[0], str) is True:
+                            print(*artists, sep="\n")
+                        else:
+                            artist_names = list(map(lambda obj: obj['name'], artists))
+                            print(*artist_names, sep="\n")
+                        meta['type'] = result_type
+                        meta['genre'] = self.search
+                        meta['genreId'] = id
+                        meta['label'] = self.lang['genre'].title()
+                        meta['listname'] = self.unescape_quotes(self.search)
+                        print('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self._open_list(meta, artists)
+                    else:
+                        self.itemlistclass.notfound()
                 if result_type == 'albums':
                     self.search = data[1]
                     albums = data[2]
