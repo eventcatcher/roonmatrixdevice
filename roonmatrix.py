@@ -530,6 +530,7 @@ socket.setdefaulttimeout(socket_timeout) # set socket timeout
 if display_cover is True:
     Coverplayer.set_translations(coverplayer_lang)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
+    Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
             environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
@@ -2042,6 +2043,7 @@ def on_control_click(action):
         set_repeat_mode(control_id, True, True)
     if action=='repeat_off':
         set_repeat_mode(control_id, False, True)
+    return [is_playing, shuffle_on, repeat_on]
 
 def roon_get_artists(output_id, name):
     try:
@@ -2180,7 +2182,7 @@ def spotipy_init():
     """
 
     if spotify_client_id=='' or spotify_client_secret=='':
-        return None
+        return coverplayer_lang['spotify_no_credentials']
 
     # IPv4-only Monkeypatch (for DS-Lite as example)
     try:
@@ -2188,6 +2190,7 @@ def spotipy_init():
         urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
     except Exception as e:
         flexprint("Warning: IPv4 forcing failed:", e)
+        return coverplayer_lang['spotify_ipv4_failed']
 
     # Prepare session with SSL context
     class IPv4OnlyAdapter(requests.adapters.HTTPAdapter):
@@ -2205,15 +2208,15 @@ def spotipy_init():
         spotify = spotipy.Spotify(auth_manager=auth_manager, requests_session=session)
     except Exception as e:
         flexprint('Spotify auth error')
-        return None
+        return coverplayer_lang['spotify_auth_error']
 
     return spotify
 
 def spotify_search_artist(artist_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.search(artist_name, limit=10, type='artist')
         artists = results['artists']['items']
@@ -2224,8 +2227,8 @@ def spotify_search_artist(artist_name):
 def spotify_search_artist_album(artist_name, album_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         query='artist:"'+artist_name+'" album:"'+album_name + '"'
         results = spotify.search(query, limit=10, type='album')
@@ -2238,8 +2241,8 @@ def spotify_search_artist_album(artist_name, album_name):
 def spotify_search_artists_by_genre(genre_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.search('' + ' genre:' + genre_name, limit=20, type='artist')
         artists = list(filter(partial(is_not, None), results['artists']['items']))
@@ -2250,8 +2253,8 @@ def spotify_search_artists_by_genre(genre_name):
 def spotify_search_playlists_by_genre(genre_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.search('' + ' genre:' + genre_name, limit=20, type='playlist')
         playlists = list(filter(partial(is_not, None), results['playlists']['items']))
@@ -2262,8 +2265,8 @@ def spotify_search_playlists_by_genre(genre_name):
 def spotify_get_artist_albums(artist_id):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
         albums = results['items']
@@ -2281,8 +2284,8 @@ def spotify_get_artist_albums(artist_id):
 def spotify_get_playlist_tracks(playlist_id):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.playlist_items(playlist_id, fields="items", additional_types=('tracks'))
         
@@ -2301,8 +2304,8 @@ def spotify_get_playlist_tracks(playlist_id):
 def spotify_get_album_tracks(album_id):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.album_tracks(album_id)
         tracks = results['items']
@@ -2314,8 +2317,8 @@ def spotify_get_album_tracks(album_id):
 def spotify_search_track(track_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.search(track_name, limit=10, type='track')
         tracks = results['tracks']['items']
@@ -2326,8 +2329,8 @@ def spotify_search_track(track_name):
 def spotify_search_playlist(playlist_name):
     try:
         spotify = spotipy_init()
-        if spotify is None:
-            return []
+        if isinstance(spotify, str):
+            return spotify
 
         results = spotify.search(playlist_name, limit=10, type='playlist')
         playlists = list(filter(partial(is_not, None), results['playlists']['items']))
@@ -2364,6 +2367,8 @@ def on_search(value, zone, type):
         if zonetype == 'Spotify':
             if type == 'artist':
                 artists = spotify_search_artist(value)
+                if isinstance(artists, str):
+                    return artists
                 if (len(artists) == 0):
                     meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, []]
@@ -2373,10 +2378,14 @@ def on_search(value, zone, type):
                     return [meta, artists]
                 artist = artists[0]
                 albums = spotify_get_artist_albums(artist['id'])
+                if isinstance(albums, str):
+                    return albums
             if type == 'genre':
                 genretype = 'playlists'
                 if genretype=='artists':
                     artists = spotify_search_artists_by_genre(value)
+                    if isinstance(artists, str):
+                        return artists
                     if (len(artists) == 0):
                         meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
                         return [meta, []]
@@ -2385,6 +2394,8 @@ def on_search(value, zone, type):
                     return [meta, artists]
                 if genretype=='playlists':
                     playlists = spotify_search_playlists_by_genre(value)
+                    if isinstance(playlists, str):
+                        return playlists
                     if (len(playlists) == 0):
                         meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
                         return [meta, []]
@@ -2393,9 +2404,13 @@ def on_search(value, zone, type):
                     return [meta, playlists]
             if type == 'track':
                 tracks = spotify_search_track(value)
+                if isinstance(tracks, str):
+                    return tracks
                 tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "artist": obj['artists'][0]['name'] if ('artists' in obj and len(obj['artists']) > 0 and 'name' in obj['artists'][0]) else None}, tracks))
             if type == 'playlist':
                 playlists = spotify_search_playlist(value)
+                if isinstance(playlists, str):
+                    return playlists
                 if (len(playlists) == 0):
                     meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, []]
@@ -2405,6 +2420,8 @@ def on_search(value, zone, type):
                     return [meta, playlists]
                 playlist = playlists[0]
                 tracks = spotify_get_playlist_tracks(playlist['id'])
+                if isinstance(tracks, str):
+                    return tracks
         if zonetype == 'Apple Music':
             if type == 'artist':
                 value = value.replace('"','\\"')
@@ -2592,20 +2609,28 @@ def on_itemclick(meta, search, itemname, zone):
         if is_spotify is True:
             if meta['type'] == 'artists':
                 albums = spotify_get_artist_albums(itemname)
+                if isinstance(albums, str):
+                    return albums
                 albums = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, albums))
                 return ['albums', search, albums]
             if meta['type'] == 'albums':
                 if 'searchtype' in meta and meta['searchtype']=='tracklist':
                     album_obj = spotify_search_artist_album(meta['artist'], meta['album'])
+                    if isinstance(album_obj, str):
+                        return album_obj
                     if album_obj is None:
                         return ['tracks', search, itemname, []]
                     itemname = album_obj['id']
                 tracks = spotify_get_album_tracks(itemname)
+                if isinstance(tracks, str):
+                    return tracks
                 tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
                 meta['tracks'] = tracknames
                 return ['tracks', search, itemname, tracknames]
             if meta['type'] == 'playlists':
                 tracks = spotify_get_playlist_tracks(itemname)
+                if isinstance(tracks, str):
+                    return tracks
                 tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
                 meta['tracks'] = tracknames
                 return ['tracks', search, itemname, tracknames]
@@ -3173,9 +3198,10 @@ def roon_state_callback(event, changed_ids):
                 artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
                 album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
                 track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+                playing = state == "playing"
                 shuffle = zone["settings"]["shuffle"]
                 repeat = zone["settings"]["loop"] != 'disabled'
-                set_play_mode(zone_id, state == "playing", False)
+                set_play_mode(zone_id, playing, False)
                 set_shuffle_mode(zone_id, shuffle, False)
                 set_repeat_mode(zone_id, repeat, False)
 
@@ -3203,9 +3229,10 @@ def roon_state_callback(event, changed_ids):
 
                     cover_changed = cover_url != last_cover_url
                     text_changed = last_cover_text_line_parts != '|'.join(cover_text_line_parts)
-                    is_playing_changed = is_playing != is_playing_last
-                    shuffle_changed = shuffle_on != shuffle_on_last
-                    repeat_changed = repeat_on != repeat_on_last
+                    
+                    is_playing_changed = playing != is_playing_last
+                    shuffle_changed = shuffle != shuffle_on_last
+                    repeat_changed = repeat != repeat_on_last
                     playpos_changed = playpos_last != playpos
                     playlen_changed = playlen_last != playlen
                     anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or repeat_changed or playlen_changed
@@ -3219,7 +3246,7 @@ def roon_state_callback(event, changed_ids):
                         is_playing_last = is_playing
                         shuffle_on_last = shuffle_on
                         repeat_on_last = repeat_on
-                        is_playing = state == "playing"
+                        is_playing = playing
                         shuffle_on = shuffle
                         repeat_on = repeat
                                     
@@ -3552,6 +3579,7 @@ def build_output():
                         artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
                         album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
                         track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+                        playing = state == "playing"
                         shuffle = zone["settings"]["shuffle"]
                         repeat = zone["settings"]["loop"] != 'disabled'
                         zone_id = zone['zone_id']
@@ -3585,7 +3613,7 @@ def build_output():
                                 if trackFiltered != '':
                                     cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
 
-                                if (cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or is_playing != is_playing_last or shuffle_on != shuffle_on_last or repeat_on != repeat_on_last):
+                                if (cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or playing != is_playing_last or shuffle != shuffle_on_last or repeat != repeat_on_last):
                                     last_cover_url = cover_url
                                     last_cover_text_line_parts = '|'.join(cover_text_line_parts)
                                     playpos = zone.get("seek_position")
@@ -3595,7 +3623,7 @@ def build_output():
                                     is_playing_last = is_playing
                                     shuffle_on_last = shuffle_on
                                     repeat_on_last = repeat_on
-                                    is_playing = state == "playing"
+                                    is_playing = playing
                                     shuffle_on = shuffle
                                     repeat_on = repeat
                                     

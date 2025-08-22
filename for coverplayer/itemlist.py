@@ -193,24 +193,24 @@ class ItemList:
         style.configure('My.TEntry', padding=(10,0, 10,0), foreground="blue")
         style.configure("mystyle.Treeview", highlightthickness=0, bd=0, background="white", foreground="black", fieldbackground="white", font=('Arial', self.fontSize), rowheight=self.rowheight)
 
-        #   ROW 0
-        keyframe0 = Frame(self.master, height=1)
-        keyframe0.rowconfigure(0, weight=1)
-        if self.meta['listname'] is None:
-            Label(keyframe0, text = self.meta['label'], font = "Arial 40", padx = 10).pack(side='left', expand = True, fill = 'both')
-        else:
-            Label(keyframe0, text = self.meta['label'], font = "Arial 40", padx = 10).pack(side='left')
-            self.inp = ttk.Entry(keyframe0, style='My.TEntry', font=("Arial",40), textvariable = self.inpstr, text="bebe")
-            self.inp.pack(side='left', expand = True, fill = 'both')
+        labelField = Frame(self.master, height=1.4)
+        labelField.rowconfigure(0, weight=1)
+        Label(labelField, text = self.meta['label'], font = "Arial 36", anchor="w", padx = 10).pack(side='left', expand = True, fill = 'both', ipady = 15)
+
+        if self.meta['listname'] is not None:
+            listNameField = Frame(self.master, height=1)
+            listNameField.rowconfigure(0, weight=1)
+            self.inp = ttk.Entry(listNameField, style='My.TEntry', font=("Arial",24), textvariable = self.inpstr, text="bebe")
+            self.inp.pack(side='left', expand = True, fill = 'both', ipady = 20)
             self.inpstr.set(self.meta['listname'])
             self.inp.delete(0, END) #deletes the current value
             self.inp.insert(0, self.meta['listname']) #inserts new value assigned by 2nd parameter
 
         #   ROW 1
-        keyframe1 = Frame(self.master, height=1)
-        keyframe1.rowconfigure(0, weight=1)
+        listFrame = Frame(self.master, height=1)
+        listFrame.rowconfigure(0, weight=1)
 
-        self.listbox = TouchTreeview(keyframe1, style="mystyle.Treeview", show="tree", height=self.maxRowCount)
+        self.listbox = TouchTreeview(listFrame, style="mystyle.Treeview", show="tree", height=self.maxRowCount)
                         
         self.listbox.pack(side="left", fill="both", expand=True)
 
@@ -234,8 +234,12 @@ class ItemList:
         self.listbox.bind("<Motion>", lambda e: self.refresh_row_tags())
 
         # add the frames to the main window
-        keyframe0.grid(row=0, sticky="NSEW", padx=9, pady=6)
-        keyframe1.grid(row=1, sticky="NSEW", padx=9, pady=6)
+        labelField.grid(row=0, sticky="NSEW", padx=9, pady=1)
+        if self.meta['listname'] is None:
+            listFrame.grid(row=1, sticky="NSEW", padx=9, pady=2)
+        else:
+            listNameField.grid(row=1, sticky="NSEW", padx=9, pady=1)
+            listFrame.grid(row=2, sticky="NSEW", padx=9, pady=2)
 
 		# close button at the bottom right        
         btn_size = 60
@@ -287,8 +291,9 @@ class ItemList:
         self.on_close()
         self.master.destroy()
 
-    def notfound(self):
-        print('itemlist ==> NOT FOUND!')
+    def error_message(self, message):
+        print('itemlist ==> error_message: ' + message)
+        self.showSpinner = False
         self.master = Tk()
         self.trans_value = 0.7
         self.master.attributes('-alpha', self.trans_value)
@@ -298,8 +303,8 @@ class ItemList:
         self.master.config(cursor="none", background="black")
         self.master.resizable(False, False)
         parent = Frame(self.master)
-        fontsize = int(self.maxpx_x / len(self.lang['notfound']))
-        Label(parent, text = self.lang['notfound'].upper(), font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
+        fontsize = int(self.maxpx_x / len(message))
+        Label(parent, text = message, font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
         parent.pack(expand=1)
         self.master.after(4000, self.close)
         self.master.mainloop()

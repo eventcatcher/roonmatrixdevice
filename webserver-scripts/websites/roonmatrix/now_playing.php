@@ -296,6 +296,57 @@ $replaceText = <<<EOD
                     EOD;    
 				}
 				break;
+			case 'genres':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set searchTerm to "$search"
+                        if searchTerm = "" then
+                            set allGenres to genre of every track of library playlist 1
+                        else
+                            set allGenres to genre of every track of library playlist 1 whose genre starts with searchTerm
+                        end if
+                        set uniqueGenres to {}
+                        repeat with i in allGenres
+                            set mygenre to (i as string)
+                            set genreStr to "\"" & mygenre & "\""
+                            if mygenre is not "" and mygenre is not " " and genreStr is not in uniqueGenres then
+                                set end of uniqueGenres to genreStr
+                            end if
+                        end repeat
+
+                        set {old_delims, AppleScript's text item delimiters} to {AppleScript's text item delimiters, linefeed}
+                        set sorted_list to paragraphs of (do shell script "sort -t . -k 1,1 <<< " & quoted form of (uniqueGenres as string))
+                        set AppleScript's text item delimiters to old_delims
+
+                        return sorted_list as list
+                    end tell
+                    EOD;    
+				}
+				break;
+			case 'artists-in-genre':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set searchTerm to "$search"
+                        set foundArtists to {}
+
+                        set allTracks to every track of library playlist 1 whose genre starts with searchTerm
+                        repeat with aTrack in allTracks
+                            set artistName to artist of aTrack
+                            if artistName is not missing value then
+                                set artistStr to "\"" & artistName & "\""
+                                if artistStr is not in foundArtists then
+                                    set end of foundArtists to artistStr
+                                end if
+                            end if
+                        end repeat
+
+                        return foundArtists as list
+                    end tell
+                    EOD;    
+				}
+				break;
 			case 'playtrack':
 				if ($source == "Music") {
 				    if ($detail == '' && $detail2 == '') {
@@ -415,7 +466,7 @@ $replaceText = <<<EOD
 		    $cmd = 'osascript -e ' . escapeshellarg($script);
 			$json_str = shell_exec($cmd);
 
-            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks' || $code=='tracks-with-artist' || $code=='playlists' || $code=='playlist-tracks' || $code=='play-playlist-track') {
+            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks' || $code=='tracks-with-artist' || $code=='playlists' || $code=='playlist-tracks' || $code=='play-playlist-track' || $code=='genres' || $code=='artists-in-genre') {
 		        if ($json_str != null) {
 			        $output = "[".$json_str."]";
 		        } else {

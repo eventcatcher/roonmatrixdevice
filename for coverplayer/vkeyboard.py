@@ -428,7 +428,7 @@ class VirtualKeyboard:
 
         # prevents frames having inconsistent relative dimensions
         self.master.columnconfigure(0, weight=1)
-        for i in range(6):
+        for i in range(7):
             self.master.rowconfigure(i, weight=1)
 
         # shift_key_pressed is True if ALT, CTRL, SHIFT or WIN are held down using right click
@@ -436,18 +436,19 @@ class VirtualKeyboard:
         self.shift_key_pressed = False
         self.alt_key_pressed = False
 
-        #   ROW 0
-
-        # create a frame for row1buttons
-        keyframe0 = Frame(self.master, height=1)
-        keyframe0.rowconfigure(0, weight=1)
-        self.label = Label(keyframe0, text=self.searchlabel, font = "Arial 40", padx = 10)
+        # create a frame for searchtype info field
+        infoField = Frame(self.master, height=0.5)
+        infoField.rowconfigure(0, weight=1)
+        self.label = Label(infoField, text=self.searchlabel, font = "Arial 36", anchor="w", padx = 10)
         self.label.bind("<Button-1>",lambda e:self.on_labelTap())
-        self.label.pack(side='left')
-        
+        self.label.pack(side='left', expand = True, fill = 'both')
+
+        # create a frame for input field
         style = ttk.Style(self.master)
-        style.configure('My.TEntry', padding=(10,0, 10,0), foreground="blue", insertwidth=4)
-        self.inp = ttk.Entry(keyframe0, style='My.TEntry', font=("Arial",40), textvariable = self.inpstr, text="")        
+        style.configure('My.TEntry', padding=(5,0, 5,0), foreground="blue", insertwidth=4)
+        inputField = Frame(self.master, height=1)
+        inputField.rowconfigure(0, weight=1)
+        self.inp = ttk.Entry(inputField, style='My.TEntry', font=("Arial",30), textvariable = self.inpstr, text="")        
         self.inp.pack(side='left', expand = True, fill = 'both')
         self.inp.focus_force()
         
@@ -662,12 +663,13 @@ class VirtualKeyboard:
             self.row5buttons[ind].grid(row=0, column=ind, sticky="NSEW")
 
         # add the frames to the main window
-        keyframe0.grid(row=0, sticky="NSEW", padx=9, pady=6)
-        keyframe1.grid(row=1, sticky="NSEW", padx=9, pady=6)
-        keyframe2.grid(row=2, sticky="NSEW", padx=9)
-        keyframe3.grid(row=3, sticky="NSEW", padx=9)
-        keyframe4.grid(row=4, sticky="NSEW", padx=9)
-        keyframe5.grid(row=5, padx=9, sticky="NSEW")
+        infoField.grid(row=0, sticky="NSEW", padx=9, pady=1)
+        inputField.grid(row=1, sticky="NSEW", padx=9, pady=1)
+        keyframe1.grid(row=2, sticky="NSEW", padx=9, pady=6)
+        keyframe2.grid(row=3, sticky="NSEW", padx=9)
+        keyframe3.grid(row=4, sticky="NSEW", padx=9)
+        keyframe4.grid(row=5, sticky="NSEW", padx=9)
+        keyframe5.grid(row=6, padx=9, sticky="NSEW")
 
     # add functionality to keyboard
     def engine(self):
@@ -699,8 +701,9 @@ class VirtualKeyboard:
                 self.row5buttons[ind].config(command=lambda: self.vupdownkey("<Button-1>", type='alt'))
                 self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='alt': self.vupdownkey(event, type))
 
-    def notfound(self):
-        print('vkeyb ==> NOT FOUND!')
+    def error_message(self, message):
+        print('vkeyb ==> error_message: ' + message)
+        self.showSpinner = False
         self.master = Tk()
         self.trans_value = 0.7
         self.master.attributes('-alpha', self.trans_value)
@@ -710,8 +713,8 @@ class VirtualKeyboard:
         self.master.config(cursor="none", background="black")
         self.master.resizable(False, False)
         parent = Frame(self.master)
-        fontsize = int(self.maxpx_x / len(self.lang['notfound']))
-        Label(parent, text = self.lang['notfound'].upper(), font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
+        fontsize = int(self.maxpx_x / len(message))
+        Label(parent, text = message, font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
         parent.pack(expand=1)
         self.master.after(4000, self.close)
         self.master.mainloop()

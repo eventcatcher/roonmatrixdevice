@@ -57,6 +57,11 @@ class Coverplayer:
         cls._queue.put(('set_translations', lang, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
+    def disable_spotify(cls, disabled):
+        cls._ensure_running()
+        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
     def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
         cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
@@ -191,7 +196,11 @@ class Coverplayer:
         self.autoclose_in_seconds = 30
         self.overlay_height = self.maxpx_y
         self.overlay_relheight = 1
+        self.ctrl_btn_bgcolor = "white"	# background color of control buttons
+        self.pending_btn_bgcolor = '#B0DBFF' # background color of control buttons in pending status
         self.overlay_bgcolor = "#222222"	# background color of control overlay
+        self.btn_small_bgcolor = "#222222"	# background color of small buttons
+        self.pending_btn_small_bgcolor = '#0000bb' # background color of small buttons in pending state
         self.btn_disabled_color = "#555555"	# background color of disabled button
         self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
         self.button_highlight_color = '#80ed99'
@@ -202,8 +211,13 @@ class Coverplayer:
         self.extra_space_height = 50
 
         self.debug = False
+        self.spotify_disabled = False
         self.count = 0
+        self.shuffle_btn = None
+        self.repeat_btn = None
+        self.backward_btn = None
         self.play_btn = None
+        self.forward_btn = None
         self.overlay = None
         self.overlay_timer = None
         self.in_menu_mode = False
@@ -230,6 +244,7 @@ class Coverplayer:
         self.repeat_on = False
         self.control_icons = {}
         self._load_control_icons()
+        self.tracklist_btn = None
 
         from vkeyboard import VirtualKeyboard
         self.vkeyb = VirtualKeyboard()
@@ -306,7 +321,7 @@ class Coverplayer:
                 "play": PhotoImage(file = self.scriptpath + "icons/play.png"),
                 "pause": PhotoImage(file = self.scriptpath + "icons/pause.png"),
                 "forward": PhotoImage(file = self.scriptpath + "icons/forward.png"),
-                "back": PhotoImage(file = self.scriptpath + "icons/backward.png"),
+                "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
                 "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
                 "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
                 "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
@@ -338,7 +353,6 @@ class Coverplayer:
         
         max_per_row = 3		# max 3 buttons per row
 
-        ctrl_btn_bgcolor = "white"	# background color of control buttons
         ctrl_btn_ipad = 20			# inner padding in px of control buttons
         corner_btn_size = 60		# button size in px of shuffle and close button in the bottom corners
         
@@ -373,36 +387,44 @@ class Coverplayer:
         control_frame.pack(side = 'bottom', anchor = 'center')
 
         # control buttons close together
-        Button(control_frame, image = self.control_icons["back"], bg = ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("backward"), takefocus = 0).pack(side = "left", padx = (0, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
+        self.backward_btn = Button(control_frame, image = self.control_icons["backward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("backward"), takefocus = 0)
+        self.backward_btn.pack(side = "left", padx = (0, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
         icon = self.control_icons["pause"] if self.is_playing else self.control_icons["play"]
-        self.play_btn = Button(control_frame, image = icon, bg = ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
+        self.play_btn = Button(control_frame, image = icon, bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
         self.play_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
-        Button(control_frame, image = self.control_icons["forward"], bg = ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("forward"), takefocus = 0).pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
+        self.forward_btn = Button(control_frame, image = self.control_icons["forward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("forward"), takefocus = 0)
+        self.forward_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
 
         # shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-        self.shuffle_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
-        self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+        self.shuffle_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.shuffle_btn.place(relx = 0.0 if self.playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
-		# repeat button at the bottom right
+		# repeat button at the bottom left
         icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
-        self.repeat_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, command = self._toggle_repeat, takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
-        self.repeat_btn.place(relx = 0.14, rely = 1.0, anchor = "sw", x = 0, y = 0)
+        self.repeat_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, command = self._toggle_repeat, takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.repeat_btn.place(relx = 0.14 if self.playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
-        # keyboard button at the bottom left
+        # keyboard button at the bottom right
         icon = self.control_icons["keyb"]
-        self.keyb_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.keyb_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
         icon_enabled = self.zone is not None
+        zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+        if zonetype == 'Spotify' and self.spotify_disabled is True:
+            icon_enabled = False
         self.switch_button_state(self.keyb_btn, icon_enabled)
 
         # tracklist button at the bottom right        
         icon = self.control_icons["tracklist"]
-        self.tracklist_btn = Button(self.overlay, image = icon, bg = self.overlay_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('tracklist'), takefocus = 0, activebackground = self.overlay_bgcolor, height = corner_btn_size, width = corner_btn_size)
+        self.tracklist_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('tracklist'), takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.tracklist_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
         if self.text is not None and len(self.text) > 3:
             zone = self.text[0].split(':')[1].strip()
+            zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
             icon_enabled = self.zone is not None and zone == self.zone
+            if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
+                icon_enabled = False
             self.switch_button_state(self.tracklist_btn, icon_enabled)
         else:
             self.switch_button_state(self.tracklist_btn, False)
@@ -450,59 +472,76 @@ class Coverplayer:
                     w = (self.maxpx_x - 243) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
                 else:
                     w = 0
-                print('w: ' + str(w))
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
         if self.debug is True:
             self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
     
     def _control(self, action):
-        self._start_overlay_timer()
+        self._start_overlay_timer()      
+        print('_control action: ' + str(action))
+        if action == 'pause' or action == 'play':
+            icon = self.control_icons['pause' if action=='play' else 'play']
+            self.play_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
+        else:
+            icon = self.control_icons[action]
+
+        if action == 'backward':
+            self.backward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
+
+        if action == 'forward':
+            self.forward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
+
+        if action == 'shuffle_off' or action == 'shuffle_on':
+            self.shuffle_btn.config(image = icon, bg=self.pending_btn_small_bgcolor, activebackground=self.pending_btn_small_bgcolor)
+
+        if action == 'repeat_off' or action == 'repeat_on':
+            self.repeat_btn.config(image = icon, bg=self.pending_btn_small_bgcolor, activebackground=self.pending_btn_small_bgcolor)
+        
         if self.control_callback:
             stateupdate = self.control_callback(action)
+            print('control_callback DONE')
             is_playing = stateupdate[0]
             shuffle_on = stateupdate[1]
             repeat_on = stateupdate[2]
-            if is_playing != self.is_playing:
-                _set_playmode(self, is_playing)
-            if shuffle_on != self.shuffle_on:
-                _set_shufflemode(self, shuffle_on)
-            if repeat_on != self.repeat_on:
-                _set_repeatmode(self, repeat_on)
+            #self._set_playmode(is_playing)
+            #self.is_playing = is_playing
+            if action == 'backward':
+                self.backward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
+            if action == 'forward':
+                self.forward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
+            #self._set_shufflemode(shuffle_on)
+            #self.shuffle_on = shuffle_on
+            #self._set_repeatmode(repeat_on)
+            #self.repeat_on = repeat_on
 
     def _toggle_play(self):
         self._start_overlay_timer()
-        self._set_playmode(not self.is_playing)
-        self.is_playing = not self.is_playing
-        self._control("play" if self.is_playing else "pause")
+        self._control("pause" if self.is_playing else "play")
 
     def _set_playmode(self, mode):
         if self.in_menu_mode is True and self.play_btn is not None:
             icon = self.control_icons["pause"] if mode else self.control_icons["play"]
-            self.play_btn.config(image = icon)
+            self.play_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
             self.flexprint('[bold red]CoverPlayer: set_playmode: '+ str(mode) + '[/bold red]')
     
     def _toggle_shuffle(self):
         self._start_overlay_timer()
-        self._set_shufflemode(not self.shuffle_on)        
-        self.shuffle_on = not self.shuffle_on
-        self._control("shuffle_on" if self.shuffle_on else "shuffle_off")
+        self._control("shuffle_off" if self.shuffle_on else "shuffle_on")
 
     def _set_shufflemode(self, mode):
         if self.in_menu_mode is True and self.shuffle_btn is not None:
             icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-            self.shuffle_btn.config(image = icon)
+            self.shuffle_btn.config(image = icon, bg=self.btn_small_bgcolor, activebackground=self.btn_small_bgcolor)
             self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
 
     def _toggle_repeat(self):
         self._start_overlay_timer()
-        self._set_repeatmode(not self.repeat_on)        
-        self.repeat_on = not self.repeat_on
-        self._control("repeat_on" if self.repeat_on else "repeat_off")
+        self._control("repeat_off" if self.repeat_on else "repeat_on")
 
     def _set_repeatmode(self, mode):
         if self.in_menu_mode is True and self.repeat_btn is not None:
             icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
-            self.repeat_btn.config(image = icon)
+            self.repeat_btn.config(image = icon, bg=self.btn_small_bgcolor, activebackground=self.btn_small_bgcolor)
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
@@ -562,6 +601,9 @@ class Coverplayer:
         self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
         if self.search_callback is not None:
             data = self.search_callback(key, self.zone, type)
+            if isinstance(data, str):
+                self.vkeyb.error_message(data)
+                return
             if len(data) > 0:
                 meta = data[0]
                 self.flexprint("coverplayer => on_search, meta:" + str(meta))
@@ -578,7 +620,7 @@ class Coverplayer:
                         meta['listname'] = self.unescape_quotes(meta['artist'])
                         self._open_list(meta, albums)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'artists' and len(data) == 2:
                     self.search = meta['search']
                     artists = data[1]
@@ -588,7 +630,7 @@ class Coverplayer:
                         meta['listname'] = None
                         self._open_list(meta, artists)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'genres' and len(data) == 2:
                     self.search = meta['search']
                     genres = data[1]
@@ -598,7 +640,7 @@ class Coverplayer:
                         meta['listname'] = None
                         self._open_list(meta, genres)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'tracks' and len(data) == 2:
                     self.search = meta['search']
                     tracks = data[1]
@@ -614,7 +656,7 @@ class Coverplayer:
                         print('coverplayer applemusic playlist tracks: ' + str(tracks))
                         self._open_list(meta, tracks)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'playlists' and len(data) == 2:
                     self.search = meta['search']
                     playlists = data[1]
@@ -624,7 +666,7 @@ class Coverplayer:
                         meta['listname'] = None
                         self._open_list(meta, playlists)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'radios' and len(data) == 2:
                     self.search = meta['search']
                     radios = data[1]
@@ -634,7 +676,7 @@ class Coverplayer:
                         meta['listname'] = None
                         self._open_list(meta, radios)
                     else:
-                        self.vkeyb.notfound()
+                        self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'radio':
                     self.close_list()
 
@@ -643,6 +685,9 @@ class Coverplayer:
         self.close_list()
         if self.itemclick_callback is not None:
             data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
+            if isinstance(data, str):
+                self.itemlistclass.error_message(data)
+                return
             print('coverplayer ==> itemclick_callback, data: ' + str(data))
             if data is not None and len(data) > 0:
                 result_type = data[0]
@@ -666,7 +711,7 @@ class Coverplayer:
                         print('on_itemclick before _open_list1, meta: ' + str(meta))
                         self._open_list(meta, artists)
                     else:
-                        self.itemlistclass.notfound()
+                        self.itemlistclass.error_message(self.lang['notfound'].upper())
                 if result_type == 'albums':
                     self.search = data[1]
                     albums = data[2]
@@ -684,7 +729,7 @@ class Coverplayer:
                         print('on_itemclick before _open_list1, meta: ' + str(meta))
                         self._open_list(meta, albums)
                     else:
-                        self.itemlistclass.notfound()
+                        self.itemlistclass.error_message(self.lang['notfound'].upper())
                 print('#### coverplayer on_itemclick result_type: ' + result_type + ', meta: ' + str(meta))                 
                 if meta['type']!='playlists' and meta['type']!='tracks' and result_type == 'tracks':
                     self.search = data[1]
@@ -711,7 +756,7 @@ class Coverplayer:
                         print('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
                     else:
-                        self.itemlistclass.notfound()
+                        self.itemlistclass.error_message(self.lang['notfound'].upper())
                 if meta['type']=='playlists' and result_type == 'tracks':
                     self.search = data[1]
                     playlist = data[2]
@@ -738,7 +783,7 @@ class Coverplayer:
                         #print('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
                     else:
-                        self.itemlistclass.notfound()
+                        self.itemlistclass.error_message(self.lang['notfound'].upper())
                 if result_type =='track' or result_type =='radio':
                     self.itemlistclass.close()
                 
@@ -761,7 +806,7 @@ class Coverplayer:
                     self.on_itemclick(meta, album)
         else:
             self.hasRadioSearch = False
-            zonetype = self.zone.split('-')[1].strip()
+            zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
             if (zonetype!='Apple Music' and zonetype!='Spotify'):
                 self.hasRadioSearch = True
             print('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
@@ -776,11 +821,11 @@ class Coverplayer:
         try:
             while True:
                 func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
-                if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen):
+                if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                    playmode = playlen is not None and playlen != -1 and is_playing is True
-                    #playmode = is_playing # new for roon radio
+                    #playmode = playlen is not None and playlen != -1 and is_playing is True
+                    playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
@@ -804,6 +849,7 @@ class Coverplayer:
                         self.playpos_next = playpos
                         if self.debug is True:
                             self.flexprint('[red]CoverPlayer: poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
+                    
                     if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
                         if playlen == -1:
                             self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
@@ -815,7 +861,13 @@ class Coverplayer:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
 
+                    # shuffle and repeat button at the bottom left
+                    if self.shuffle_btn is not None and self.playlen != playlen and (self.playlen is None or playlen is None):
+                        self.shuffle_btn.place(relx = 0.0 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+                        self.repeat_btn.place(relx = 0.14 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+                    
                     self.playlen = playlen
+
                     self.callback = callback
                     self.control_callback = control_callback
                     self.search_callback = search_callback
@@ -841,17 +893,25 @@ class Coverplayer:
                                 if self.text is not None and len(self.text) > 3:
                                     zone = self.text[0].split(':')[1].strip()
                                     icon_enabled = self.zone is not None and zone == self.zone
+                                    zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                    if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
+                                        icon_enabled = False
                                     self.switch_button_state(self.tracklist_btn, icon_enabled)
                                 else:
                                     self.switch_button_state(self.tracklist_btn, False)                                
                             if self.in_menu_mode is True and self.keyb_btn is not None:
                                 icon_enabled = self.zone is not None
+                                zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                if zonetype == 'Spotify' and self.spotify_disabled is True:
+                                    icon_enabled = False
                                 self.switch_button_state(self.keyb_btn, icon_enabled)
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
                 if func == 'set_translations':
                     self.lang = playpos
+                if func == 'disable_spotify':
+                    self.spotify_disabled = playpos
                 if func == 'setpos':
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
@@ -874,8 +934,8 @@ class Coverplayer:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
 
-                    playmode = playlen is not None and playlen != -1 and is_playing is True
-                    #playmode = is_playing # new for roon radio
+                    #playmode = playlen is not None and playlen != -1 and is_playing is True
+                    playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on)
@@ -904,11 +964,17 @@ class Coverplayer:
                                     if self.text is not None and len(self.text) > 3:
                                         zone = self.text[0].split(':')[1].strip()
                                         icon_enabled = self.zone is not None and zone == self.zone
+                                        zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                        if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
+                                            icon_enabled = False
                                         self.switch_button_state(self.tracklist_btn, icon_enabled)
                                     else:
                                         self.switch_button_state(self.tracklist_btn, False)
                                 if self.in_menu_mode is True and self.keyb_btn is not None:
                                     icon_enabled = self.zone is not None
+                                    zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                    if zonetype == 'Spotify' and self.spotify_disabled is True:
+                                        icon_enabled = False
                                     self.switch_button_state(self.keyb_btn, icon_enabled)
                         if playpos is None:
                             self.playpos_next = 0
@@ -918,6 +984,11 @@ class Coverplayer:
                         upd_pos_text = str(timedelta(seconds=playpos)) + ' / ' + str(self.count) if (playpos is not None and playpos != -1) else str(playpos) + ' / ' + str(self.count)
                         upd_pos = Label(self.overlay, text = upd_pos_text, bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
                         upd_pos.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height + 40)
+
+                    # shuffle and repeat button at the bottom left
+                    if self.shuffle_btn is not None and self.playlen != playlen and (self.playlen is None or playlen is None):
+                        self.shuffle_btn.place(relx = 0.0 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+                        self.repeat_btn.place(relx = 0.14 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
                     self.playlen = playlen
                     self.is_playing = is_playing
