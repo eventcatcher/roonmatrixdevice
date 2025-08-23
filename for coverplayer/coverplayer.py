@@ -354,7 +354,7 @@ class Coverplayer:
         max_per_row = 3		# max 3 buttons per row
 
         ctrl_btn_ipad = 20			# inner padding in px of control buttons
-        corner_btn_size = 60		# button size in px of shuffle and close button in the bottom corners
+        corner_btn_size = 88		# button size in px of shuffle and close button in the bottom corners
         
         total = len(self.buttons)
         rows = (total + max_per_row - 1) // max_per_row
@@ -388,7 +388,7 @@ class Coverplayer:
 
         # control buttons close together
         self.backward_btn = Button(control_frame, image = self.control_icons["backward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("backward"), takefocus = 0)
-        self.backward_btn.pack(side = "left", padx = (0, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
+        self.backward_btn.pack(side = "left", padx = (5, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
         icon = self.control_icons["pause"] if self.is_playing else self.control_icons["play"]
         self.play_btn = Button(control_frame, image = icon, bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
         self.play_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
