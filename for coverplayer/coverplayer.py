@@ -197,10 +197,10 @@ class Coverplayer:
         self.overlay_height = self.maxpx_y
         self.overlay_relheight = 1
         self.ctrl_btn_bgcolor = "white"	# background color of control buttons
-        self.pending_btn_bgcolor = '#B0DBFF' # background color of control buttons in pending status
+        self.pending_btn_bgcolor = '#CCCCCC' # background color of control buttons in pending status
         self.overlay_bgcolor = "#222222"	# background color of control overlay
         self.btn_small_bgcolor = "#222222"	# background color of small buttons
-        self.pending_btn_small_bgcolor = '#0000bb' # background color of small buttons in pending state
+        self.pending_btn_small_bgcolor = '#303030' # background color of small buttons in pending state
         self.btn_disabled_color = "#555555"	# background color of disabled button
         self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
         self.button_highlight_color = '#80ed99'
@@ -443,7 +443,6 @@ class Coverplayer:
                 w = (self.maxpx_x - 243) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
             else:
                 w = 0
-            print('w: ' + str(w))
             self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
 
         if self.playlen is not None and self.playlen > 0:

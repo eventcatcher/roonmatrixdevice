@@ -3190,7 +3190,7 @@ def roon_state_callback(event, changed_ids):
             else:
                 state = zone["state"]
                 name = zone["display_name"]
-            flexprint('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"]))
+            flexprint('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else '-'))
             if state == "Unknown" or 'now_playing' not in zone:
                 continue
             else:
@@ -3482,6 +3482,7 @@ def get_zone_names():
             zones.append(id)
         elif id in zone_id_list:
             zones.append(name)
+    zones.sort()
     return zones
 
 def get_new_control_id_by_roon_zone_online():
