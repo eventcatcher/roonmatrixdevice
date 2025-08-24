@@ -209,6 +209,10 @@ class Coverplayer:
         self.zone_button_height = 91
         self.control_button_height = 90
         self.extra_space_height = 50
+        self.progressbar_width_std = self.maxpx_x - 240
+        self.progressbar_width_disabled = self.maxpx_x - 186
+        self.playlen_pos_std = self.maxpx_x - 110
+        self.playlen_pos_disabled = self.maxpx_x - 56
 
         self.debug = False
         self.spotify_disabled = False
@@ -342,6 +346,12 @@ class Coverplayer:
             self.root.after_cancel(self.overlay_timer)
             self.overlay_timer = None
 
+    def switch_small_button_state(self, btn, command, enabled):
+        if enabled is True:
+            btn.config(command = command, bg = self.btn_small_bgcolor, activebackground = self.btn_small_bgcolor)
+        else:
+            btn.config(command = lambda: None, bg = self.btn_disabled_color, activebackground = self.btn_disabled_color)
+
     def switch_button_state(self, btn, enabled):
         if enabled is True:
             btn.config(state=NORMAL, bg = self.overlay_bgcolor)
@@ -397,13 +407,15 @@ class Coverplayer:
 
         # shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-        self.shuffle_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, command = self._toggle_shuffle, takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
-        self.shuffle_btn.place(relx = 0.0 if self.playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+        switch_enabled = self.playlen is not None and self.playlen!=-1
+        bg = self.btn_small_bgcolor if switch_enabled else self.btn_disabled_color
+        self.shuffle_btn = Button(self.overlay, image = icon, bg=bg, bd = 0, command = self._toggle_shuffle if switch_enabled else lambda: None, takefocus = 0, activebackground = bg, height = corner_btn_size, width = corner_btn_size)
+        self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
 		# repeat button at the bottom left
         icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
-        self.repeat_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, command = self._toggle_repeat, takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
-        self.repeat_btn.place(relx = 0.14 if self.playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+        self.repeat_btn = Button(self.overlay, image = icon, bg = bg, bd = 0, command = self._toggle_repeat if switch_enabled else lambda: None, takefocus = 0, activebackground = bg, height = corner_btn_size, width = corner_btn_size)
+        self.repeat_btn.place(relx = 0.14, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
         # keyboard button at the bottom right
         icon = self.control_icons["keyb"]
@@ -436,20 +448,28 @@ class Coverplayer:
         if self.playpos is not None and self.playpos != -1:
             self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
             self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-            self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
+            self.canvas=Canvas(self.overlay, width = self.progressbar_width_std, height = 5)
             self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-            self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
+            self.canvas.create_line(0, 0, self.progressbar_width_std,0, fill = "white", width = 14)
             if self.playpos > 0:
-                w = (self.maxpx_x - 243) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
+                w = (self.progressbar_width_std - 3) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
             else:
                 w = 0
             self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
 
         if self.playlen is not None and self.playlen > 0:
             self.playlen_text = Label(self.overlay, text = timedelta(seconds=self.playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+            self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+        else:
+            self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+            self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+            self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+            self.playlen_text = Label(self.overlay, text = '\u221E', bg = self.overlay_bgcolor, font = "Arial 40 bold", fg = 'white')
+            self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
 
     def update_playpos(self):
+        switch_enabled = self.playlen is not None and self.playlen!=-1
         self.root.after(1000, self.update_playpos)
         if self.playpos_next != None:
             self.playpos = self.playpos_next
@@ -464,11 +484,11 @@ class Coverplayer:
                     self.playpos_text.config(text=timedelta(seconds=self.playpos))
                 self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                 if self.canvas is None:
-                    self.canvas=Canvas(self.overlay, width = self.maxpx_x - 240, height = 5)
+                    self.canvas=Canvas(self.overlay, width = self.progressbar_width_std if switch_enabled else self.progressbar_width_disabled, height = 5)
                     self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-                self.canvas.create_line(0, 0, self.maxpx_x - 240,0, fill = "white", width = 14)
+                self.canvas.create_line(0, 0, self.progressbar_width_std if switch_enabled else self.progressbar_width_disabled,0, fill = "white", width = 14)
                 if self.playpos > 0:
-                    w = (self.maxpx_x - 243) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
+                    w = ((self.progressbar_width_std if switch_enabled else self.progressbar_width_disabled) - 3) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
                 else:
                     w = 0
                 self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
@@ -476,7 +496,7 @@ class Coverplayer:
             self.flexprint('CoverPlayer: classfunc update_playpos: ' + str(self.playpos))
     
     def _control(self, action):
-        self._start_overlay_timer()      
+        self._start_overlay_timer()   
         print('_control action: ' + str(action))
         if action == 'pause' or action == 'play':
             icon = self.control_icons['pause' if action=='play' else 'play']
@@ -490,11 +510,14 @@ class Coverplayer:
         if action == 'forward':
             self.forward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
 
-        if action == 'shuffle_off' or action == 'shuffle_on':
-            self.shuffle_btn.config(image = icon, bg=self.pending_btn_small_bgcolor, activebackground=self.pending_btn_small_bgcolor)
+        switch_enabled = self.playlen is not None and self.playlen!=-1
+        if switch_enabled and (action == 'shuffle_off' or action == 'shuffle_on'):
+            bg = self.pending_btn_small_bgcolor if switch_enabled else self.btn_disabled_color
+            self.shuffle_btn.config(image = icon, command = self._toggle_shuffle if switch_enabled else lambda: None, bg=bg, activebackground=bg)
 
-        if action == 'repeat_off' or action == 'repeat_on':
-            self.repeat_btn.config(image = icon, bg=self.pending_btn_small_bgcolor, activebackground=self.pending_btn_small_bgcolor)
+        if switch_enabled and (action == 'repeat_off' or action == 'repeat_on'):
+            bg = self.pending_btn_small_bgcolor if switch_enabled else self.btn_disabled_color
+            self.repeat_btn.config(image = icon, command = self._toggle_repeat if switch_enabled else lambda: None, bg=bg, activebackground=bg)
         
         if self.control_callback:
             stateupdate = self.control_callback(action)
@@ -508,9 +531,9 @@ class Coverplayer:
                 self.backward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
             if action == 'forward':
                 self.forward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
-            #self._set_shufflemode(shuffle_on)
+            #self._set_shufflemode(shuffle_on, playlen)
             #self.shuffle_on = shuffle_on
-            #self._set_repeatmode(repeat_on)
+            #self._set_repeatmode(repeat_on, playlen)
             #self.repeat_on = repeat_on
 
     def _toggle_play(self):
@@ -527,20 +550,22 @@ class Coverplayer:
         self._start_overlay_timer()
         self._control("shuffle_off" if self.shuffle_on else "shuffle_on")
 
-    def _set_shufflemode(self, mode):
+    def _set_shufflemode(self, mode, playlen):
         if self.in_menu_mode is True and self.shuffle_btn is not None:
             icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-            self.shuffle_btn.config(image = icon, bg=self.btn_small_bgcolor, activebackground=self.btn_small_bgcolor)
+            bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
+            self.shuffle_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
 
     def _toggle_repeat(self):
         self._start_overlay_timer()
         self._control("repeat_off" if self.repeat_on else "repeat_on")
 
-    def _set_repeatmode(self, mode):
+    def _set_repeatmode(self, mode, playlen):
         if self.in_menu_mode is True and self.repeat_btn is not None:
             icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
-            self.repeat_btn.config(image = icon, bg=self.btn_small_bgcolor, activebackground=self.btn_small_bgcolor)
+            bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
+            self.repeat_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
@@ -827,8 +852,8 @@ class Coverplayer:
                     playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
-                    self._set_shufflemode(shuffle_on)
-                    self._set_repeatmode(repeat_on)
+                    self._set_shufflemode(shuffle_on, playlen)
+                    self._set_repeatmode(repeat_on, playlen)
 
                     self.is_playing = is_playing
                     self.shuffle_on = shuffle_on
@@ -855,15 +880,25 @@ class Coverplayer:
                             self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                         else:
                             self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                             if self.canvas_clear is not None:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
+                    if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
+                        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+                        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+                        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+                        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+                        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
+                        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
 
                     # shuffle and repeat button at the bottom left
-                    if self.shuffle_btn is not None and self.playlen != playlen and (self.playlen is None or playlen is None):
-                        self.shuffle_btn.place(relx = 0.0 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
-                        self.repeat_btn.place(relx = 0.14 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+                    if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
+                        icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
+                        switch_enabled = playlen is not None and playlen!=-1
+                        self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
+                        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+                        self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
                     
                     self.playlen = playlen
 
@@ -928,17 +963,24 @@ class Coverplayer:
                             self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                         else:
                             self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.maxpx_x - 110, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                            self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                             if self.canvas_clear is not None:
                                 self.canvas_clear.destroy()
                                 self.canvas_clear = None
+                    if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
+                        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+                        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+                        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+                        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+                        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
+                        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
 
                     #playmode = playlen is not None and playlen != -1 and is_playing is True
                     playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue setpos => playmode: ' + str(playmode) + ', self.is_playing: ' + str(self.is_playing) + ', is_playing: ' + str(is_playing) + '[/red]')
                     self._set_playmode(playmode)
-                    self._set_shufflemode(shuffle_on)
-                    self._set_repeatmode(repeat_on)
+                    self._set_shufflemode(shuffle_on, playlen)
+                    self._set_repeatmode(repeat_on, playlen)
                             
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
@@ -985,9 +1027,12 @@ class Coverplayer:
                         upd_pos.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height + 40)
 
                     # shuffle and repeat button at the bottom left
-                    if self.shuffle_btn is not None and self.playlen != playlen and (self.playlen is None or playlen is None):
-                        self.shuffle_btn.place(relx = 0.0 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
-                        self.repeat_btn.place(relx = 0.14 if playlen is not None else -1.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
+                    if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
+                        icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
+                        switch_enabled = playlen is not None and playlen!=-1
+                        self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
+                        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+                        self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
 
                     self.playlen = playlen
                     self.is_playing = is_playing
