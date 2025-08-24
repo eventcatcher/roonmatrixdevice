@@ -415,6 +415,7 @@ datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and ti
 datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) # screensaver timeout in seconds (0 = screensaver off)
+display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) # wakeup display on track updates
 countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
 
 playing_headline = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
@@ -529,6 +530,7 @@ socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
     Coverplayer.set_translations(coverplayer_lang)
+    Coverplayer.set_wakeup(display_auto_wakeup)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
     if spotify_client_id!='' and spotify_client_secret!='':
@@ -576,7 +578,8 @@ async def rest_config():
                             {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                             {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                            {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']}
+                            {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
+                            {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
                         ]
                     },
                     {

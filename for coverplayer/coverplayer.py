@@ -21,7 +21,7 @@ import queue
 import threading
 import requests
 from io import BytesIO
-from os import path
+from os import path, system
 import time
 import subprocess
 from datetime import timedelta
@@ -55,6 +55,11 @@ class Coverplayer:
     def set_translations(cls, lang):
         cls._ensure_running()
         cls._queue.put(('set_translations', lang, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
+    def set_wakeup(cls, wakeup_mode):
+        cls._ensure_running()
+        cls._queue.put(('set_wakeup', wakeup_mode, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_spotify(cls, disabled):
@@ -216,6 +221,7 @@ class Coverplayer:
 
         self.debug = False
         self.spotify_disabled = False
+        self.display_auto_wakeup = False
         self.count = 0
         self.shuffle_btn = None
         self.repeat_btn = None
@@ -908,6 +914,9 @@ class Coverplayer:
                     self.itemclick_callback = itemclick_callback
                     paused = not playmode
                     icon_path = self.scriptpath + "icons/play.png"
+                    print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+                    if self.display_auto_wakeup is True:
+                        subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
                     img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
                     if img:
                         self.label.config(image = img)
@@ -944,6 +953,8 @@ class Coverplayer:
                     self.keyb_list = playpos
                 if func == 'set_translations':
                     self.lang = playpos
+                if func == 'set_wakeup':
+                    self.display_auto_wakeup = playpos
                 if func == 'disable_spotify':
                     self.spotify_disabled = playpos
                 if func == 'setpos':
@@ -985,6 +996,9 @@ class Coverplayer:
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
                         icon_path = self.scriptpath + "icons/play.png"
+                        print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+                        if self.display_auto_wakeup is True:
+                            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
                         img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
                         if img:
                             self.label.config(image = img)
