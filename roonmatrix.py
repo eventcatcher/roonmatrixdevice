@@ -60,6 +60,7 @@ from operator import is_not
 from functools import partial
 from pathlib import Path
 import hashlib
+from aiohttp import ClientSession, ClientTimeout
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -2788,6 +2789,58 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['radio', itemname]
     return
 
+async def fetch_url(session, reqobj):
+   # Helper function to fetch a single URL asynchronously
+    try:
+        name = reqobj['name']
+        url = reqobj['url']
+        async with session.get(url) as response:
+            text = await response.text()
+            return {
+                'url': url,
+                'name': name,
+                'status': response.status,
+                'length': len(text),
+                'text': text
+            }
+    except Exception as e:
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
+
+async def head_url(session, reqobj):
+   # Helper function to fetch a single URL asynchronously
+    try:
+        name = reqobj['name']
+        url = reqobj['url']
+        async with session.head(url) as response:
+            text = await response.text()
+            return {
+                'url': url,
+                'name': name,
+                'status': response.status,
+                'length': len(text),
+                'text': text
+            }
+    except Exception as e:
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
+
+async def non_blocking_fetch_urls(requestlist, get_head, timeout):
+    # Non-blocking implementation that fetches URLs concurrently
+    timeout_obj = ClientTimeout(total = timeout)
+    async with ClientSession(timeout = timeout_obj) as session:
+        if get_head is True:
+            tasks = [head_url(session, reqobj) for reqobj in requestlist]
+        else:
+            tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
+        return await asyncio.gather(*tasks)
+
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
     global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, data_changed
     if log is True: flexprint('get playing apple or spotify => start')
@@ -2805,31 +2858,35 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
             index = names.index(baseName)
             webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
 
-    for idx,data in enumerate(webservers_zones,1):
+    non_blocking_head_results = asyncio.run(non_blocking_fetch_urls(webservers_zones, True, webserver_head_request_timeout))
+    active_zones = []
+    for idx,data in enumerate(non_blocking_head_results,1):
         name = data['name']
-        url = data['url']
-        result = ''
-
-        online = is_url_active(url,webserver_head_request_timeout)
+        online = (data['status'] == 200) if 'status' in data else False
         update_webserver_channels(name, online)
-
         if online is True:
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-
-            try:
-                result = str(urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf-8').replace('\n',''))
-            except HTTPError as e:
-                if errorlog is True:
-                    flexprint('The webserver couldn\'t fulfill the request.')
-                    flexprint(name + ': error code: ', e.code)
-            except URLError as e:
-                if errorlog is True:
-                    flexprint(name + ': failed to reach the webserver.')
-                    flexprint('reason: ', e.reason)
-            except Exception as e:
-                if errorlog is True: flexprint('webserver urlopen error: ', str(e))
-            else:
-                if result != '' and result.startswith('[{') and result.endswith('}]'):
+            active_zones.append(data)
+        else:
+            if log is True: flexprint('Webserver ' + name + ' is down')
+ 
+    req_start_time = time.time()
+    non_blocking_results = asyncio.run(non_blocking_fetch_urls(active_zones, False, webserver_head_request_timeout))
+    req_end_time = time.time()
+    if debug is True:
+        print(f"Non-blocking get request results ({req_end_time - req_start_time:.2f} seconds):", non_blocking_results)
+    else:
+        print(f"Non-blocking get request time: ({req_end_time - req_start_time:.2f} seconds)")
+    
+    for idx,data in enumerate(non_blocking_results,1):
+        name = data['name']
+        result = ''
+        
+        if 'error' in data :
+            if log is True: flexprint('Webserver error: ' + data['error'])
+        if 'status' in data and data['status'] == 200:
+            result = str(data['text']).replace('\n','')
+            if result != '':
+                if result.startswith('[{') and result.endswith('}]'):
                     resultJson = json.loads(result)
                     for obj in resultJson:
                         if "status" in obj and obj["status"] == 'not running':
@@ -2973,8 +3030,10 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                         break
                 else:
                     if log is True: flexprint('Webserver ' + name + ' is not available')
+            else:
+                if log is True: flexprint('Webserver ' + name + ' with empty result')
         else:
-            if log is True: flexprint('Webserver ' + name + ' is down')
+            if log is True: flexprint('Webserver with status' + data['status'])
 
     if log is True:
         flexprint('get playing apple or spotify => end')
