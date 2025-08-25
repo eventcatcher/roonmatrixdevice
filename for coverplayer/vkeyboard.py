@@ -211,11 +211,11 @@ class VirtualKeyboard:
     def vpresskey(self, x):
         value = None
         cursor_pos = self.inp.index(INSERT)
-        print ("The cursor is at: ", cursor_pos)
+        #print ("The cursor is at: ", cursor_pos)
         #self.master.withdraw()
         actualValue = str(self.inpstr.get())
         x = self.buttonsTranslate[x] if x in self.buttonsTranslate else x
-        print('vpresskey x: ' + str(x) + ', buttonsTranslate: ' + str(self.buttonsTranslate))
+        #print('vpresskey x: ' + str(x) + ', buttonsTranslate: ' + str(self.buttonsTranslate))
         if x == 'lock':
             self.capslock_key_enabled = (self.capslock_key_enabled is False)
             self.update_keyboard()
@@ -255,7 +255,7 @@ class VirtualKeyboard:
                 value = ''
                 if cursor_pos > 0:
                     value = actualValue[0:cursor_pos]
-                print('shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
+                #print('shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
                 if (self.capslock_key_enabled is True or self.shift_key_pressed):
                     ascode = ord(x)
                     if x == '/':
@@ -307,11 +307,11 @@ class VirtualKeyboard:
         if type == 'shift':
             self.shift_key_pressed = self.shift_key_pressed is False
             self.capslock_key_enabled = False
-            print('shift_key_pressed: ' + str(self.shift_key_pressed))
+            #print('shift_key_pressed: ' + str(self.shift_key_pressed))
             self.update_keyboard()
         if type == 'alt':
             self.alt_key_pressed = self.alt_key_pressed is False
-            print('alt_key_pressed: ' + str(self.alt_key_pressed))
+            #print('alt_key_pressed: ' + str(self.alt_key_pressed))
             self.update_keyboard()
 
     def on_labelTap(self):

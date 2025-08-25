@@ -29,6 +29,7 @@ from threading import Timer
 from rich import print
 import sys
 import logging
+import freetype
 
 class Coverplayer:
     _instance = None
@@ -111,7 +112,39 @@ class Coverplayer:
         return lines
 
     @classmethod
-    def _load_image(cls, flexprint, maxpx, paused, icon_path, path_or_url = None, text = None):
+    def _load_image(cls, flexprint, maxpx, paused, icon_path, fonts, faces, font_size, path_or_url = None, text = None):
+        font = fonts["latin"]
+
+        def get_font_for_char(ch):
+            font_order = ["latin", "cjk", "emoji"]
+            codepoint = ord(ch)
+
+            for key in font_order:
+                face = faces[key]
+                if face.get_char_index(codepoint) != 0:  # Glyph vorhanden
+                    return fonts[key]
+            return fonts["latin"]
+
+        def get_right_font(text):
+            count_latin = 0
+            count_cjk = 0
+            count_emoji = 0
+
+            for ch in text:
+                font = get_font_for_char(ch)
+                if font == fonts["latin"]:
+                    count_latin += 1
+                if font == fonts["cjk"]:
+                    count_cjk += 1
+                if font == fonts["emoji"]:
+                    count_emoji += 1
+            #print('latin: ' + str(count_latin) + ', cjk: ' + str(count_cjk) + ', emoji: ' + str(count_emoji))
+            if count_cjk >= count_latin and count_cjk >= count_emoji:
+                return fonts["cjk"]
+            if count_emoji >= count_latin and count_emoji >= count_cjk:
+                return fonts["emoji"]
+            return fonts["latin"]
+
         try:
             if path_or_url is None:
             	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
@@ -140,18 +173,12 @@ class Coverplayer:
             draw = ImageDraw.Draw(img)
 
             if text:
-                font_size = 24
                 line_space = 5
-                
-                try:
-                    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", size = font_size)
-                except IOError:
-                    font = ImageFont.load_default()
 
                 max_width = img.width - 40  # max width of text
                 lines_all_items = 0
                 for text_part in text:
-                    lines = cls._wrap_text(text_part, font, max_width)
+                    lines = cls._wrap_text(text_part, get_right_font(text_part), max_width)
                     lines_all_items += len(lines)
                     
                 border_space = 20
@@ -161,14 +188,15 @@ class Coverplayer:
                 background = (0, 0, 0, 128)  # RGB + Alpha (0-255)
                 
                 for text_part in text:
-                    lines = cls._wrap_text(text_part, font, max_width)
+                    f = get_right_font(text_part)
+                    lines = cls._wrap_text(text_part, f, max_width)
                     for line in lines:
-                        text_width, text_height = draw.textsize(line, font = font)
+                        text_width, text_height = draw.textsize(line, font = f)
                         draw.rectangle(
                             [text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space],
                             fill = background
                         )
-                        draw.text((text_x, text_y), line, font = font, fill = "white")
+                        draw.text((text_x, text_y), line, font = f, fill = "white")
                         text_y += text_height + line_space  # line spacing
 
             return ImageTk.PhotoImage(img)
@@ -180,6 +208,15 @@ class Coverplayer:
         self.maxpx_x = 720 # screen width in px
         self.maxpx_y = 720 # screen height in px
         self.logger = logging.getLogger('coverplayer')
+        self.font_size = 24
+
+        self.FONT_PATHS = {
+            "latin": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "cjk": "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+            "emoji": "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+        }
+        self.fonts = {k: ImageFont.truetype(path, (109 if k=='emoji' else self.font_size)) for k, path in self.FONT_PATHS.items()}        
+        self.faces = {k: freetype.Face(path) for k, path in self.FONT_PATHS.items()}
 
         self.root = Tk()
         self.root.focus_force()
@@ -917,7 +954,7 @@ class Coverplayer:
                     print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                     if self.display_auto_wakeup is True:
                         subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                    img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
+                    img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, path, text)
                     if img:
                         self.label.config(image = img)
                         self.label.image = img
@@ -999,7 +1036,7 @@ class Coverplayer:
                         print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                         if self.display_auto_wakeup is True:
                             subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                        img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, path, text)
+                        img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, path, text)
                         if img:
                             self.label.config(image = img)
                             self.label.image = img

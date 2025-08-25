@@ -89,6 +89,8 @@ class ItemList:
         self.rowheight = 90 # maxsize, for bigger height exception throws: BadAlloc (insufficient resources for operation)
         self.fontSize = 24
         self.gray = "#383838"
+        self.maxpx_x = 720 # screen width in px
+        self.maxpx_y = 720 # screen height in px
 
         self.master.configure(bg=self.gray)
 
