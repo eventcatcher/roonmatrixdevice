@@ -3108,7 +3108,8 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
             else:
                 if log is True: flexprint('Webserver ' + name + ' with empty result')
         else:
-            if log is True: flexprint('Webserver with status' + data['status'])
+            if log is True and 'status' in data: flexprint('Webserver with status ' + str(data['status']))
+            if log is True and 'error' in data: flexprint('Webserver with error: ' + data['error'])
 
     if log is True:
         flexprint('get playing apple or spotify => end')
