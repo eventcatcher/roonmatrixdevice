@@ -1828,6 +1828,11 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
                 raw_bytes = urlopen(req, timeout=170).read()
                 result = raw_bytes.decode("utf-8")
 
+                playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
+                if code in playcontrols:
+                    print('playcontrol result: ' + str(result))
+                    get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
+
                 return result
             except HTTPError as e:
                 if errorlog is True:
@@ -2841,26 +2846,76 @@ async def non_blocking_fetch_urls(requestlist, get_head, timeout):
             tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
         return await asyncio.gather(*tasks)
 
-def get_playing_apple_or_spotify(webservers_zones,displaystr):
-    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, data_changed
-    if log is True: flexprint('get playing apple or spotify => start')
+def transform_zone_data_to_string(displaystr, name, controlled, obj):
+    if type(displaystr) == list:
+        if len(displaystr) == 0 and playing_headline !='':
+            displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
+        if show_zone is True:
+            sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
+            font = proportional(CP437_FONT)
+            w, h = textsize(sourcestr, font)
+            if w > device.width:
+                displaystr.append(get_message('Source'))
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
+            else:
+                displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
+
+            zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
+            font = proportional(CP437_FONT)
+            w, h = textsize(zonestr, font)
+            if w > device.width:
+                displaystr.append(controlled + get_message('Zone'))
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
+            else:
+                displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
+        if 'artist' in obj and obj["artist"] != '':
+            if show_vertical_music_label is True:
+                displaystr.append('< ' + get_message('Artist') + ' >')
+            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
+        if show_album is True and 'album' in obj and obj["album"] != '':
+            if show_vertical_music_label is True:
+                displaystr.append('< ' + get_message('Album') + ' >')
+            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
+        if show_vertical_music_label is True:
+            displaystr.append('< ' + get_message('Track') + ' >')
+            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
+        else:
+            displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
+    else:
+        if displaystr == '' and playing_headline !='':
+            displaystr += playing_headline + ': '
+        if show_zone is True:
+            displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
+            displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
+        if 'artist' in obj and obj["artist"] != '':
+            displaystr += get_message('Artist') + ': "' + convert_special_chars(obj["artist"]) + '" / '
+        if show_album is True and 'album' in obj and obj["album"] != '':
+            displaystr += get_message('Album') + ': "' + convert_special_chars(obj["album"]) + '" / '
+        if 'track' in obj:
+            displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
+            displaystr = convert_special_chars(displaystr)
+    return displaystr
+
+def get_force_mode(displaystr):
     force = False
-    breakToo = False
     if type(displaystr) != list and len(displaystr) >= 6 and displaystr[:6]=='force>':
         force = True
     if type(displaystr) == list and len(displaystr) > 0 and displaystr[0]=='force>':
         force = True
+    return force
 
+def moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones):
     if control_id is not None and len(webservers_zones) > 0:
         names = [d.get('name') for d in webservers_zones]
         baseName = control_id.split('-')[0]
         if baseName in names and not baseName == webservers_zones[0]['name']:
             index = names.index(baseName)
             webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
+    return webservers_zones
 
-    non_blocking_head_results = asyncio.run(non_blocking_fetch_urls(webservers_zones, True, webserver_head_request_timeout))
+def get_active_zones_from_webserver_request(response_list):
     active_zones = []
-    for idx,data in enumerate(non_blocking_head_results,1):
+    for data in response_list:
         name = data['name']
         online = (data['status'] == 200) if 'status' in data else False
         update_webserver_channels(name, online)
@@ -2868,7 +2923,96 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
             active_zones.append(data)
         else:
             if log is True: flexprint('Webserver ' + name + ' is down')
- 
+    return active_zones
+
+def set_data_changed_and_web_playouts_raw(result, name):
+    global data_changed
+    playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
+    if playout_changed is True:
+        data_changed = True
+    web_playouts_raw[name] = result
+
+def webserver_zone_not_running_coverplayer_updates(result, name, obj):
+    if log is True: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
+    set_data_changed_and_web_playouts_raw(result, name)
+    if display_cover is True and control_id is not None and channels[control_id]=='webserver':
+        name_parts = control_id.split('-')
+        zone = name_parts[1]
+        if name == name_parts[0] and obj["zone"] == zone:
+            cover_text_line_parts = []
+            cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+            last_cover_url = ''
+            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+            zones = get_zone_names()
+            is_playing = False
+            shuffle_on = False
+            repeat_on = False
+            flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
+            Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+
+def prepend_cover_url(obj, url):
+    if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
+        obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
+    return obj
+
+def get_and_set_play_shuffle_repeat(name, obj):
+    playing = 'status' in obj and obj['status'] == 'playing'
+    shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
+    repeat = 'repeat' in obj and obj['repeat'] == 'true'
+    zid = name + '-' + obj["zone"]
+    set_play_mode(zid, playing, False)
+    set_shuffle_mode(zid, shuffle, False)
+    set_repeat_mode(zid, repeat, False)
+    return {'playing': playing, 'shuffle':shuffle, 'repeat':repeat}
+
+def add_separator(displaystr, playprops):
+    if type(displaystr) == list:
+        if playprops['playing'] is True and len(displaystr) > 0 and displaystr[0] != 'force>':
+            displaystr.append('')
+    else:
+        if playprops['playing'] is True and displaystr != '':
+            displaystr += separator
+    return displaystr
+
+def webserver_zone_running_coverplayer_updates(obj, playprops):
+    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last
+    playpos = int(obj['position'])
+    playlen = int(obj['total'])
+    is_playing_last = is_playing
+    shuffle_on_last = shuffle_on
+    repeat_on_last = repeat_on
+    is_playing = playprops['playing']
+    shuffle_on = playprops['shuffle']
+    repeat_on = playprops['repeat']
+
+    if display_cover is True and 'cover' in obj and len(obj["cover"]) > 0:
+        cover_text_line_parts = []
+        cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+        if 'artist' in obj and obj["artist"] != '':
+            cover_text_line_parts.append(get_message('Artist') + ': ' + filterIllegalChars(obj["artist"]))
+        if show_album is True and 'album' in obj and obj["album"] != '':
+            cover_text_line_parts.append(get_message('Album') + ': ' + filterIllegalChars(obj["album"]))
+        if 'track' in obj and obj["track"] != '':
+            cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
+
+        if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
+            last_cover_url = obj["cover"]
+            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+            zones = get_zone_names()
+            flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
+            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+        else:
+            flexprint('[bold red]Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
+            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)
+
+def remove_prepended_from_displaystr(displaystr):
+    if type(displaystr) == list:
+        displaystr.pop(0) # remove first list item 'force>'
+    else:
+        displaystr = displaystr[6:] # remove prepended 'force>'
+    return displaystr
+
+def get_non_blocking_results(active_zones):
     req_start_time = time.time()
     non_blocking_results = asyncio.run(non_blocking_fetch_urls(active_zones, False, webserver_head_request_timeout))
     req_end_time = time.time()
@@ -2876,6 +3020,52 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
         print(f"Non-blocking get request results ({req_end_time - req_start_time:.2f} seconds):", non_blocking_results)
     else:
         print(f"Non-blocking get request time: ({req_end_time - req_start_time:.2f} seconds)")
+    return non_blocking_results
+
+def get_name_zone_and_controlled_marker(name, obj, playprops):
+    controlled = ''
+    if control_id is not None and channels[control_id]=='webserver':
+        control_id_parts = control_id.split('-')
+        name_part = control_id_parts[0]
+        zone = control_id_parts[1]
+        if name == name_part and obj["zone"] == zone:
+            controlled = '[*] '
+            webserver_zone_running_coverplayer_updates(obj, playprops)
+    return {'name':name_part, 'zone':zone, 'controlled':controlled}
+
+def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,result):
+    if log is True: flexprint('get webserver results and fast updating of coverplayer and app => start, name: ' + name + ', url: ' + url)
+    
+    result = str(result).replace('\n','')
+    if result.startswith('[{') and result.endswith('}]'):
+        resultJson = json.loads(result)
+        for obj in resultJson:
+            if "status" in obj and obj["status"] == 'not running':
+                webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
+            else:
+                obj = prepend_cover_url(obj, url)
+                playprops = get_and_set_play_shuffle_repeat(name, obj)
+                props = get_name_zone_and_controlled_marker(name, obj, playprops)
+
+                if name not in web_playouts_raw or web_playouts_raw[name] != result:
+                    set_data_changed_and_web_playouts_raw(result, name)
+
+        web_playouts[name] = resultJson
+    else:
+        if log is True: flexprint('Webserver ' + name + ' is not available')
+
+    if log is True:
+        flexprint('get webserver results and fast updating of coverplayer and app => end')
+        flexprint('')
+
+def get_playing_apple_or_spotify(webservers_zones,displaystr):
+    if log is True: flexprint('get playing apple or spotify => start')
+    breakToo = False
+    force = get_force_mode(displaystr)
+    webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
+    non_blocking_head_results = asyncio.run(non_blocking_fetch_urls(webservers_zones, True, webserver_head_request_timeout))
+    active_zones = get_active_zones_from_webserver_request(non_blocking_head_results)
+    non_blocking_results = get_non_blocking_results(active_zones)
     
     for idx,data in enumerate(non_blocking_results,1):
         name = data['name']
@@ -2890,139 +3080,23 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                     resultJson = json.loads(result)
                     for obj in resultJson:
                         if "status" in obj and obj["status"] == 'not running':
-                            if log is True: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
-                            playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
-                            if playout_changed is True:
-                                data_changed = True
-                            web_playouts_raw[name] = result
-                            if display_cover is True and control_id is not None and channels[control_id]=='webserver':
-                                name_parts = control_id.split('-')
-                                zone = name_parts[1]
-                                if name == name_parts[0] and obj["zone"] == zone:
-                                    cover_text_line_parts = []
-                                    cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
-                                    last_cover_url = ''
-                                    last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-                                    zones = get_zone_names()
-                                    is_playing = False
-                                    shuffle_on = False
-                                    repeat_on = False
-                                    flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
-                                    Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+                            webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
                         else:
-                            if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
-                                obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
+                            obj = prepend_cover_url(obj, data['url'])
+                            playprops = get_and_set_play_shuffle_repeat(name, obj)
+                            displaystr = add_separator(displaystr, playprops)
+                            props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
-                            playing = 'status' in obj and obj['status'] == 'playing'
-                            shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
-                            repeat = 'repeat' in obj and obj['repeat'] == 'true'
-                            zid = name + '-' + obj["zone"]
-                            set_play_mode(zid, playing, False)
-                            set_shuffle_mode(zid, shuffle, False)
-                            set_repeat_mode(zid, repeat, False)
-
-                            controlled = ''
-                            if type(displaystr) == list:
-                                if playing is True and len(displaystr) > 0 and displaystr[0] != 'force>':
-                                    displaystr.append('')
-                            else:
-                                if playing is True and displaystr != '':
-                                    displaystr += separator
-
-                            if control_id is not None and channels[control_id]=='webserver':
-                                name_parts = control_id.split('-')
-                                zone = name_parts[1]
-                                if name == name_parts[0] and obj["zone"] == zone:
-                                    controlled = '[*] '
-                                    playpos = int(obj['position'])
-                                    playlen = int(obj['total'])
-                                    is_playing_last = is_playing
-                                    shuffle_on_last = shuffle_on
-                                    repeat_on_last = repeat_on
-                                    is_playing = playing
-                                    shuffle_on = shuffle
-                                    repeat_on = repeat
-                                    
-                                    if display_cover is True and 'cover' in obj and len(obj["cover"]) > 0:
-                                        cover_text_line_parts = []
-                                        cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
-                                        if 'artist' in obj and obj["artist"] != '':
-                                            cover_text_line_parts.append(get_message('Artist') + ': ' + filterIllegalChars(obj["artist"]))
-                                        if show_album is True and 'album' in obj and obj["album"] != '':
-                                            cover_text_line_parts.append(get_message('Album') + ': ' + filterIllegalChars(obj["album"]))
-                                        if 'track' in obj and obj["track"] != '':
-                                            cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
-                                        if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
-                                            last_cover_url = obj["cover"]
-                                            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-                                            zones = get_zone_names()
-                                            flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')                                            
-                                            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
-                                        else:
-                                            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)                                            
-
-                            if playing is True:
-                                if type(displaystr) == list:
-                                    if len(displaystr) == 0 and playing_headline !='':
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
-                                    if show_zone is True:
-                                        sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
-                                        font = proportional(CP437_FONT)
-                                        w, h = textsize(sourcestr, font)
-                                        if w > device.width:
-                                            displaystr.append(get_message('Source'))
-                                            displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
-                                        else:
-                                            displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
-
-                                        zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
-                                        font = proportional(CP437_FONT)
-                                        w, h = textsize(zonestr, font)
-                                        if w > device.width:
-                                            displaystr.append(controlled + get_message('Zone'))
-                                            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
-                                        else:
-                                            displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
-                                    if 'artist' in obj and obj["artist"] != '':
-                                        if show_vertical_music_label is True:
-                                            displaystr.append('< ' + get_message('Artist') + ' >')
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
-                                    if show_album is True and 'album' in obj and obj["album"] != '':
-                                        if show_vertical_music_label is True:
-                                            displaystr.append('< ' + get_message('Album') + ' >')
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
-                                    if show_vertical_music_label is True:
-                                        displaystr.append('< ' + get_message('Track') + ' >')
-                                        displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
-                                    else:
-                                        displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
-                                else:
-                                    if displaystr == '' and playing_headline !='':
-                                        displaystr += playing_headline + ': '
-                                    if show_zone is True:
-                                        displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
-                                        displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
-                                    if 'artist' in obj and obj["artist"] != '':
-                                        displaystr += get_message('Artist') + ': "' + convert_special_chars(obj["artist"]) + '" / '
-                                    if show_album is True and 'album' in obj and obj["album"] != '':
-                                        displaystr += get_message('Album') + ': "' + convert_special_chars(obj["album"]) + '" / '
-                                    if 'track' in obj:
-                                        displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
-                                        displaystr = convert_special_chars(displaystr)
+                            if playprops['playing'] is True:
+                                displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
                             if name not in web_playouts_raw or web_playouts_raw[name] != result:
-                                playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
-                                if playout_changed is True:
-                                    data_changed = True
-                                web_playouts_raw[name] = result
+                                set_data_changed_and_web_playouts_raw(result, name)
 
-                                active = (control_id is not None and channels[control_id]=='webserver' and name == name_parts[0] and obj["zone"] == zone)
+                                active = (control_id is not None and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
                                 if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
                                     if log is True: flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
-                                    if type(displaystr) == list:
-                                        displaystr.pop(0) # remove first list item 'force>'
-                                    else:
-                                        displaystr = displaystr[6:] # remove prepended 'force>'
+                                    displaystr = remove_prepended_from_displaystr(displaystr)
                                     breakToo = True # flag to break outer for loop too
                                     break
                     web_playouts[name] = resultJson

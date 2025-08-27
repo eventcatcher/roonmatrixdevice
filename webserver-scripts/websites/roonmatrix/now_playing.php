@@ -26,6 +26,8 @@ try {
 	$detail = isset($_POST['detail']) ? $_POST['detail'] : ''; 
 	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : '';
 
+    $playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat'];
+
 $replaceText = <<<EOD
                     on replaceText(find, replace, theText)
                         set {TID, text item delimiters} to {text item delimiters, find}
@@ -74,9 +76,6 @@ $replaceText = <<<EOD
                     tell application "$source"
                         if shuffling is false then
                             set shuffling to true
-                            if repeating is false then
-                                set repeating to true
-                            end if
                         end if
                     end tell
                     EOD;    
@@ -92,9 +91,6 @@ $replaceText = <<<EOD
                     tell application "$source"
                         if shuffling is true then
                             set shuffling to false
-                            if repeating is true then
-                                set repeating to false
-                            end if
                         end if
                     end tell
                     EOD;    
@@ -481,7 +477,9 @@ $replaceText = <<<EOD
 		        echo $cmd;
             }
 		}
-	} else {
+	}
+
+	if (($source!='Spotify' && $source!='Apple Music') || in_array($code,$playcontrols) ) {
 		$pyenvFolderName = '.pyenv';
 		$pyenvPythonPath = '/shims/python';
 		$pythonScriptName = 'now_playing.py';

@@ -595,7 +595,7 @@ class Coverplayer:
 
     def _set_shufflemode(self, mode, playlen):
         if self.in_menu_mode is True and self.shuffle_btn is not None:
-            icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
+            icon = self.control_icons["shuffle_on"] if mode is True else self.control_icons["shuffle_off"]
             bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
             self.shuffle_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
@@ -606,7 +606,7 @@ class Coverplayer:
 
     def _set_repeatmode(self, mode, playlen):
         if self.in_menu_mode is True and self.repeat_btn is not None:
-            icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+            icon = self.control_icons["repeat_on"] if mode is True else self.control_icons["repeat_off"]
             bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
             self.repeat_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
