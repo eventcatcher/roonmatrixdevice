@@ -1893,7 +1893,7 @@ def getRepeatstateFromPlayouts():
             zones = web_playouts[serverName]
             for item in web_playouts[serverName]:
                 if 'zone' in item and item['zone'] == zoneName:
-                    repeat = 'repeat' in item and item['repeat'] == 'true'
+                    repeat = 'repeat' in item and (item['repeat'] == 'true' or item['repeat'] == 'all' or item['repeat'] == 'one')
                     repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
                     break
     if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
@@ -2958,7 +2958,7 @@ def prepend_cover_url(obj, url):
 def get_and_set_play_shuffle_repeat(name, obj):
     playing = 'status' in obj and obj['status'] == 'playing'
     shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
-    repeat = 'repeat' in obj and obj['repeat'] == 'true'
+    repeat = 'repeat' in obj and (obj['repeat'] == 'true' or obj['repeat'] == 'all' or obj['repeat'] == 'one')
     zid = name + '-' + obj["zone"]
     set_play_mode(zid, playing, False)
     set_shuffle_mode(zid, shuffle, False)
@@ -3031,7 +3031,8 @@ def get_name_zone_and_controlled_marker(name, obj, playprops):
         if name == name_part and obj["zone"] == zone:
             controlled = '[*] '
             webserver_zone_running_coverplayer_updates(obj, playprops)
-    return {'name':name_part, 'zone':zone, 'controlled':controlled}
+        return {'name':name_part, 'zone':zone, 'controlled':controlled}
+    return {'name':None, 'zone':None, 'controlled':controlled}
 
 def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,result):
     if log is True: flexprint('get webserver results and fast updating of coverplayer and app => start, name: ' + name + ', url: ' + url)
