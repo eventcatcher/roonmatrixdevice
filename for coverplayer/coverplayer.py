@@ -30,6 +30,9 @@ from rich import print
 import sys
 import logging
 import freetype
+import asyncio
+from aiohttp import ClientSession, ClientTimeout
+from unidecode import unidecode
 
 class Coverplayer:
     _instance = None
@@ -53,14 +56,9 @@ class Coverplayer:
         cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
-    def set_translations(cls, lang):
+    def config(cls, lang, webserver_url_request_timeout, display_auto_wakeup):
         cls._ensure_running()
-        cls._queue.put(('set_translations', lang, None, None, None, None, None, None, None, None, None, None, None))
-
-    @classmethod
-    def set_wakeup(cls, wakeup_mode):
-        cls._ensure_running()
-        cls._queue.put(('set_wakeup', wakeup_mode, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_spotify(cls, disabled):
@@ -112,7 +110,7 @@ class Coverplayer:
         return lines
 
     @classmethod
-    def _load_image(cls, flexprint, maxpx, paused, icon_path, fonts, faces, font_size, path_or_url = None, text = None):
+    def _load_image(cls, debug, flexprint, maxpx, paused, icon_path, fonts, faces, font_size, webserver_url_request_timeout, path_or_url = None, text = None):
         font = fonts["latin"]
 
         def get_font_for_char(ch):
@@ -125,32 +123,93 @@ class Coverplayer:
                     return fonts[key]
             return fonts["latin"]
 
+        def convert_special_chars(str):
+            return unidecode(str).encode("ascii", errors="ignore").decode()
+
         def get_right_font(text):
             count_latin = 0
             count_cjk = 0
             count_emoji = 0
+            notfound = 0
+            notfound_flag = False
 
             for ch in text:
+                found = False
                 font = get_font_for_char(ch)
                 if font == fonts["latin"]:
                     count_latin += 1
+                    found = True
                 if font == fonts["cjk"]:
                     count_cjk += 1
+                    found = True
                 if font == fonts["emoji"]:
                     count_emoji += 1
-            #print('latin: ' + str(count_latin) + ', cjk: ' + str(count_cjk) + ', emoji: ' + str(count_emoji))
-            if count_cjk >= count_latin and count_cjk >= count_emoji:
-                return fonts["cjk"]
-            if count_emoji >= count_latin and count_emoji >= count_cjk:
-                return fonts["emoji"]
-            return fonts["latin"]
+                    found = True
+                if found == False:
+                    notfound += 1                    
+                    
+            #flexprint('latin: ' + str(count_latin) + ', cjk: ' + str(count_cjk) + ', emoji: ' + str(count_emoji) + ', notfound: ' + str(notfound) + ' ('+text+')')
+            if notfound >= count_latin and notfound >= count_cjk and notfound >= count_emoji:
+                notfound_flag = True
+            if count_cjk >= count_latin and count_cjk >= count_emoji and count_cjk >= notfound:
+                return [fonts["cjk"], notfound_flag]
+            if count_emoji >= count_latin and count_emoji >= count_cjk and count_emoji >= notfound:
+                return [fonts["emoji"], notfound_flag]
+            return [fonts["latin"], notfound_flag]
+
+        async def fetch_url(session, reqobj):
+            # Helper function to fetch a single URL asynchronously
+            try:
+                name = reqobj['name']
+                url = reqobj['url']
+                async with session.get(url) as response:
+                    content = await response.read()
+                    return {
+                        'url': url,
+                        'name': name,
+                        'status': response.status,
+                        'length': len(content),
+                        'content': content
+                    }
+            except Exception as e:
+                return {
+                    'url': url,
+                    'name': name,
+                    'error': str(e)
+                }
+
+        async def async_web_requests(requestlist, get_head, timeout):
+            # Non-blocking implementation that fetches URLs concurrently
+            timeout_obj = ClientTimeout(total = timeout)
+            async with ClientSession(timeout = timeout_obj) as session:
+                if get_head is True:
+                    tasks = [head_url(session, reqobj) for reqobj in requestlist]
+                else:
+                    tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
+                return await asyncio.gather(*tasks)
+
+        def async_web_requests_with_timing(requestlist):
+            req_start_time = time.time()
+            async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
+            req_end_time = time.time()
+            if debug is True:
+                flexprint(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
+            else:
+                flexprint(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
+            return async_results
 
         try:
             if path_or_url is None:
             	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
             if path_or_url.startswith("http"):
-                response = requests.get(path_or_url, timeout = 5)
-                img = Image.open(BytesIO(response.content))
+                requestlist = [{'name':'imageSource','url':path_or_url}]
+                async_web_response = async_web_requests_with_timing(requestlist)
+                if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
+                    img = Image.open(BytesIO(async_web_response[0]['content']))
+                else:
+                    flexprint('coverplayer load_image request failed => take fallback image')
+                    path_or_url = path.dirname(__file__) + '/cover_fallback.png'
+                    img = Image.open(path_or_url)
             else:
                 img = Image.open(path_or_url)
 
@@ -177,8 +236,15 @@ class Coverplayer:
 
                 max_width = img.width - 40  # max width of text
                 lines_all_items = 0
+                
                 for text_part in text:
-                    lines = cls._wrap_text(text_part, get_right_font(text_part), max_width)
+                    sep = text_part.split(':')
+                    props = get_right_font(sep[1].strip() if len(sep) > 1 else text_part)
+                    font = props[0]
+                    notfound = props[1]
+                    if notfound is True:
+                        text_part = convert_special_chars(text_part)                
+                    lines = cls._wrap_text(text_part, font, max_width)
                     lines_all_items += len(lines)
                     
                 border_space = 20
@@ -188,15 +254,21 @@ class Coverplayer:
                 background = (0, 0, 0, 128)  # RGB + Alpha (0-255)
                 
                 for text_part in text:
-                    f = get_right_font(text_part)
-                    lines = cls._wrap_text(text_part, f, max_width)
+                    sep = text_part.split(':')
+                    props = get_right_font(sep[1].strip() if len(sep) > 1 else text_part)
+                    font = props[0]
+                    notfound = props[1]
+                    if notfound is True:
+                        lines = cls._wrap_text(convert_special_chars(text_part), font, max_width)
+                    else:
+                        lines = cls._wrap_text(text_part, font, max_width)
                     for line in lines:
-                        text_width, text_height = draw.textsize(line, font = f)
+                        text_width, text_height = draw.textsize(line, font = font)
                         draw.rectangle(
                             [text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space],
                             fill = background
                         )
-                        draw.text((text_x, text_y), line, font = f, fill = "white")
+                        draw.text((text_x, text_y), line, font = font, fill = "white")
                         text_y += text_height + line_space  # line spacing
 
             return ImageTk.PhotoImage(img)
@@ -205,6 +277,8 @@ class Coverplayer:
             return None
 
     def _gui_loop(self):
+        self.debug = False   # log debug messages (memory and variable information)
+
         self.maxpx_x = 720 # screen width in px
         self.maxpx_y = 720 # screen height in px
         self.logger = logging.getLogger('coverplayer')
@@ -259,6 +333,7 @@ class Coverplayer:
         self.debug = False
         self.spotify_disabled = False
         self.display_auto_wakeup = False
+        self.webserver_url_request_timeout = 8
         self.count = 0
         self.shuffle_btn = None
         self.repeat_btn = None
@@ -390,16 +465,18 @@ class Coverplayer:
             self.overlay_timer = None
 
     def switch_small_button_state(self, btn, command, enabled):
-        if enabled is True:
-            btn.config(command = command, bg = self.btn_small_bgcolor, activebackground = self.btn_small_bgcolor)
-        else:
-            btn.config(command = lambda: None, bg = self.btn_disabled_color, activebackground = self.btn_disabled_color)
+        if self.in_menu_mode is True and btn is not None:
+            if enabled is True:
+                btn.config(command = command, bg = self.btn_small_bgcolor, activebackground = self.btn_small_bgcolor)
+            else:
+                btn.config(command = lambda: None, bg = self.btn_disabled_color, activebackground = self.btn_disabled_color)
 
     def switch_button_state(self, btn, enabled):
-        if enabled is True:
-            btn.config(state=NORMAL, bg = self.overlay_bgcolor)
-        else:
-            btn.config(state=DISABLED, bg = self.btn_disabled_color)
+        if self.in_menu_mode is True and btn is not None:
+            if enabled is True:
+                btn.config(state=NORMAL, bg = self.overlay_bgcolor)
+            else:
+                btn.config(state=DISABLED, bg = self.btn_disabled_color)
 
     def _show_overlay(self):
         self._start_overlay_timer()
@@ -465,7 +542,7 @@ class Coverplayer:
         self.keyb_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
         icon_enabled = self.zone is not None
-        zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+        zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
         if zonetype == 'Spotify' and self.spotify_disabled is True:
             icon_enabled = False
         self.switch_button_state(self.keyb_btn, icon_enabled)
@@ -476,7 +553,7 @@ class Coverplayer:
         self.tracklist_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
         if self.text is not None and len(self.text) > 3:
             zone = self.text[0].split(':')[1].strip()
-            zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+            zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
             icon_enabled = self.zone is not None and zone == self.zone
             if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
                 icon_enabled = False
@@ -540,7 +617,7 @@ class Coverplayer:
     
     def _control(self, action):
         self._start_overlay_timer()   
-        print('_control action: ' + str(action))
+        self.flexprint('_control action: ' + str(action))
         if action == 'pause' or action == 'play':
             icon = self.control_icons['pause' if action=='play' else 'play']
             self.play_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
@@ -564,7 +641,7 @@ class Coverplayer:
         
         if self.control_callback:
             stateupdate = self.control_callback(action)
-            print('control_callback DONE')
+            self.flexprint('control_callback DONE')
             is_playing = stateupdate[0]
             shuffle_on = stateupdate[1]
             repeat_on = stateupdate[2]
@@ -645,7 +722,7 @@ class Coverplayer:
             self.in_menu_mode = False
 
     def close_keyb(self):
-        print('close_keyb')
+        self.flexprint('close_keyb')
         self.root.deiconify()
 
     def close_list(self):
@@ -720,7 +797,7 @@ class Coverplayer:
                         print(*tracks, sep="\n")
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = self.unescape_quotes(meta['search'])
-                        print('coverplayer applemusic playlist tracks: ' + str(tracks))
+                        self.flexprint('coverplayer applemusic playlist tracks: ' + str(tracks))
                         self._open_list(meta, tracks)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
@@ -748,14 +825,14 @@ class Coverplayer:
                     self.close_list()
 
     def on_itemclick(self, meta, name, id = None):
-        print('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
+        self.flexprint('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
         self.close_list()
         if self.itemclick_callback is not None:
             data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
             if isinstance(data, str):
                 self.itemlistclass.error_message(data)
                 return
-            print('coverplayer ==> itemclick_callback, data: ' + str(data))
+            self.flexprint('coverplayer ==> itemclick_callback, data: ' + str(data))
             if data is not None and len(data) > 0:
                 result_type = data[0]
                 if result_type == 'artist':
@@ -775,7 +852,7 @@ class Coverplayer:
                         meta['genreId'] = id
                         meta['label'] = self.lang['genre'].title()
                         meta['listname'] = self.unescape_quotes(self.search)
-                        print('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self.flexprint('on_itemclick before _open_list1, meta: ' + str(meta))
                         self._open_list(meta, artists)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
@@ -793,16 +870,16 @@ class Coverplayer:
                         meta['artistId'] = id
                         meta['label'] = self.lang['artist'].title()
                         meta['listname'] = self.unescape_quotes(self.search)
-                        print('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self.flexprint('on_itemclick before _open_list1, meta: ' + str(meta))
                         self._open_list(meta, albums)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
-                print('#### coverplayer on_itemclick result_type: ' + result_type + ', meta: ' + str(meta))                 
+                self.flexprint('#### coverplayer on_itemclick result_type: ' + result_type + ', meta: ' + str(meta))                 
                 if meta['type']!='playlists' and meta['type']!='tracks' and result_type == 'tracks':
                     self.search = data[1]
                     album = data[2]
                     tracks = data[3]
-                    print('coverplayer on_itemclick tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', album: ' + album)
+                    self.flexprint('coverplayer on_itemclick tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', album: ' + album)
                     if tracks is not None and len(tracks) > 0:
                         if isinstance(tracks[0], str) is True:
                             print(*tracks, sep="\n")
@@ -820,7 +897,7 @@ class Coverplayer:
                         meta['albumId'] = id # or maybe album
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = meta['artist'] + ' - ' + meta['album']
-                        print('on_itemclick before _open_list2, meta: ' + str(meta))
+                        self.flexprint('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
@@ -828,7 +905,7 @@ class Coverplayer:
                     self.search = data[1]
                     playlist = data[2]
                     tracks = data[3]
-                    #print('coverplayer on_itemclick playlist tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', playlist: ' + str(playlist))
+                    #self.flexprint('coverplayer on_itemclick playlist tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', playlist: ' + str(playlist))
                     if tracks is not None and len(tracks) > 0:
                         if isinstance(tracks[0], str) is True:
                             print(*tracks, sep="\n")
@@ -847,19 +924,19 @@ class Coverplayer:
                         meta['playlistId'] = id # or maybe playlist
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = name
-                        #print('on_itemclick before _open_list2, meta: ' + str(meta))
+                        #self.flexprint('on_itemclick before _open_list2, meta: ' + str(meta))
                         self._open_list(meta, tracks)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
                 if result_type =='track' or result_type =='radio':
                     self.itemlistclass.close()
-                
+
     def _open_keyb(self, type):
         self.root.withdraw()
         if type=='tracklist':
             if len(self.text) > 3:
                 zone = self.text[0].split(':')[1].strip()
-                zonetype = zone.split('-')[1].strip()
+                zonetype = zone.split('-')[1].strip() if (self.zone is not None and len(self.zone.split('-'))==2) else ''
                 if (zonetype!='Apple Music' and zonetype!='Spotify'):
                     zonetype = 'Roon'
                 artist = self.text[1].split(':')[1].strip()
@@ -873,10 +950,10 @@ class Coverplayer:
                     self.on_itemclick(meta, album)
         else:
             self.hasRadioSearch = False
-            zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+            zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
             if (zonetype!='Apple Music' and zonetype!='Spotify'):
                 self.hasRadioSearch = True
-            print('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
+            self.flexprint('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
             self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.hasRadioSearch, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
@@ -951,10 +1028,10 @@ class Coverplayer:
                     self.itemclick_callback = itemclick_callback
                     paused = not playmode
                     icon_path = self.scriptpath + "icons/play.png"
-                    print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+                    self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                     if self.display_auto_wakeup is True:
                         subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                    img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, path, text)
+                    img = self._load_image(self.debug, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
                     if img:
                         self.label.config(image = img)
                         self.label.image = img
@@ -973,7 +1050,7 @@ class Coverplayer:
                                 if self.text is not None and len(self.text) > 3:
                                     zone = self.text[0].split(':')[1].strip()
                                     icon_enabled = self.zone is not None and zone == self.zone
-                                    zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                    zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
                                     if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
                                         icon_enabled = False
                                     self.switch_button_state(self.tracklist_btn, icon_enabled)
@@ -981,17 +1058,17 @@ class Coverplayer:
                                     self.switch_button_state(self.tracklist_btn, False)                                
                             if self.in_menu_mode is True and self.keyb_btn is not None:
                                 icon_enabled = self.zone is not None
-                                zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
                                 if zonetype == 'Spotify' and self.spotify_disabled is True:
                                     icon_enabled = False
                                 self.switch_button_state(self.keyb_btn, icon_enabled)
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
-                if func == 'set_translations':
+                if func == 'config':
                     self.lang = playpos
-                if func == 'set_wakeup':
-                    self.display_auto_wakeup = playpos
+                    self.webserver_url_request_timeout = playlen 
+                    self.display_auto_wakeup = path
                 if func == 'disable_spotify':
                     self.spotify_disabled = playpos
                 if func == 'setpos':
@@ -1033,10 +1110,10 @@ class Coverplayer:
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         paused = not playmode
                         icon_path = self.scriptpath + "icons/play.png"
-                        print('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+                        self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                         if self.display_auto_wakeup is True:
                             subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                        img = self._load_image(self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, path, text)
+                        img = self._load_image(self.debug, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
                         if img:
                             self.label.config(image = img)
                             self.label.image = img
@@ -1056,7 +1133,7 @@ class Coverplayer:
                                     if self.text is not None and len(self.text) > 3:
                                         zone = self.text[0].split(':')[1].strip()
                                         icon_enabled = self.zone is not None and zone == self.zone
-                                        zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                        zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
                                         if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
                                             icon_enabled = False
                                         self.switch_button_state(self.tracklist_btn, icon_enabled)
@@ -1064,7 +1141,7 @@ class Coverplayer:
                                         self.switch_button_state(self.tracklist_btn, False)
                                 if self.in_menu_mode is True and self.keyb_btn is not None:
                                     icon_enabled = self.zone is not None
-                                    zonetype = (self.zone.split('-')[1].strip()) if self.zone is not None else ''
+                                    zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
                                     if zonetype == 'Spotify' and self.spotify_disabled is True:
                                         icon_enabled = False
                                     self.switch_button_state(self.keyb_btn, icon_enabled)

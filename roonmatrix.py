@@ -164,15 +164,92 @@ def flexprint(str, objStr = None):
         else:
             logger.info(str, objStr)
 
+async def head_url(session, reqobj):
+   # Helper function to fetch a single URL asynchronously
+    try:
+        name = reqobj['name']
+        url = reqobj['url']
+        async with session.head(url) as response:
+            text = await response.text()
+            return {
+                'url': url,
+                'name': name,
+                'status': response.status,
+                'length': len(text),
+                'text': text
+            }
+    except Exception as e:
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
+
+async def fetch_url(session, reqobj):
+   # Helper function to fetch a single URL asynchronously
+    try:
+        name = reqobj['name']
+        url = reqobj['url']
+        if 'data' in reqobj:
+            async with session.post(url, data=reqobj['data']) as response:
+                text = await response.text()
+                return {
+                    'url': url,
+                    'name': name,
+                    'status': response.status,
+                    'length': len(text),
+                    'text': text
+                }
+        else:
+            async with session.get(url) as response:
+                text = await response.text()
+                return {
+                    'url': url,
+                    'name': name,
+                    'status': response.status,
+                    'length': len(text),
+                    'text': text
+                }
+    except Exception as e:
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
+
+async def async_web_requests(requestlist, get_head, timeout):
+    # Non-blocking implementation that fetches URLs concurrently
+    timeout_obj = ClientTimeout(total = timeout)
+    async with ClientSession(timeout = timeout_obj) as session:
+        if get_head is True:
+            tasks = [head_url(session, reqobj) for reqobj in requestlist]
+        else:
+            tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
+        return await asyncio.gather(*tasks)
+
+def async_web_requests_with_timing(requestlist):
+    req_start_time = time.time()
+    async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
+    req_end_time = time.time()
+    if debug is True:
+        print(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
+    else:
+        print(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
+    return async_results
+
 def get_countrycode_from_public_ip():
     cc = 'en'
     try:
-        req = Request('https://ident.me/json', headers={'User-Agent': 'Mozilla/5.0'})
-        ipdata = urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf8')
-        if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
-            flexprint('ipdata: ' + str(ipdata))
-            jsonObj = json.loads(ipdata)
-            cc = str(jsonObj['cc']).lower()
+        requestlist = [{'name':'ident.me','url':'https://ident.me/json'}]            
+        async_web_response = async_web_requests_with_timing(requestlist)
+        if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
+            ipdata = async_web_response[0]['text']
+    
+            if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
+                jsonObj = json.loads(ipdata)
+                cc = str(jsonObj['cc']).lower()
+        else:
+            flexprint('[red]setHostname with empty response[/red]')
     except Exception as e:
         flexprint('[red]setHostname error: ' + str(e) + '[/red]')
     return cc
@@ -248,23 +325,29 @@ def download_translation(cc, update):
     remote_filename = 'translations_' + cc + '.ini'
     local_filename = ('update_' + remote_filename) if update is True else remote_filename
     try:
-        req = Request(downloadserver + remote_filename, headers={'User-Agent': 'Mozilla/5.0'})
-        langdata = urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf8')
-        current_path = Path(__file__).parent
-        relative_path = base_translations_path + local_filename
-    
-        file_path = str((current_path / relative_path).resolve())
-        with open(file_path, 'w') as fileRes:
-            fileRes.write(langdata)
-        fileinfo = translation_exist(cc, update)
-        exist = fileinfo[0]
-        if exist:
-            creationDate = fileinfo[1]
-            hash = hashlib.md5(langdata.encode()).hexdigest()
+        requestlist = [{'name':'devblog','url':downloadserver + remote_filename}]            
+        async_web_response = async_web_requests_with_timing(requestlist)
+        if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
+            langdata = async_web_response[0]['text']
 
-            return [exist, creationDate, hash, file_path]
+            current_path = Path(__file__).parent
+            relative_path = base_translations_path + local_filename
+    
+            file_path = str((current_path / relative_path).resolve())
+            with open(file_path, 'w') as fileRes:
+                fileRes.write(langdata)
+            fileinfo = translation_exist(cc, update)
+            exist = fileinfo[0]
+            if exist:
+                creationDate = fileinfo[1]
+                hash = hashlib.md5(langdata.encode()).hexdigest()
+
+                return [exist, creationDate, hash, file_path]
+            else:
+                return [exist]
         else:
-            return [exist]
+            flexprint('[red]translation download error: empty response[/red]')
+            return None
     except Exception as e:
         flexprint('[red]translation download error: ' + str(e) + '[/red]')
     return None
@@ -530,8 +613,7 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
-    Coverplayer.set_translations(coverplayer_lang)
-    Coverplayer.set_wakeup(display_auto_wakeup)
+    Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
     if spotify_client_id!='' and spotify_client_secret!='':
@@ -1465,6 +1547,31 @@ def is_roon_server_active(ip,port):
         roon_servers = []
     return active
 
+def moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones):
+    if control_id is not None and len(webservers_zones) > 0:
+        names = [d.get('name') for d in webservers_zones]
+        baseName = control_id.split('-')[0]
+        if baseName in names and not baseName == webservers_zones[0]['name']:
+            index = names.index(baseName)
+            webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
+    return webservers_zones
+
+def get_active_zones_from_webserver_onlinecheck(update):
+    active_zones = []
+
+    for idx,data in enumerate(webservers_zones,1):
+        name = data['name']
+        url = data['url']
+        online = is_url_active(url,webserver_head_request_timeout)
+        if update is True:
+            update_webserver_channels(name, online)
+        if debug is True: flexprint('online check of webserver ' + name + ': ' + str(online))
+        if online is True:
+            active_zones.append(data)
+        else:
+            if log is True: flexprint('Webserver ' + name + ' is down')
+    return active_zones
+
 def is_audioinfo_available():
     global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress
 
@@ -1474,29 +1581,30 @@ def is_audioinfo_available():
 
     try:
         if check_audioinfo is True and webservers_show is True:
-            for idx,data in enumerate(webservers_zones,1):
+            active_zones = get_active_zones_from_webserver_onlinecheck(False)
+            async_web_response = async_web_requests_with_timing(active_zones)
+
+            for idx,data in enumerate(async_web_response,1):
                 name = data['name']
                 url = data['url']
-                online = is_url_active(url,webserver_head_request_timeout)
-                if debug is True: flexprint('online check of webserver ' + name + ': ' + str(online))
-                if online is True:
-                    req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-
-                    try:
-                        result = str(convert_special_chars(urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf-8')).replace('\n',''))
-                    except Exception as e:
-                            time.sleep(1)
-                    else:
-                        if result != '' and result.startswith('[{') and result.endswith('}]'):
-                            resultJson = json.loads(result)
-                            for obj in resultJson:
-                                playing = "status" in obj and (obj['status'] == 'playing' or obj['status'] == 'paused')
-                                if debug is True: flexprint('playout check of webserver ' + name + '(zone:' + obj["zone"] + '): ' + str(playing))
-                                if playing is True:
-                                    available = True
-                                    break
-                            if available is True:
+                try:
+                    if 'error' in data :
+                        if log is True: flexprint('Webserver error: ' + data['error'])
+                    if 'status' in data and data['status'] == 200:
+                        result = str(data['text']).replace('\n','')
+                except Exception as e:
+                        time.sleep(1)
+                else:
+                    if result != '' and result.startswith('[{') and result.endswith('}]'):
+                        resultJson = json.loads(result)
+                        for obj in resultJson:
+                            playing = "status" in obj and (obj['status'] == 'playing' or obj['status'] == 'paused')
+                            if debug is True: flexprint('playout check of webserver ' + name + '(zone:' + obj["zone"] + '): ' + str(playing))
+                            if playing is True:
+                                available = True
                                 break
+                        if available is True:
+                            break
 
         if check_audioinfo is True and available is False and roon_show is True:
             if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ' [/bright_magenta]')
@@ -1822,18 +1930,21 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
         if channels[control_id] == 'webserver' and url != '':
             payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
             flexprint('send_webserver_zone_control => payload: ' + str(payload))
-            data = parse.urlencode(payload).encode()
-            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
+            
+            requestlist = [{'name':name,'url':url,'data':payload}]            
             try:
-                raw_bytes = urlopen(req, timeout=170).read()
-                result = raw_bytes.decode("utf-8")
+                async_web_response = async_web_requests_with_timing(requestlist)
+                if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
+                    result = async_web_response[0]['text']
 
-                playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
-                if code in playcontrols:
-                    print('playcontrol result: ' + str(result))
-                    get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
-
-                return result
+                    playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
+                    if code in playcontrols:
+                        print('playcontrol result: ' + str(result))
+                        get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
+                    return result
+                else:
+                    flexprint('send_webserver_zone_control => async response is empty!')
+                    return
             except HTTPError as e:
                 if errorlog is True:
                     flexprint('The webserver couldn\'t fulfill the request.')
@@ -2794,58 +2905,6 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['radio', itemname]
     return
 
-async def fetch_url(session, reqobj):
-   # Helper function to fetch a single URL asynchronously
-    try:
-        name = reqobj['name']
-        url = reqobj['url']
-        async with session.get(url) as response:
-            text = await response.text()
-            return {
-                'url': url,
-                'name': name,
-                'status': response.status,
-                'length': len(text),
-                'text': text
-            }
-    except Exception as e:
-        return {
-            'url': url,
-            'name': name,
-            'error': str(e)
-        }
-
-async def head_url(session, reqobj):
-   # Helper function to fetch a single URL asynchronously
-    try:
-        name = reqobj['name']
-        url = reqobj['url']
-        async with session.head(url) as response:
-            text = await response.text()
-            return {
-                'url': url,
-                'name': name,
-                'status': response.status,
-                'length': len(text),
-                'text': text
-            }
-    except Exception as e:
-        return {
-            'url': url,
-            'name': name,
-            'error': str(e)
-        }
-
-async def non_blocking_fetch_urls(requestlist, get_head, timeout):
-    # Non-blocking implementation that fetches URLs concurrently
-    timeout_obj = ClientTimeout(total = timeout)
-    async with ClientSession(timeout = timeout_obj) as session:
-        if get_head is True:
-            tasks = [head_url(session, reqobj) for reqobj in requestlist]
-        else:
-            tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
-        return await asyncio.gather(*tasks)
-
 def transform_zone_data_to_string(displaystr, name, controlled, obj):
     if type(displaystr) == list:
         if len(displaystr) == 0 and playing_headline !='':
@@ -2903,27 +2962,6 @@ def get_force_mode(displaystr):
     if type(displaystr) == list and len(displaystr) > 0 and displaystr[0]=='force>':
         force = True
     return force
-
-def moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones):
-    if control_id is not None and len(webservers_zones) > 0:
-        names = [d.get('name') for d in webservers_zones]
-        baseName = control_id.split('-')[0]
-        if baseName in names and not baseName == webservers_zones[0]['name']:
-            index = names.index(baseName)
-            webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
-    return webservers_zones
-
-def get_active_zones_from_webserver_request(response_list):
-    active_zones = []
-    for data in response_list:
-        name = data['name']
-        online = (data['status'] == 200) if 'status' in data else False
-        update_webserver_channels(name, online)
-        if online is True:
-            active_zones.append(data)
-        else:
-            if log is True: flexprint('Webserver ' + name + ' is down')
-    return active_zones
 
 def set_data_changed_and_web_playouts_raw(result, name):
     global data_changed
@@ -3012,16 +3050,6 @@ def remove_prepended_from_displaystr(displaystr):
         displaystr = displaystr[6:] # remove prepended 'force>'
     return displaystr
 
-def get_non_blocking_results(active_zones):
-    req_start_time = time.time()
-    non_blocking_results = asyncio.run(non_blocking_fetch_urls(active_zones, False, webserver_head_request_timeout))
-    req_end_time = time.time()
-    if debug is True:
-        print(f"Non-blocking get request results ({req_end_time - req_start_time:.2f} seconds):", non_blocking_results)
-    else:
-        print(f"Non-blocking get request time: ({req_end_time - req_start_time:.2f} seconds)")
-    return non_blocking_results
-
 def get_name_zone_and_controlled_marker(name, obj, playprops):
     controlled = ''
     if control_id is not None and channels[control_id]=='webserver':
@@ -3064,11 +3092,11 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
     breakToo = False
     force = get_force_mode(displaystr)
     webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
-    non_blocking_head_results = asyncio.run(non_blocking_fetch_urls(webservers_zones, True, webserver_head_request_timeout))
-    active_zones = get_active_zones_from_webserver_request(non_blocking_head_results)
-    non_blocking_results = get_non_blocking_results(active_zones)
+    active_zones = get_active_zones_from_webserver_onlinecheck(True)
+    async_web_response = async_web_requests_with_timing(active_zones)
+    #async_web_response = async_web_requests_with_timing(webservers_zones)
     
-    for idx,data in enumerate(non_blocking_results,1):
+    for idx,data in enumerate(async_web_response,1):
         name = data['name']
         result = ''
         
