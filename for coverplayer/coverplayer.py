@@ -110,7 +110,7 @@ class Coverplayer:
         return lines
 
     @classmethod
-    def _load_image(cls, debug, flexprint, maxpx, paused, icon_path, fonts, faces, font_size, webserver_url_request_timeout, path_or_url = None, text = None):
+    def _load_image(cls, obj, debug, lang, flexprint, maxpx, paused, icon_path, fonts, faces, font_size, webserver_url_request_timeout, path_or_url = None, text = None):
         font = fonts["latin"]
 
         def get_font_for_char(ch):
@@ -178,41 +178,21 @@ class Coverplayer:
                     'error': str(e)
                 }
 
-        async def async_web_requests(requestlist, get_head, timeout):
+        async def async_web_requests(requestlist, get_head, timeout, callback):
             # Non-blocking implementation that fetches URLs concurrently
             timeout_obj = ClientTimeout(total = timeout)
             async with ClientSession(timeout = timeout_obj) as session:
-                if get_head is True:
-                    tasks = [head_url(session, reqobj) for reqobj in requestlist]
+                if get_head:
+                    tasks = [asyncio.create_task(head_url(session, reqobj)) for reqobj in requestlist]
                 else:
-                    tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
+                    tasks = [asyncio.create_task(fetch_url(session, reqobj)) for reqobj in requestlist]
+
+                for t in tasks:
+                    t.add_done_callback(lambda fut: callback(fut.result()))
+
                 return await asyncio.gather(*tasks)
 
-        def async_web_requests_with_timing(requestlist):
-            req_start_time = time.time()
-            async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
-            req_end_time = time.time()
-            if debug is True:
-                flexprint(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
-            else:
-                flexprint(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
-            return async_results
-
-        try:
-            if path_or_url is None:
-            	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
-            if path_or_url.startswith("http"):
-                requestlist = [{'name':'imageSource','url':path_or_url}]
-                async_web_response = async_web_requests_with_timing(requestlist)
-                if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
-                    img = Image.open(BytesIO(async_web_response[0]['content']))
-                else:
-                    flexprint('coverplayer load_image request failed => take fallback image')
-                    path_or_url = path.dirname(__file__) + '/cover_fallback.png'
-                    img = Image.open(path_or_url)
-            else:
-                img = Image.open(path_or_url)
-
+        def prepare_image(img):
             img = img.resize((maxpx, maxpx), Image.ANTIALIAS)
             
             if paused is True:
@@ -271,7 +251,52 @@ class Coverplayer:
                         draw.text((text_x, text_y), line, font = font, fill = "white")
                         text_y += text_height + line_space  # line spacing
 
-            return ImageTk.PhotoImage(img)
+            image = ImageTk.PhotoImage(img)
+            if image:
+                obj.config(image = image)
+                obj.image = image
+            else:
+                obj.config(text = lang['image_notfound'].title(), image = "")
+
+        def async_web_requests_with_timing(requestlist, callback):
+            req_start_time = time.time()
+            async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout, callback))
+            req_end_time = time.time()
+            if debug is True:
+                flexprint(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
+            else:
+                flexprint(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
+            return async_results
+
+        try:
+            if path_or_url is None:
+            	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
+            if path_or_url.startswith("http"):
+                requestlist = [{'name':'imageSource','url':path_or_url}]
+                
+                def image_callback(async_web_response):
+                    if async_web_response is not None and 'error' not in async_web_response:
+                        print('async_web_response (image) => len: ' + str(async_web_response['length'] if 'length' in async_web_response else 'unknown'))
+                        img = Image.open(BytesIO(async_web_response['content']))
+                    else:
+                        flexprint('coverplayer load_image request failed => take fallback image')
+                        path_or_url = path.dirname(__file__) + '/cover_fallback.png'
+                        img = Image.open(path_or_url)
+                    if obj is not None:
+                        prepare_image(img)
+                        
+                async_web_response = async_web_requests_with_timing(requestlist, image_callback)
+                if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
+                    img = Image.open(BytesIO(async_web_response[0]['content']))
+                else:
+                    flexprint('coverplayer load_image request failed => take fallback image')
+                    path_or_url = path.dirname(__file__) + '/cover_fallback.png'
+                    img = Image.open(path_or_url)                        
+            else:
+                img = Image.open(path_or_url)
+                if obj is not None:
+                    prepare_image(img)
+                
         except Exception as e:
             flexprint(f"[red]Error on image loading:[/red] {e}")
             return None
@@ -1031,12 +1056,7 @@ class Coverplayer:
                     self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                     if self.display_auto_wakeup is True:
                         subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                    img = self._load_image(self.debug, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-                    if img:
-                        self.label.config(image = img)
-                        self.label.image = img
-                    else:
-                        self.label.config(text = self.lang['image_notfound'].title(), image = "")
+                    self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
                     self.text = text
                     if len(text) > 0:
                         line_parts = text[0].split(':')
@@ -1113,12 +1133,7 @@ class Coverplayer:
                         self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
                         if self.display_auto_wakeup is True:
                             subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                        img = self._load_image(self.debug, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-                        if img:
-                            self.label.config(image = img)
-                            self.label.image = img
-                        else:
-                            self.label.config(text = self.lang['image_notfound'].title(), image = "")
+                        self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
                         self.path = path
                         self.text = text
                         if len(text) > 0:
