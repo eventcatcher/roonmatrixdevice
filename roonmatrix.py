@@ -60,7 +60,7 @@ from operator import is_not
 from functools import partial
 from pathlib import Path
 import hashlib
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -153,16 +153,17 @@ else:
     serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
 def flexprint(str, objStr = None):
-    if objStr is None:
-        if sys.stdout.isatty() or logger is None:
-            print(str)
+    if log is True:
+        if objStr is None:
+            if sys.stdout.isatty() or logger is None:
+                print(str)
+            else:
+                logger.info(str)
         else:
-            logger.info(str)
-    else:
-        if sys.stdout.isatty() or logger is None:
-            print(str, objStr)
-        else:
-            logger.info(str, objStr)
+            if sys.stdout.isatty() or logger is None:
+                print(str, objStr)
+            else:
+                logger.info(str, objStr)
 
 async def head_url(session, reqobj):
    # Helper function to fetch a single URL asynchronously
@@ -178,6 +179,13 @@ async def head_url(session, reqobj):
                 'length': len(text),
                 'text': text
             }
+    except ClientConnectorError as e:
+        flexprint('aiohttp.ClientConnectorError', str(e))
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
     except Exception as e:
         return {
             'url': url,
@@ -210,6 +218,13 @@ async def fetch_url(session, reqobj):
                     'length': len(text),
                     'text': text
                 }
+    except ClientConnectorError as e:
+        flexprint('aiohttp.ClientConnectorError', str(e))
+        return {
+            'url': url,
+            'name': name,
+            'error': str(e)
+        }
     except Exception as e:
         return {
             'url': url,
@@ -231,25 +246,42 @@ def async_web_requests_with_timing(requestlist):
     req_start_time = time.time()
     async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
     req_end_time = time.time()
+    req_time = req_end_time - req_start_time
     if debug is True:
-        print(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
+        flexprint(f"async_web_requests results ({req_time:.2f} seconds):", async_results)
     else:
-        print(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
-    return async_results
+        flexprint(f"async_web_requests time: ({req_time:.2f} seconds)")
+        
+    if async_results is not None and isinstance(async_results, list):
+        for idx,data in enumerate(async_results,1):     
+            if log is True and 'status' in data: flexprint('[green]Webserver ' + data['name']  + ' with status ' + str(data['status']) + '[/green]')
+            if log is True and (len(async_results) == 0 or 'error' in data):
+                err = data['error'] if 'error' in data else ''
+                if err == '' and req_time >= webserver_url_request_timeout:
+                    err = 'timeout'
+                if err == '' and len(async_results) == 0:
+                    err = 'empty result'
+                flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')
+    else:
+        if log is True: flexprint('[red]async_web_requests: lost response[/red]')
+        async_results = [] 
+    
+    return [async_results,req_time]
 
 def get_countrycode_from_public_ip():
     cc = 'en'
     try:
         requestlist = [{'name':'ident.me','url':'https://ident.me/json'}]            
         async_web_response = async_web_requests_with_timing(requestlist)
-        if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
-            ipdata = async_web_response[0]['text']
+        async_results = async_web_response[0]
+        req_time = async_web_response[1]          
+
+        if len(async_results) > 0 and 'error' not in async_results[0]:
+            ipdata = async_results[0]['text']
     
             if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
                 jsonObj = json.loads(ipdata)
                 cc = str(jsonObj['cc']).lower()
-        else:
-            flexprint('[red]setHostname with empty response[/red]')
     except Exception as e:
         flexprint('[red]setHostname error: ' + str(e) + '[/red]')
     return cc
@@ -327,8 +359,10 @@ def download_translation(cc, update):
     try:
         requestlist = [{'name':'devblog','url':downloadserver + remote_filename}]            
         async_web_response = async_web_requests_with_timing(requestlist)
-        if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
-            langdata = async_web_response[0]['text']
+        async_results = async_web_response[0]
+        req_time = async_web_response[1]          
+        if len(async_results) > 0 and 'error' not in async_results[0]:
+            langdata = async_results[0]['text']
 
             current_path = Path(__file__).parent
             relative_path = base_translations_path + local_filename
@@ -621,9 +655,9 @@ if display_cover is True:
             environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
             environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
         except EnvironmentError as e:
-            print(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
+            flexprint(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
         except Exception as e:
-            print(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
+            flexprint(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
 
 # --- REST SERVER START ---
 
@@ -1583,8 +1617,10 @@ def is_audioinfo_available():
         if check_audioinfo is True and webservers_show is True:
             active_zones = get_active_zones_from_webserver_onlinecheck(False)
             async_web_response = async_web_requests_with_timing(active_zones)
+            async_results = async_web_response[0]
+            req_time = async_web_response[1]          
 
-            for idx,data in enumerate(async_web_response,1):
+            for idx,data in enumerate(async_results,1):
                 name = data['name']
                 url = data['url']
                 try:
@@ -1934,12 +1970,14 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
             requestlist = [{'name':name,'url':url,'data':payload}]            
             try:
                 async_web_response = async_web_requests_with_timing(requestlist)
-                if len(async_web_response) > 0 and 'error' not in async_web_response[0]:
-                    result = async_web_response[0]['text']
+                async_results = async_web_response[0]
+                req_time = async_web_response[1]          
+                if len(async_results) > 0 and 'error' not in async_results[0]:
+                    result = async_results[0]['text']
 
                     playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
                     if code in playcontrols:
-                        print('playcontrol result: ' + str(result))
+                        flexprint('playcontrol result: ' + str(result))
                         get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
                     return result
                 else:
@@ -3095,13 +3133,13 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
     active_zones = get_active_zones_from_webserver_onlinecheck(True)
     async_web_response = async_web_requests_with_timing(active_zones)
     #async_web_response = async_web_requests_with_timing(webservers_zones)
+    async_results = async_web_response[0]
+    req_time = async_web_response[1]          
     
-    for idx,data in enumerate(async_web_response,1):
+    for idx,data in enumerate(async_results,1):
         name = data['name']
         result = ''
         
-        if 'error' in data :
-            if log is True: flexprint('Webserver error: ' + data['error'])
         if 'status' in data and data['status'] == 200:
             result = str(data['text']).replace('\n','')
             if result != '':
@@ -3135,9 +3173,6 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                     if log is True: flexprint('Webserver ' + name + ' is not available')
             else:
                 if log is True: flexprint('Webserver ' + name + ' with empty result')
-        else:
-            if log is True and 'status' in data: flexprint('Webserver with status ' + str(data['status']))
-            if log is True and 'error' in data: flexprint('Webserver with error: ' + data['error'])
 
     if log is True:
         flexprint('get playing apple or spotify => end')

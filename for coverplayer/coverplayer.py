@@ -31,7 +31,7 @@ import sys
 import logging
 import freetype
 import asyncio
-from aiohttp import ClientSession, ClientTimeout
+from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
 from unidecode import unidecode
 
 class Coverplayer:
@@ -39,16 +39,17 @@ class Coverplayer:
     _queue = queue.Queue()
 
     def flexprint(self, str, objStr = None):
-        if objStr is None:
-            if sys.stdout.isatty():
-                print(str)
+        if self.log is True:
+            if objStr is None:
+                if sys.stdout.isatty():
+                    print(str)
+                else:
+                    self.logger.info(str)
             else:
-                self.logger.info(str)
-        else:
-            if sys.stdout.isatty():
-                print(str, objStr)
-            else:
-                self.logger.info(str, objStr)
+                if sys.stdout.isatty():
+                    print(str, objStr)
+                else:
+                    self.logger.info(str, objStr)
 
     @classmethod
     def set_keyboard_codes(cls, keyb_list):
@@ -171,6 +172,13 @@ class Coverplayer:
                         'length': len(content),
                         'content': content
                     }
+            except ClientConnectorError as e:
+                flexprint('aiohttp.ClientConnectorError', str(e))
+                return {
+                    'url': url,
+                    'name': name,
+                    'error': str(e)
+                }
             except Exception as e:
                 return {
                     'url': url,
@@ -262,10 +270,27 @@ class Coverplayer:
             req_start_time = time.time()
             async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout, callback))
             req_end_time = time.time()
+            req_time = req_end_time - req_start_time
+
             if debug is True:
-                flexprint(f"async_web_requests results ({req_end_time - req_start_time:.2f} seconds):", async_results)
+                flexprint(f"async_web_requests results ({req_time:.2f} seconds):", async_results)
             else:
-                flexprint(f"async_web_requests time: ({req_end_time - req_start_time:.2f} seconds)")
+                flexprint(f"async_web_requests time: ({req_time:.2f} seconds)")
+
+            if async_results is not None and isinstance(async_results, list):
+                for idx,data in enumerate(async_results,1):     
+                    if 'status' in data: flexprint('[green]Webserver ' + data['name']  + ' with status ' + str(data['status']) + '[/green]')
+                    if (len(async_results) == 0 or 'error' in data):
+                        err = data['error'] if 'error' in data else ''
+                        if err == '' and req_time >= webserver_url_request_timeout:
+                            err = 'timeout'
+                        if err == '' and len(async_results) == 0:
+                            err = 'empty result'
+                        flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')
+            else:
+                flexprint('[red]async_web_requests: lost response[/red]')
+                async_results = [] 
+
             return async_results
 
         try:
@@ -276,7 +301,7 @@ class Coverplayer:
                 
                 def image_callback(async_web_response):
                     if async_web_response is not None and 'error' not in async_web_response:
-                        print('async_web_response (image) => len: ' + str(async_web_response['length'] if 'length' in async_web_response else 'unknown'))
+                        flexprint('async_web_response (image) => len: ' + str(async_web_response['length'] if 'length' in async_web_response else 'unknown'))
                         img = Image.open(BytesIO(async_web_response['content']))
                     else:
                         flexprint('coverplayer load_image request failed => take fallback image')
@@ -303,6 +328,7 @@ class Coverplayer:
 
     def _gui_loop(self):
         self.debug = False   # log debug messages (memory and variable information)
+        self.log = True      # log infos on or off
 
         self.maxpx_x = 720 # screen width in px
         self.maxpx_y = 720 # screen height in px

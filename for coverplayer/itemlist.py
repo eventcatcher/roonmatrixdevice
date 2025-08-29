@@ -19,6 +19,9 @@ from os import system, path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import math
 import time
+from rich import print
+import sys
+import logging
 
 # if user has the keyboard module installed
 has_keyboard = True
@@ -80,7 +83,7 @@ class TouchTreeview(ttk.Treeview):
 
 class ItemList:
     def init(self):
-    
+
         # Main Window
         self.master = Tk()
         self.inpstr = StringVar()
@@ -103,6 +106,19 @@ class ItemList:
         self.master.geometry(str(self.maxpx_x) + 'x' + str(self.maxpx_y) + '+0+0')
         self.master.config(cursor="none")
         self.master.resizable(False, False)
+
+    def flexprint(self, str, objStr = None):
+        if self.log is True:
+            if objStr is None:
+                if sys.stdout.isatty():
+                    print(str)
+                else:
+                    self.logger.info(str)
+            else:
+                if sys.stdout.isatty():
+                    print(str, objStr)
+                else:
+                    self.logger.info(str, objStr)
 
     def circleProgress(self):
         self.center_x, self.center_y = self.maxpx_x / 2, self.maxpx_y / 2
@@ -270,10 +286,10 @@ class ItemList:
         self.refresh_row_tags()
         selected_item = self.listbox.focus()  # ID des selektierten Elements
         item_text = self.listbox.item(selected_item, 'text')
-        print(f"itemlist ==> type: {self.meta['type']}, on_select: {item_text}, iid: {selected_item}")
+        self.flexprint(f"itemlist ==> type: {self.meta['type']}, on_select: {item_text}, iid: {selected_item}")
 
         if self.meta['type'] == 'tracks' or self.meta['type'] == 'radios':
-            print('itemlist ==> track selected: ' + str(item_text))
+            self.flexprint('itemlist ==> track selected: ' + str(item_text))
             #self.master.destroy()
         else:         
             self.showSpinner = True
@@ -289,12 +305,12 @@ class ItemList:
         self.showSpinner = False
 
     def do_close(self):
-        print('itemlist ==> do_close (and destroy)')
+        self.flexprint('itemlist ==> do_close (and destroy)')
         self.on_close()
         self.master.destroy()
 
     def error_message(self, message):
-        print('itemlist ==> error_message: ' + message)
+        self.flexprint('itemlist ==> error_message: ' + message)
         self.showSpinner = False
         self.master = Tk()
         self.trans_value = 0.7
@@ -318,7 +334,9 @@ class ItemList:
     
     # start item list
     def start(self, width, height, meta, items, lang, itemclick_callback, close_callback):
-        print('itemlist ==> start, meta' + str(meta) + ', items: ' + str(len(items)))
+        self.log = True      # log infos on or off
+        
+        self.flexprint('itemlist ==> start, meta' + str(meta) + ', items: ' + str(len(items)))
 
         self.maxpx_x = width
         self.maxpx_y = height

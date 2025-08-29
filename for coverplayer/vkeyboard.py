@@ -19,6 +19,9 @@ from os import system
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from rich import print
+import sys
+import logging
 
 # if user has the keyboard module installed
 has_keyboard = True
@@ -45,6 +48,19 @@ class TouchFriendlyButton(Button):
         #self.invoke()  # Ruft das command auf
 
 class VirtualKeyboard:
+    def flexprint(self, str, objStr = None):
+        if self.log is True:
+            if objStr is None:
+                if sys.stdout.isatty():
+                    print(str)
+                else:
+                    self.logger.info(str)
+            else:
+                if sys.stdout.isatty():
+                    print(str, objStr)
+                else:
+                    self.logger.info(str, objStr)
+
     def circleProgress(self):
         self.center_x, self.center_y = self.maxpx_x / 2, self.maxpx_y / 2
         self.dots = 8
@@ -211,11 +227,11 @@ class VirtualKeyboard:
     def vpresskey(self, x):
         value = None
         cursor_pos = self.inp.index(INSERT)
-        #print ("The cursor is at: ", cursor_pos)
+        #self.flexprint("The cursor is at: ", cursor_pos)
         #self.master.withdraw()
         actualValue = str(self.inpstr.get())
         x = self.buttonsTranslate[x] if x in self.buttonsTranslate else x
-        #print('vpresskey x: ' + str(x) + ', buttonsTranslate: ' + str(self.buttonsTranslate))
+        #self.flexprint('vpresskey x: ' + str(x) + ', buttonsTranslate: ' + str(self.buttonsTranslate))
         if x == 'lock':
             self.capslock_key_enabled = (self.capslock_key_enabled is False)
             self.update_keyboard()
@@ -255,7 +271,7 @@ class VirtualKeyboard:
                 value = ''
                 if cursor_pos > 0:
                     value = actualValue[0:cursor_pos]
-                #print('shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
+                #self.flexprint('shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed) + ', capslock: ' + str(self.capslock_key_enabled))
                 if (self.capslock_key_enabled is True or self.shift_key_pressed):
                     ascode = ord(x)
                     if x == '/':
@@ -307,11 +323,11 @@ class VirtualKeyboard:
         if type == 'shift':
             self.shift_key_pressed = self.shift_key_pressed is False
             self.capslock_key_enabled = False
-            #print('shift_key_pressed: ' + str(self.shift_key_pressed))
+            #self.flexprint('shift_key_pressed: ' + str(self.shift_key_pressed))
             self.update_keyboard()
         if type == 'alt':
             self.alt_key_pressed = self.alt_key_pressed is False
-            #print('alt_key_pressed: ' + str(self.alt_key_pressed))
+            #self.flexprint('alt_key_pressed: ' + str(self.alt_key_pressed))
             self.update_keyboard()
 
     def on_labelTap(self):
@@ -365,6 +381,8 @@ class VirtualKeyboard:
         self.master.mainloop()
 
     def init(self):
+        self.log = True      # log infos on or off
+
         # Main Window
         self.master = Tk()
         self.inpstr = StringVar()
@@ -702,7 +720,7 @@ class VirtualKeyboard:
                 self.row5buttons[ind].bind('<Button-3>', lambda event="<Button-3>", type='alt': self.vupdownkey(event, type))
 
     def error_message(self, message):
-        print('vkeyb ==> error_message: ' + message)
+        self.flexprint('vkeyb ==> error_message: ' + message)
         self.showSpinner = False
         self.master = Tk()
         self.trans_value = 0.7
