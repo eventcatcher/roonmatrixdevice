@@ -120,23 +120,22 @@ else:
     display_cover = False
 
 # init cover image viewer
-try:
+try:    
     # imports to display image on screen
     if display_cover is True:
         environ["DISPLAY"] = ":0"
+        if path.isdir('/sys/class/graphics/fb0') is False:
+            display_cover = False
+            raise EnvironmentError("No display available")
 
-    if "DISPLAY" not in environ:
-        display_cover = False
-        raise EnvironmentError("No display available")
-
-    import tkinter as tk
-    from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
-    from io import BytesIO
-    import spotipy
-    from spotipy.oauth2 import SpotifyClientCredentials
-    from coverplayer import Coverplayer
-    root = tk.Tk()
-    root.destroy()
+        import tkinter as tk
+        from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
+        from io import BytesIO
+        import spotipy
+        from spotipy.oauth2 import SpotifyClientCredentials
+        from coverplayer import Coverplayer
+        root = tk.Tk()
+        root.destroy()
 except EnvironmentError as e:
     print(f"[magenta][INFO] GUI not found (headless system): {e}[/magenta]")
     display_cover = False
