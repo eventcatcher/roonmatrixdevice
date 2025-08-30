@@ -433,6 +433,7 @@ class Coverplayer:
     def _check_display(self):
         screen_on = self.is_screen_on()
         now = time.time()
+        #self.flexprint('[bold red]check_display[/bold red] => screen_on: ' + str(screen_on))
 
         if screen_on:
             # If the display has just been switched on
@@ -462,6 +463,7 @@ class Coverplayer:
     def _on_click_start(self, event):
         screen_on = self.is_screen_on()
         now = time.time()
+        #self.flexprint('[bold red]on touch[/bold red] => screen_on: ' + str(screen_on) + ', diff: ' + str(now - self.last_screen_on) + ', just_woke_up: ' + str(self.just_woke_up) + ', wake_time: ' + str(self.wake_time))
         if (screen_on is True and now - self.last_screen_on > 10) or (self.just_woke_up and now - self.wake_time < 1):
             self.flexprint("Touch ignored after wake-up.")
             self.last_screen_on = now

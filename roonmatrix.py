@@ -243,28 +243,34 @@ async def async_web_requests(requestlist, get_head, timeout):
         return await asyncio.gather(*tasks)
 
 def async_web_requests_with_timing(requestlist):
-    req_start_time = time.time()
-    async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
-    req_end_time = time.time()
-    req_time = req_end_time - req_start_time
-    if debug is True:
-        flexprint(f"async_web_requests results ({req_time:.2f} seconds):", async_results)
-    else:
-        flexprint(f"async_web_requests time: ({req_time:.2f} seconds)")
+    max_retry = 5
+    
+    for retry in range(1, max_retry + 1):
+        err = ''
+        req_start_time = time.time()
+        async_results = asyncio.run(async_web_requests(requestlist, False, webserver_url_request_timeout))
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        if debug is True:
+            flexprint(f"async_web_requests results (try {retry}, {req_time:.2f} seconds):", async_results)
+        else:
+            flexprint(f"async_web_requests time: (try {retry}, {req_time:.2f} seconds)")
         
-    if async_results is not None and isinstance(async_results, list):
-        for idx,data in enumerate(async_results,1):     
-            if log is True and 'status' in data: flexprint('[green]Webserver ' + data['name']  + ' with status ' + str(data['status']) + '[/green]')
-            if log is True and (len(async_results) == 0 or 'error' in data):
-                err = data['error'] if 'error' in data else ''
-                if err == '' and req_time >= webserver_url_request_timeout:
-                    err = 'timeout'
-                if err == '' and len(async_results) == 0:
-                    err = 'empty result'
-                flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')
-    else:
-        if log is True: flexprint('[red]async_web_requests: lost response[/red]')
-        async_results = [] 
+        if async_results is not None and isinstance(async_results, list):
+            for idx,data in enumerate(async_results,1):     
+                if log is True and 'status' in data: flexprint('[green]Webserver ' + data['name']  + ' with status ' + str(data['status']) + '[/green]')
+                if log is True and (len(async_results) == 0 or 'error' in data):
+                    err = data['error'] if 'error' in data else ''
+                    if err == '' and req_time >= webserver_url_request_timeout:
+                        err = 'timeout'
+                    if err == '' and len(async_results) == 0:
+                        err = 'empty result'
+                    flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
+        else:
+            if log is True: flexprint('[red]async_web_requests: lost response[/red]')
+            async_results = []
+        if err == '':
+            break
     
     return [async_results,req_time]
 
@@ -1109,21 +1115,22 @@ def setScreensaver(seconds):
     data.append('Type=Application\n')
     try:
         if int(seconds) == 0:
-            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset s off;xset -dpms"], check=True)
-            data.append('Exec=sh -c "sleep 5; xset s off; xset -dpms"\n')
-            data.append('Hidden=false\n')
-            data.append('NoDisplay=false\n')
-            data.append('X-GNOME-Autostart-enabled=true\n')
+            cmd = "export DISPLAY=:0; xset s off; xset -dpms"
+            subprocess.run(["sh", "-c", cmd], check=True)
+            data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
             data.append('Name=Disable DPMS\n')
             data.append('Comment=Disables DPMS and screen blanking\n')
         else:
-            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset s " + str(seconds) + ";xset +dpms"], check=True)
-            data.append('Exec=sh -c "sleep 5; xset s ' + str(seconds) + '; xset +dpms"\n')
-            data.append('Hidden=false\n')
-            data.append('NoDisplay=false\n')
-            data.append('X-GNOME-Autostart-enabled=true\n')
+            cmd = f"export DISPLAY=:0; xset s off; xset +dpms; xset dpms 0 0 {seconds}"
+            subprocess.run(["sh", "-c", cmd], check=True)
+            data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
             data.append('Name=Enable DPMS\n')
-            data.append('Comment=Enables DPMS and screen blanking\n')
+            data.append('Comment=Enables DPMS with custom timeout\n')
+
+        data.append('Hidden=false\n')
+        data.append('NoDisplay=false\n')
+        data.append('X-GNOME-Autostart-enabled=true\n')
+ 
         with open(autostart_path, 'w') as file:
             file.writelines( data )
     except Exception as e:
