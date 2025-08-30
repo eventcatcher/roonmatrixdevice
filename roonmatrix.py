@@ -53,8 +53,6 @@ import crypt
 from rich import print
 import traceback
 import logging
-import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
 from collections import OrderedDict
 from operator import is_not
 from functools import partial
@@ -134,6 +132,8 @@ try:
     import tkinter as tk
     from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
     from io import BytesIO
+    import spotipy
+    from spotipy.oauth2 import SpotifyClientCredentials
     from coverplayer import Coverplayer
     root = tk.Tk()
     root.destroy()
@@ -277,17 +277,12 @@ def async_web_requests_with_timing(requestlist):
 def get_countrycode_from_public_ip():
     cc = 'en'
     try:
-        requestlist = [{'name':'ident.me','url':'https://ident.me/json'}]            
-        async_web_response = async_web_requests_with_timing(requestlist)
-        async_results = async_web_response[0]
-        req_time = async_web_response[1]          
-
-        if len(async_results) > 0 and 'error' not in async_results[0]:
-            ipdata = async_results[0]['text']
-    
-            if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
-                jsonObj = json.loads(ipdata)
-                cc = str(jsonObj['cc']).lower()
+        req = Request('https://ident.me/json', headers={'User-Agent': 'Mozilla/5.0'})
+        ipdata = urlopen(req, timeout=webserver_url_request_timeout).read().decode('utf8')
+        if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
+            flexprint('ipdata: ' + str(ipdata))
+            jsonObj = json.loads(ipdata)
+            cc = str(jsonObj['cc']).lower()
     except Exception as e:
         flexprint('[red]setHostname error: ' + str(e) + '[/red]')
     return cc
@@ -538,9 +533,10 @@ show_vertical_music_label = eval(config['SYSTEM']['show_vertical_music_label']) 
 datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and time in output message
 datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
-screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) # screensaver timeout in seconds (0 = screensaver off)
-display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) # wakeup display on track updates
 countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
+
+screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
+display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
 
 playing_headline = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
 conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
@@ -552,18 +548,19 @@ weather_description = literal_eval(config['LANGUAGE']['weather_description']) # 
 weather_properties = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
 messages = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
 
-coverplayer_lang = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
-row1keyb = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
-row2keyb = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
-row3keyb = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
-row4keyb = literal_eval(config['LANGUAGE']['row4keyb']) if 'row4keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 4
-row1keyb_shift = literal_eval(config['LANGUAGE']['row1keyb_shift']) if 'row1keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 1
-row2keyb_shift = literal_eval(config['LANGUAGE']['row2keyb_shift']) if 'row2keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 2
-row4keyb_shift = literal_eval(config['LANGUAGE']['row4keyb_shift']) if 'row4keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 4
-row1keyb_alt = literal_eval(config['LANGUAGE']['row1keyb_alt']) if 'row1keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 1
-row2keyb_alt = literal_eval(config['LANGUAGE']['row2keyb_alt']) if 'row2keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 2
-row3keyb_alt = literal_eval(config['LANGUAGE']['row3keyb_alt']) if 'row3keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 3
-row4keyb_alt = literal_eval(config['LANGUAGE']['row4keyb_alt']) if 'row4keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 4
+if display_cover is True:
+    coverplayer_lang = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
+    row1keyb = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
+    row2keyb = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
+    row3keyb = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
+    row4keyb = literal_eval(config['LANGUAGE']['row4keyb']) if 'row4keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 4
+    row1keyb_shift = literal_eval(config['LANGUAGE']['row1keyb_shift']) if 'row1keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 1
+    row2keyb_shift = literal_eval(config['LANGUAGE']['row2keyb_shift']) if 'row2keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 2
+    row4keyb_shift = literal_eval(config['LANGUAGE']['row4keyb_shift']) if 'row4keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 4
+    row1keyb_alt = literal_eval(config['LANGUAGE']['row1keyb_alt']) if 'row1keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 1
+    row2keyb_alt = literal_eval(config['LANGUAGE']['row2keyb_alt']) if 'row2keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 2
+    row3keyb_alt = literal_eval(config['LANGUAGE']['row3keyb_alt']) if 'row3keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 3
+    row4keyb_alt = literal_eval(config['LANGUAGE']['row4keyb_alt']) if 'row4keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 4
 
 clock_show = eval(config['CLOCK']['clock_show']) # show clock after idle time (True) or not (False)
 clock_without_idle_time = eval(config['CLOCK']['clock_without_idle_time']) # true: show clock always is no audio is played and only in music_required mode, false: show clock only for max time (clock_max_show_time)
@@ -3009,7 +3006,7 @@ def get_force_mode(displaystr):
     return force
 
 def set_data_changed_and_web_playouts_raw(result, name):
-    global data_changed
+    global data_changed, web_playouts_raw
     playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
     if playout_changed is True:
         data_changed = True
@@ -3132,7 +3129,35 @@ def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,resu
         flexprint('get webserver results and fast updating of coverplayer and app => end')
         flexprint('')
 
+def compare_filtered_zonedata_is_equal(old_raw, new_raw):
+    old = json.loads(old_raw)
+    new = json.loads(new_raw)
+    equal = True
+    if len(old) != len(new):
+        return False
+
+    for idx,zone in enumerate(new,0):
+        if 'shuffle' in new[idx]:
+            del new[idx]['shuffle']
+        if 'repeat' in new[idx]:
+            del new[idx]['repeat']
+        if 'position' in new[idx]:
+            del new[idx]['position']
+        if 'shuffle' in old[idx]:
+            del old[idx]['shuffle']
+        if 'repeat' in old[idx]:
+            del old[idx]['repeat']
+        if 'position' in old[idx]:
+            del old[idx]['position']
+     
+    old_raw = json.dumps(old)
+    old_new = json.dumps(new)
+    if old_raw != old_new:
+        equal = False
+    return equal
+
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
+    global web_playouts
     if log is True: flexprint('get playing apple or spotify => start')
     breakToo = False
     force = get_force_mode(displaystr)
@@ -3164,7 +3189,9 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                             if playprops['playing'] is True:
                                 displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                            if name not in web_playouts_raw or web_playouts_raw[name] != result:
+                            has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                            if has_changed:
+                                flexprint('webserver ' + name + ' => has_changed: ' + str(has_changed))
                                 set_data_changed_and_web_playouts_raw(result, name)
 
                                 active = (control_id is not None and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
@@ -3511,6 +3538,7 @@ def check_webserver_for_playouts():
             displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
         allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
 
+        print('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + str((fetch_output_time - datetime.now()).total_seconds()))
         if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
             if log is True: flexprint('webserver playout detected => interrupt message')
             interrupt_message = True
