@@ -2361,7 +2361,7 @@ def applemusic_search_artist(artist_name):
         if isinstance(am, str):
             return am
 
-        results = am.search(artist_name, types=['artists'], limit=5)   # limit range: 1..25 
+        results = am.search(artist_name, types=['artists'], limit=25)   # limit range: 1..25 
         artists = results['results']['artists']['data']
         artists = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, artists))
 
@@ -2376,7 +2376,7 @@ def applemusic_genres():
         if isinstance(am, str):
             return am
 
-        results = am.genres_all()
+        results = am.genres_all(limit=25)
         genres = results['data']
         genres = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, genres))
         
@@ -2391,7 +2391,7 @@ def applemusic_station(stations_name):
         if isinstance(am, str):
             return am
 
-        results = am.search(stations_name, types=['stations'], limit=5)
+        results = am.search(stations_name, types=['stations'], limit=25)
         stations = results['results']['stations']['data']
         stations = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['stationProviderName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, stations))
        
@@ -2406,7 +2406,7 @@ def applemusic_get_artist_albums(artist_name):
         if isinstance(am, str):
             return am
 
-        results = am.search(artist_name, types=['albums'], limit=5)
+        results = am.search(artist_name, types=['albums'])
         albums = results['results']['albums']['data']
         albums = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
         if len(albums) == 0:
@@ -2423,7 +2423,7 @@ def applemusic_get_artist_relationship(artist_id,relationship):
         if isinstance(am, str):
             return am
 
-        results = am.artist_relationship(artist_id, relationship=relationship, limit=5)
+        results = am.artist_relationship(artist_id, relationship=relationship)
         
         items = results['data']
         items = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, items))
@@ -2492,7 +2492,7 @@ def applemusic_search_track(track_name):
         if isinstance(am, str):
             return am
 
-        results = am.search(track_name, types=['songs'], limit=5)
+        results = am.search(track_name, types=['songs'], limit=25)
         tracks = results['results']['songs']['data']
         tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:'), "playable": True if ('playParams' in obj['attributes'] and 'id' in obj['attributes']['playParams']) else False}, tracks))
 
@@ -2507,7 +2507,7 @@ def applemusic_search_playlist(playlist_name):
         if isinstance(am, str):
             return am
 
-        results = am.search(playlist_name, types=['playlists'], limit=5)
+        results = am.search(playlist_name, types=['playlists'], limit=25)
         playlists = results['results']['playlists']['data']
         playlists = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['curatorName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, playlists))
 
