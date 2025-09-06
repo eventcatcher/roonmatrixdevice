@@ -3106,7 +3106,7 @@ def on_itemclick(meta, search, itemname, zone):
                             items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
                             if len(items) > 0:
                                 playlist = items[0]
-                                send_webserver_zone_control(control_id, 'applemusic-playlist-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
+                                send_webserver_zone_control(control_id, 'applemusic-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
                         else:
                             send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
                     else:
