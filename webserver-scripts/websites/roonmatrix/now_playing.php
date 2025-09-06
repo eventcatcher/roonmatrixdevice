@@ -20,15 +20,25 @@
 // 9. a subfolder for covers, located in: ~/websites/roonmatrix/covers
 
 try {
-	$source = isset($_POST['source']) ? $_POST['source'] : ''; 
+	$source = isset($_POST['source']) ? $_POST['source'] : '';
+	$sourceKey = $source;
 	$code = isset($_POST['code']) ? $_POST['code'] : ''; 
 	$search = isset($_POST['search']) ? $_POST['search'] : ''; 
 	$detail = isset($_POST['detail']) ? $_POST['detail'] : ''; 
 	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : '';
 
-    $playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat'];
+    $playcontrols = [
+    	'previous',
+    	'next',
+    	'stop',
+    	'play',
+    	'shuffle',
+    	'noshuffle',
+    	'repeat',
+    	'norepeat'
+    ];
 
-$replaceText = <<<EOD
+	$replaceText = <<<EOD
                     on replaceText(find, replace, theText)
                         set {TID, text item delimiters} to {text item delimiters, find}
                         set textItems to text items of theText
@@ -456,13 +466,59 @@ $replaceText = <<<EOD
                     EOD;
 			    }
 			    break;
+			case 'applemusic-play-url':
+				if ($source == "Music") {
+                    $script = <<<EOD
+                        set targetURL to "$search"
+                        set tabcount to $detail
+
+                        tell application "$source"
+                            activate -- makes sure the music app is in the foreground
+                            open location targetURL
+                            delay 5
+                        end tell
+
+                        tell application "System Events"
+                            tell process "Music"
+                                set frontmost to true
+                                -- ensure that the window is active
+                                delay 0.5
+                                perform action "AXRaise" of window 1
+                                delay 0.5
+
+                                -- 2x Tab: first tab set focus to the WebView, 2nd tab jumps to first red button
+                                repeat with i from 1 to tabcount
+                                    key code 48 -- tab
+                                    delay 0.3
+                                end repeat
+                                -- Enter to press the button
+                                key code 36
+                            end tell
+                        end tell
+                    EOD;
+			    }
+			    break;
 		}
 
 		if ($script!='') {
 		    $cmd = 'osascript -e ' . escapeshellarg($script);
 			$json_str = shell_exec($cmd);
 
-            if ($code=='artists' || $code=='albums' || $code=='albumtracks' || $code=='tracks' || $code=='tracks-with-artist' || $code=='playlists' || $code=='playlist-tracks' || $code=='play-playlist-track' || $code=='genres' || $code=='artists-in-genre') {
+            $codes = [
+            	'artists',
+            	'albums',
+            	'albumtracks',
+            	'tracks',
+            	'tracks-with-artist',
+            	'playlists',
+            	'playlist-tracks',
+            	'play-playlist-track',
+            	'genres',
+            	'artists-in-genre',
+            	'applemusic-play-url'
+            ];
+
+            if (in_array($code,$codes) == true) {
 		        if ($json_str != null) {
 			        $output = "[".$json_str."]";
 		        } else {
@@ -479,7 +535,7 @@ $replaceText = <<<EOD
 		}
 	}
 
-	if (($source!='Spotify' && $source!='Apple Music') || in_array($code,$playcontrols) ) {
+	if (($sourceKey!='Spotify' && $sourceKey!='Apple Music') || in_array($code,$playcontrols) == true) {
 		$pyenvFolderName = '.pyenv';
 		$pyenvPythonPath = '/shims/python';
 		$pythonScriptName = 'now_playing.py';

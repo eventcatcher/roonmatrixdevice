@@ -10,12 +10,11 @@
 # copy to /home/coverplayer/FTP
 #
 
-from tkinter import *
 import tkinter.ttk as ttk
 import tkinter.font as tkFont
-from tkinter import messagebox
+from tkinter import *
 from sys import exit as end
-from os import system
+from os import path, system
 import math
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -48,6 +47,13 @@ class TouchFriendlyButton(Button):
         #self.invoke()  # Ruft das command auf
 
 class VirtualKeyboard:
+    def __init__(self,log,maxpx_x,maxpx_y):
+        self.log = log			# log infos on or off
+        self.maxpx_x = maxpx_x  # screen width in px
+        self.maxpx_y = maxpx_y  # screen height in px
+        
+        self.on_close = None
+
     def flexprint(self, str, objStr = None):
         if self.log is True:
             if objStr is None:
@@ -290,12 +296,12 @@ class VirtualKeyboard:
             self.inp.insert(0, value) #inserts new value assigned by 2nd parameter
             self.inp.icursor(cursor_pos + 1)
             self.search = value
-        if x == 'enter' and len(value) >= (0 if self.searchtype=='playlist' or self.searchtype=='genre' or self.searchtype=='radio' else self.minLength ):
+        if x == 'enter' and len(value) >= (0 if (self.zonetype!='Apple Music' and (self.searchtype=='playlist' or self.searchtype=='genre' or self.searchtype=='radio')) else self.minLength):
             self.showSpinner = True
             self.master.destroy()
             executor = ThreadPoolExecutor(max_workers=1)
             job = executor.submit(self.circleProgress)
-            self.on_search(self.searchtype, value)
+            self.on_search(self.stream_on, self.searchtype, value)
             self.showSpinner = False
         else:
             self.master.after(10, self.master.wm_deiconify())
@@ -330,17 +336,27 @@ class VirtualKeyboard:
             #self.flexprint('alt_key_pressed: ' + str(self.alt_key_pressed))
             self.update_keyboard()
 
+    def get_next_playtype(self, searchtype):
+        searchtypes = ['artist','track','playlist','genre']
+        if self.hasRadioSearch is True:
+            searchtypes.append('radio')
+        idx = searchtypes.index(searchtype)
+        idx += 1
+        if idx >= len(searchtypes):
+            idx = 0
+        return searchtypes[idx]
+    
     def on_labelTap(self):
-        if self.searchtype == 'artist':
-            self.searchtype = 'track'
-        elif self.searchtype == 'track':
-            self.searchtype = 'playlist'
-        elif self.searchtype == 'playlist':
-            self.searchtype = 'genre'
-        elif self.searchtype == 'genre':
-            self.searchtype = 'radio' if self.hasRadioSearch is True else 'artist'
-        elif self.searchtype == 'radio':
-            self.searchtype = 'artist'
+        s_type = self.get_next_playtype(self.searchtype)
+        
+        if self.zonetype=='Apple Music' and self.stream_on is True and s_type=='genre':
+            s_type = self.get_next_playtype(s_type)
+
+        if self.zonetype=='Apple Music' and self.stream_on is False and s_type=='radio':
+            s_type = self.get_next_playtype(s_type)
+        
+        #self.flexprint('on_labelTap => s_type: ' + str(s_type) + ', zonetype: ' + str(self.zonetype) + ', stream_on: ' + str(self.stream_on))
+        self.searchtype = s_type
         self.label.config(text=self.lang[self.searchtype])
 
     def unescape(self, el):
@@ -349,9 +365,19 @@ class VirtualKeyboard:
         if el=='[dq]':
             el = '\"'
         return el
+
+    def _load_control_icons(self):
+        from tkinter import PhotoImage
+        try:
+            self.control_icons = {
+                "stream_on": PhotoImage(master = self.master, file = self.scriptpath + "icons/stream-on.png",),
+                "stream_off": PhotoImage(master = self.master, file = self.scriptpath + "icons/stream-off.png"),
+        }
+        except Exception as e:
+            self.flexprint(f"[red]Icon loading error:[/red] {e}")
     
     # start keyboard
-    def start(self, type, data, keyb_list, width, height, lang, hasRadioSearch, kp_callback, close_callback):
+    def start(self, type, data, keyb_list, lang, hasRadioSearch, zonetype, sourcetype, kp_callback, close_callback):
         self.type = type
         self.data = data
         
@@ -368,21 +394,35 @@ class VirtualKeyboard:
         self.row3keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[9]))
         self.row4keyb_alt = list(map(lambda el: self.unescape(el), keyb_list[10]))
         
-        self.maxpx_x = width
-        self.maxpx_y = height
         self.lang = lang
+        self.control_icons = {}
         self.hasRadioSearch = hasRadioSearch
+        self.zonetype = zonetype
+        self.sourcetype = sourcetype
         self.on_search = kp_callback
         self.on_close = close_callback
+        self.scriptpath = path.dirname(__file__) + '/'
      
         self.init()
         self.engine()
         
         self.master.mainloop()
 
-    def init(self):
-        self.log = True      # log infos on or off
+    def _control(self, action):
+        if action == 'stream_off' or action == 'stream_on':
+            bg = self.btn_small_bgcolor
+            icon = self.control_icons["stream_on"] if self.stream_on else self.control_icons["stream_off"]
+            self.sourcetype_btn.config(image = icon, bg=bg, activebackground=bg)
+            if self.zonetype=='Apple Music' and self.stream_on is True and self.searchtype=='genre':
+                self.on_labelTap()
+            if self.zonetype=='Apple Music' and self.stream_on is False and self.searchtype=='radio':
+                self.on_labelTap()
 
+    def toggle_sourcetype(self):
+        self.stream_on = self.stream_on is False
+        self._control("stream_off" if self.stream_on else "stream_on")
+
+    def init(self):
         # Main Window
         self.master = Tk()
         self.inpstr = StringVar()
@@ -402,9 +442,13 @@ class VirtualKeyboard:
         self.blue = "#488bf0"
         self.darkyellow = "#bfb967"
         self.yellow = "#ebe481"
+        self.btn_small_bgcolor = "#383838"	# background color of small buttons
+        
+        self.icon_btn_size = 48		# button size in px
 
         self.searchlabel = self.lang['artist']
         self.searchtype = 'artist'
+        self.stream_on = self.sourcetype=='stream'
         
         self.master.configure(bg=self.gray)
 
@@ -423,6 +467,7 @@ class VirtualKeyboard:
         self.master.config(cursor="none")
         self.master.resizable(False, False)
 
+        self._load_control_icons()
         
         self.row1keys = ["close"] #["close", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "back"]
         self.row1keys.extend(self.row1keyb)
@@ -460,6 +505,21 @@ class VirtualKeyboard:
         self.label = Label(infoField, text=self.searchlabel, font = "Arial 36", anchor="w", padx = 10)
         self.label.bind("<Button-1>",lambda e:self.on_labelTap())
         self.label.pack(side='left', expand = True, fill = 'both')
+        
+        if self.zonetype=='Apple Music':        
+            icon = self.control_icons["stream_on"] if self.stream_on else self.control_icons["stream_off"]
+            self.sourcetype_btn = TouchFriendlyButton(
+                infoField,
+                image = icon,
+                bg = self.btn_small_bgcolor,
+                bd = 0,
+                command = lambda: self.toggle_sourcetype(), 
+                takefocus = 0, 
+                activebackground = self.btn_small_bgcolor, 
+                height = self.icon_btn_size, 
+                width = self.icon_btn_size
+            )
+            self.sourcetype_btn.pack(side='right', fill="y", ipadx = 20)
 
         # create a frame for input field
         style = ttk.Style(self.master)

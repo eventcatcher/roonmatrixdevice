@@ -34,6 +34,13 @@ on Playing()
     if iTunesRunning then
         tell application "Music"
             try
+                set mode to class of current track as text
+                    if mode is "URL track" then
+                        set sourcetype to "stream"
+                    else
+                        set sourcetype to "local"
+	            end if
+            
                 set songArtist to the artist of the current track
                 set songAlbum to the album of the current track
                 set songTitle to the name of the current track
@@ -68,9 +75,9 @@ on Playing()
                 close access outFile                
                 
                 if hasCover then
-                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & fileName
+                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype & "%-%" & fileName
                 else
-                    set result to "Apple Music%-%" & player state & "%-%" & songAlbum & "%-%" & songArtist & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total
+                    set result to "Apple Music%-%" & player state & "%-%" & songAlbum & "%-%" & songArtist & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype
                 end if
             on error m number n
 				set result to "Apple Music%-%" & "status::not running"
@@ -101,9 +108,9 @@ on Playing()
                 set total to round ((duration of current track) / 1000) rounding down
             
                 if hasCover then
-                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%" & coverUrl
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream%-%" & coverUrl
                 else
-                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream"
                 end if
             on error m number n
 				set result to "Spotify%-%" & "status::not running"
@@ -149,14 +156,19 @@ for line in output:
         repeat = output[6].encode('utf8')
         position = output[7].encode('utf8')
         total = output[8].encode('utf8')
-        if len(output) > 9:
+        if zone_name.startswith('Apple Music'):
+            sourcetype = output[9].encode('utf8')
+        else:
+            sourcetype = 'stream'.encode('utf8')
+        
+        if len(output) > 10:
             if zone_name.startswith('Spotify'):
-                if output[9].startswith('http') is False:
+                if output[10].startswith('http') is False:
                     cover = ''
                 else:
-                    cover = output[9].encode('utf8')
+                    cover = output[10].encode('utf8')
             else:
-                filename = output[9].replace(':','')
+                filename = output[10].replace(':','')
                 if os.path.exists(DIR + filename):
                     fnparts = filename.rsplit('.',1)
                     stringToHash = artist.decode() + '-' + album.decode() + '-' + track.decode()
@@ -167,11 +179,11 @@ for line in output:
                     cover = ('covers/' + newFilename).encode('utf8')
 
         if cover!='':
-            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "cover": "{}"'
-            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),cover.decode())
+            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}", "cover": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode(),cover.decode())
         else:
-            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}"'
-            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode())
+            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode())
         
     output_list.append('{' + roonstr.format(*tup) + '}')
 return_str = ','.join(output_list)

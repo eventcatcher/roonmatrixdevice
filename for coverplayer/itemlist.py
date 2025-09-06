@@ -82,6 +82,13 @@ class TouchTreeview(ttk.Treeview):
             return "break"
 
 class ItemList:
+    def __init__(self,log,maxpx_x,maxpx_y):
+        self.log = log			# log infos on or off
+        self.maxpx_x = maxpx_x  # screen width in px
+        self.maxpx_y = maxpx_y  # screen height in px
+        
+        self.on_close = None
+
     def init(self):
 
         # Main Window
@@ -92,8 +99,6 @@ class ItemList:
         self.rowheight = 90 # maxsize, for bigger height exception throws: BadAlloc (insufficient resources for operation)
         self.fontSize = 24
         self.gray = "#383838"
-        self.maxpx_x = 720 # screen width in px
-        self.maxpx_y = 720 # screen height in px
 
         self.master.configure(bg=self.gray)
 
@@ -108,7 +113,7 @@ class ItemList:
         self.master.resizable(False, False)
 
     def flexprint(self, str, objStr = None):
-        if self.log is True:
+        if self.log not in globals() or self.log is True:
             if objStr is None:
                 if sys.stdout.isatty():
                     print(str)
@@ -202,14 +207,20 @@ class ItemList:
     def refresh_row_tags(self):
         children = self.listbox.get_children()
         for index, item in enumerate(children):
-            tag = 'evenrow' if index % 2 == 0 else 'oddrow'
-            self.listbox.item(item, tags=(tag,))
+            colortag = 'enabled_row'
+            obj = self.items[index]
+            if isinstance(obj, str) is False and 'playable' in obj:
+                enabled = obj['playable']
+                colortag = 'enabled_row' if enabled is True else 'disabled_row'
+
+            rowtag = 'evenrow' if index % 2 == 0 else 'oddrow'
+            self.listbox.item(item, tags=(rowtag,colortag,))
 
     def engine(self):
         self.master.columnconfigure(0, weight=1)
         style = ttk.Style(self.master)
         style.configure('My.TEntry', padding=(10,0, 10,0), foreground="blue")
-        style.configure("mystyle.Treeview", highlightthickness=0, bd=0, background="white", foreground="black", fieldbackground="white", font=('Arial', self.fontSize), rowheight=self.rowheight)
+        style.configure("mystyle.Treeview", highlightthickness=0, bd=0, background="white", fieldbackground="white", font=('Arial', self.fontSize), rowheight=self.rowheight)
 
         labelField = Frame(self.master, height=1.4)
         labelField.rowconfigure(0, weight=1)
@@ -231,20 +242,27 @@ class ItemList:
         self.listbox = TouchTreeview(listFrame, style="mystyle.Treeview", show="tree", height=self.maxRowCount)
                         
         self.listbox.pack(side="left", fill="both", expand=True)
-
-        for index, item in enumerate(self.items):
-            tag = 'evenrow' if index % 2 == 0 else 'oddrow'
-            if isinstance(item, str) is True:
-                self.listbox.insert('', END, text=item, tags = (tag,))
-            else:
-                if self.meta['type']=='tracks' and 'artist' in item and item['artist'] is not None:
-                    self.listbox.insert('', END, text=item['name'] + ' [' + item['artist'] + ']', iid = item['id'])
-                else:
-                    self.listbox.insert('', END, text=item['name'], iid = item['id'])
-        self.listbox.setItems(len(self.items))
-    
+        self.listbox.tag_configure("enabled_row", foreground="black")
+        self.listbox.tag_configure("disabled_row", foreground="grey")
         self.listbox.tag_configure('evenrow', background='#f0f0f0')
         self.listbox.tag_configure('oddrow', background='white')
+
+        for index, item in enumerate(self.items):
+            colortag = 'enabled_row'
+            rowtag = 'evenrow' if index % 2 == 0 else 'oddrow'
+            if isinstance(item, str) is True:
+                self.listbox.insert('', END, text=item, tags = (rowtag,colortag,))
+            else:
+                if self.meta['type']=='tracks' and 'artist' in item and item['artist'] is not None:
+                    self.listbox.insert('', END, text=item['name'] + ' [' + item['artist'] + ']', iid = item['id'], tags=(rowtag,colortag,))
+                else:
+                    if 'playable' in item:
+                        enabled = item['playable']
+                        colortag = 'enabled_row' if enabled is True else 'disabled_row'
+                    self.listbox.insert('', END, text=item['name'], iid = item['id'], tags=(rowtag,colortag,))
+
+        self.listbox.setItems(len(self.items))
+    
         self.listbox.bind('<<TreeviewSelect>>', self.on_select)
 
         self.listbox.bind("<Visibility>", lambda e: self.refresh_row_tags())
@@ -285,24 +303,34 @@ class ItemList:
 
         self.refresh_row_tags()
         selected_item = self.listbox.focus()  # ID des selektierten Elements
-        item_text = self.listbox.item(selected_item, 'text')
-        self.flexprint(f"itemlist ==> type: {self.meta['type']}, on_select: {item_text}, iid: {selected_item}")
+        playable = True
+        items = [e for e in self.items if isinstance(e, str) is False and e["id"] == selected_item]
+        if len(items) > 0:
+            obj = items[0]
+            playable = obj['playable'] if 'playable' in obj else True
+        
+        if playable is True:
+            item_text = self.listbox.item(selected_item, 'text')
+            self.flexprint(f"itemlist ==> type: {self.meta['type']}, on_select: {item_text}, iid: {selected_item}")
 
-        if self.meta['type'] == 'tracks' or self.meta['type'] == 'radios':
-            self.flexprint('itemlist ==> track selected: ' + str(item_text))
-            #self.master.destroy()
-        else:         
-            self.showSpinner = True
-            self.master.destroy()
-            self.search = item_text
-            executor = ThreadPoolExecutor(max_workers=2)
-            job = executor.submit(self.circleProgress)
+            if self.meta['type'] == 'tracks' or self.meta['type'] == 'radios':
+                self.flexprint('itemlist ==> track selected: ' + str(item_text))
+                #self.master.destroy()
+            else:         
+                self.showSpinner = True
+                self.master.destroy()
+                self.search = item_text
+                executor = ThreadPoolExecutor(max_workers=2)
+                job = executor.submit(self.circleProgress)
 
-        if isinstance(self.items[0], str) is True:
-            self.on_list_selection(self.meta, item_text)
+            if isinstance(self.items[0], str) is True:
+                self.on_list_selection(self.meta, item_text)
+            else:
+                self.on_list_selection(self.meta, item_text, selected_item)
+            self.showSpinner = False
         else:
-            self.on_list_selection(self.meta, item_text, selected_item)
-        self.showSpinner = False
+            for i in self.listbox.selection():
+                self.listbox.selection_remove(i)
 
     def do_close(self):
         self.flexprint('itemlist ==> do_close (and destroy)')
@@ -330,16 +358,13 @@ class ItemList:
     def close(self):
         self.showSpinner = False
         self.master.destroy()
-        self.on_close()
+        if self.on_close is not None:
+            self.on_close()
     
     # start item list
-    def start(self, width, height, meta, items, lang, itemclick_callback, close_callback):
-        self.log = True      # log infos on or off
-        
+    def start(self, meta, items, lang, itemclick_callback, close_callback):
         self.flexprint('itemlist ==> start, meta' + str(meta) + ', items: ' + str(len(items)))
 
-        self.maxpx_x = width
-        self.maxpx_y = height
         self.meta = meta
         self.items = items
         self.lang = lang

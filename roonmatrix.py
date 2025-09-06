@@ -132,6 +132,7 @@ try:
         from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
         from io import BytesIO
         import spotipy
+        import applemusicpy    
         from spotipy.oauth2 import SpotifyClientCredentials
         from coverplayer import Coverplayer
         root = tk.Tk()
@@ -487,6 +488,9 @@ webserver_head_request_timeout = int(config['WEBSERVERS']['webserver_head_reques
 webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
 spotify_client_id = config['WEBSERVERS']['spotify_client_id'] if 'spotify_client_id' in config['WEBSERVERS'] else '' # spotify web api client id
 spotify_client_secret = config['WEBSERVERS']['spotify_client_secret'] if 'spotify_client_secret' in config['WEBSERVERS'] else '' # spotify web api client secret
+applemusic_team_id = config['WEBSERVERS']['applemusic_team_id'] if 'applemusic_team_id' in config['WEBSERVERS'] else '' # applemusic web api team id
+applemusic_key_id = config['WEBSERVERS']['applemusic_key_id'] if 'applemusic_key_id' in config['WEBSERVERS'] else '' # applemusic web api key id
+applemusic_secret_key = config['WEBSERVERS']['applemusic_secret_key'] if 'applemusic_secret_key' in config['WEBSERVERS'] else '' # applemusic web api secret key
 
 roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
 force_roon_update = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
@@ -738,8 +742,11 @@ async def rest_config():
                             {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
                             {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
                             {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
-                            {"name": "spotify_client_id", "editable": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                            {"name": "spotify_client_secret", "editable": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']}
+                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']},
+                            {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['WEBSERVERS']['applemusic_team_id']},
+                            {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['WEBSERVERS']['applemusic_key_id']},
+                            {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['WEBSERVERS']['applemusic_secret_key']}
                         ]
                     },
                 ]
@@ -2336,6 +2343,179 @@ def roon_get_playlist_tracks(output_id, playlist):
     except Exception as e:
         return []
 
+def applemusic_init():
+    if applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='':
+        return coverplayer_lang['applemusic_no_credentials']
+
+    try:
+        am = applemusicpy.AppleMusic(secret_key=applemusic_secret_key, key_id=applemusic_key_id, team_id=applemusic_team_id)
+    except Exception as e:
+        flexprint("AppleMusic auth error:", e)
+        return coverplayer_lang['applemusic_auth_error']
+    flexprint('applemusic_init auth ok')
+    return am
+
+def applemusic_search_artist(artist_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.search(artist_name, types=['artists'], limit=5)   # limit range: 1..25 
+        artists = results['results']['artists']['data']
+        artists = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, artists))
+
+        return artists
+    except Exception as e:
+        flexprint('applemusic_search_artist error: ' + str(e))
+        return []
+
+def applemusic_genres():
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.genres_all()
+        genres = results['data']
+        genres = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, genres))
+        
+        return genres
+    except Exception as e:
+        flexprint('applemusic_genres error: ' + str(e))
+        return []
+
+def applemusic_station(stations_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.search(stations_name, types=['stations'], limit=5)
+        stations = results['results']['stations']['data']
+        stations = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['stationProviderName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, stations))
+       
+        return stations
+    except Exception as e:
+        flexprint('applemusic_station error: ' + str(e))
+        return []
+
+def applemusic_get_artist_albums(artist_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.search(artist_name, types=['albums'], limit=5)
+        albums = results['results']['albums']['data']
+        albums = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
+        if len(albums) == 0:
+            return []
+
+        return albums
+    except Exception as e:
+        flexprint('applemusic_get_artist_albums error: ' + str(e))
+        return []
+
+def applemusic_get_artist_relationship(artist_id,relationship):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.artist_relationship(artist_id, relationship=relationship, limit=5)
+        
+        items = results['data']
+        items = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, items))
+        if len(items) == 0:
+            return []
+
+        return items
+    except Exception as e:
+        flexprint('applemusic_get_artist_relationship error: ' + str(e))
+        return []
+
+def applemusic_get_playlist_relationship(playlist_id, relationship):    
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.playlist_relationship(playlist_id, relationship=relationship)
+        tracks = results['data']
+        tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, tracks))
+        
+        if len(tracks) == 0:
+            return []
+
+        return tracks
+    except Exception as e:
+        flexprint('applemusic_get_playlist_tracks error: ' + str(e))
+        return []
+
+def applemusic_get_playlist_tracks(playlist_id):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.playlist(playlist_id)
+        tracks = results['data'][0]['relationships']['tracks']['data']
+        tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, tracks))
+        
+        if len(tracks) == 0:
+            return []
+
+        return tracks
+    except Exception as e:
+        flexprint('applemusic_get_playlist_tracks error: ' + str(e))
+        return []
+
+def applemusic_get_album_tracks(album_id):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.album(album_id)
+        tracks = results['data'][0]['relationships']['tracks']['data']
+        tracks = list(map(lambda obj: {"name": str(obj['attributes']['trackNumber']) + '. ' + obj['attributes']['name'], "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:'), "playable": True if ('playParams' in obj['attributes'] and 'id' in obj['attributes']['playParams']) else False}, tracks))
+
+        return tracks
+    except Exception as e:
+        flexprint('applemusic_get_album_tracks error: ' + str(e))
+        return []
+
+def applemusic_search_track(track_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.search(track_name, types=['songs'], limit=5)
+        tracks = results['results']['songs']['data']
+        tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:'), "playable": True if ('playParams' in obj['attributes'] and 'id' in obj['attributes']['playParams']) else False}, tracks))
+
+        return tracks
+    except Exception as e:
+        flexprint('applemusic_search_track error: ' + str(e))
+        return []
+
+def applemusic_search_playlist(playlist_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        results = am.search(playlist_name, types=['playlists'], limit=5)
+        playlists = results['results']['playlists']['data']
+        playlists = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['curatorName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, playlists))
+
+        return playlists
+    except Exception as e:
+        flexprint('applemusic_search_playlist error: ' + str(e))
+        return []
+
 def spotipy_init():
     """
     Initializes Spotipy with forced IPv4, custom session and optional access data.
@@ -2508,7 +2688,7 @@ def replace_escaped_list(items):
         filteredItems.append(replace_escaped_item(item))
     return filteredItems
 
-def on_search(value, zone, type):
+def on_search(is_stream, value, zone, type):
     control_id = None
     albums = None
     is_webserver = False
@@ -2531,11 +2711,11 @@ def on_search(value, zone, type):
                 if isinstance(artists, str):
                     return artists
                 if (len(artists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, []]
                 if (len(artists) != 1):
                     artists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, artists))
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, artists]
                 artist = artists[0]
                 albums = spotify_get_artist_albums(artist['id'])
@@ -2548,20 +2728,20 @@ def on_search(value, zone, type):
                     if isinstance(artists, str):
                         return artists
                     if (len(artists) == 0):
-                        meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                         return [meta, []]
                     artists = list(map(lambda obj: {"name": obj['name'] + ((' [' + ','.join(obj['genres']) + ']') if len(obj['genres']) > 0 else ''), "id": obj['id']}, artists))
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, artists]
                 if genretype=='playlists':
                     playlists = spotify_search_playlists_by_genre(value)
                     if isinstance(playlists, str):
                         return playlists
                     if (len(playlists) == 0):
-                        meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                         return [meta, []]
                     playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, playlists]
             if type == 'track':
                 tracks = spotify_search_track(value)
@@ -2573,11 +2753,11 @@ def on_search(value, zone, type):
                 if isinstance(playlists, str):
                     return playlists
                 if (len(playlists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, []]
                 if (len(playlists) != 1):
                     playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, playlists]
                 playlist = playlists[0]
                 tracks = spotify_get_playlist_tracks(playlist['id'])
@@ -2586,28 +2766,35 @@ def on_search(value, zone, type):
         if zonetype == 'Apple Music':
             if type == 'artist':
                 value = value.replace('"','\\"')
-                flexprint('************ Apple Music artist search value: ' + str(value))
-                raw = send_webserver_zone_control(control_id, 'artists', value)
-                if raw is None:
-                    return [meta, []]
-                flexprint('************ Apple Music artist search raw response: ' + str(raw))
-                artists = json.loads(raw)
+                flexprint('************ Apple Music artist search value: ' + str(value) + ', is_stream: ' + str(is_stream))
+                if is_stream is True:
+                    artists = applemusic_search_artist(value)
+                else:
+                    raw = send_webserver_zone_control(control_id, 'artists', value)
+                    if raw is None:
+                        return [meta, []]
+                    flexprint('************ Apple Music artist search raw response: ' + str(raw))
+                    artists = json.loads(raw)
                 if (len(artists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                     return [meta, []]
-                artists = replace_escaped_list(artists)
+                if is_stream is False:
+                    artists = replace_escaped_list(artists)
                 if (len(artists) != 1):
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, artists]
                 artist = artists[0].replace('"','\\\"')
-                raw = send_webserver_zone_control(control_id, 'albums', artist)
-                value = artist
-                flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
-                if raw is None:
-                    return [meta, []]
-                albums = json.loads(raw)
-                albums = replace_escaped_list(albums)
-            if type == 'genre':
+                if is_stream is True:
+                    albums = applemusic_get_artist_albums(artist)
+                else:
+                    raw = send_webserver_zone_control(control_id, 'albums', artist)
+                    value = artist
+                    flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
+                    if raw is None:
+                        return [meta, []]
+                    albums = json.loads(raw)
+                    albums = replace_escaped_list(albums)
+            if type == 'genre' and is_stream is False:
                 value = value.replace('"','\\"')
                 flexprint('************ Apple Music genre search value: ' + str(value))
                 raw = send_webserver_zone_control(control_id, 'genres', value)
@@ -2616,11 +2803,11 @@ def on_search(value, zone, type):
                 flexprint('************ Apple Music genre search raw response: ' + str(raw))
                 genres = json.loads(raw)
                 if (len(genres) == 0):
-                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value}
                     return [meta, []]
                 genres = replace_escaped_list(genres)
                 if (len(genres) != 1):
-                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
                     return [meta, genres]
                 genre = genres[0].replace('"','\\\"')
                 raw = send_webserver_zone_control(control_id, 'artists-in-genre', genre)
@@ -2633,48 +2820,67 @@ def on_search(value, zone, type):
             if type == 'playlist':
                 value = value.replace('"','\\"')
                 #value = value.replace('"','[dq]')
-                raw = send_webserver_zone_control(control_id, 'playlists', value)
-                if raw is None:
-                    return [meta, []]
-                flexprint('playlist apple music raw: ' + str(raw))
-                playlists = json.loads(raw)
+                if is_stream is True:
+                    playlists = applemusic_search_playlist(value)
+                else:
+                    raw = send_webserver_zone_control(control_id, 'playlists', value)
+                    if raw is None:
+                        return [meta, []]
+                    flexprint('playlist apple music raw: ' + str(raw))
+                    playlists = json.loads(raw)
                 if (len(playlists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, []]
-                playlists = replace_escaped_list(playlists)
+                if is_stream is False:
+                    playlists = replace_escaped_list(playlists)
                 if (len(playlists) != 1):
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    if is_stream is True:
+                        meta['playlists'] = playlists
                     return [meta, playlists]
                 playlist = playlists[0].replace('"','\\\"')
                 flexprint('single playlist: ' + str(playlist))
-                raw = send_webserver_zone_control(control_id, 'playlist-tracks', playlist)
-                flexprint('#applemusic raw: ' + str(raw))
-                if raw is None:
-                    return [meta, []]
-                flexprint('#applemusic before loads: ' + str(raw))
-                tracks = json.loads(raw)
-                tracks = replace_escaped_list(tracks)
+                if is_stream is True:
+                    tracks = applemusic_get_playlist_relationship(playlist, 'tracks')
+                else:
+                    raw = send_webserver_zone_control(control_id, 'playlist-tracks', playlist)
+                    flexprint('#applemusic raw: ' + str(raw))
+                    if raw is None:
+                        return [meta, []]
+                    flexprint('#applemusic before loads: ' + str(raw))
+                    tracks = json.loads(raw)
+                    tracks = replace_escaped_list(tracks)
                 #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
                 flexprint('#applemusic tracks escaped: ' + str(tracks))
-                meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlist, 'playlist': playlist}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlist, 'playlist': playlist}
                 return [meta, tracks]
+            if type == 'radio' and is_stream is True:
+                value = value.replace('"','\\"')
+                radios = applemusic_station(value)
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title(), 'radios': radios}
+                return [meta, radios]
             if type == 'track':
                 value = value.replace('"','\\"')
                 flexprint('************ Apple Music track search value: ' + str(value))
-                raw = send_webserver_zone_control(control_id, 'tracks-with-artist', value)
-                if raw is None:
-                    return [meta, []]
-                flexprint('************ Apple Music track search raw response: ' + str(raw))
-                tracks = json.loads(raw)
-                tracks = replace_escaped_list(tracks)
+                if is_stream is True:
+                    tracks = applemusic_search_track(value)
+                else:
+                    raw = send_webserver_zone_control(control_id, 'tracks-with-artist', value)
+                    if raw is None:
+                        return [meta, []]
+                    flexprint('************ Apple Music track search raw response: ' + str(raw))
+                    tracks = json.loads(raw)
+                    tracks = replace_escaped_list(tracks)
         if type == 'artist':
-            meta = {"zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
+            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
             return [meta, albums]
         if type == 'genre':
-            meta = {"zonetype": zonetype, "type": 'artists', 'search': value, "genre": value}
+            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value, "genre": value}
             return [meta, artists]
         if type == 'track':
-            meta = {"zonetype": zonetype, "type": 'tracks', 'search': value}
+            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value}
+            if zonetype == 'Apple Music' and is_stream is True:
+                meta['tracks'] = tracks
             flexprint('track search: ' + str(tracks))
             return [meta, tracks]
     if is_webserver is False and control_id is not None and zone in channels.values():
@@ -2690,68 +2896,69 @@ def on_search(value, zone, type):
                 artists = roon_get_artists(output_id, value)
                 flexprint('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
                 if (len(artists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, []]
                 if (len(artists) != 1):
-                    meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, artists]
                 albums = roon_get_artist_albums(output_id, artists[0])
-                meta = {"zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
                 return [meta, albums]
             if type == 'genre':
                 genres = roon_get_genres(output_id, value)
                 flexprint('roon_get_genres count: ' + str(len(genres)) + ' for search of: ' + value)
                 if (len(genres) == 0):
-                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
                     return [meta, []]
                 if (len(genres) != 1):
-                    meta = {"zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
                     return [meta, genres]
                 artists = roon_get_genre_artists(output_id, genres[0])
-                meta = {"zonetype": zonetype, "type": 'artists', 'search': value.title(), "genre":genres[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title(), "genre":genres[0]}
                 return [meta, artists]
             if type == 'track':
                 tracks = roon_get_tracks(output_id, value)
                 tracks = list(OrderedDict.fromkeys(tracks)) # remove doubles
                 flexprint('roon_get_tracks count: ' + str(len(tracks)) + ' for search of: ' + value)
                 if (len(tracks) > 0):
-                    meta = {"zonetype": zonetype, "type": 'tracks', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
                     return [meta, tracks]
                 else:
-                    meta = {"zonetype": zonetype, "type": 'tracks', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
                     return [meta, []]
             if type == 'playlist':
                 playlists = roon_get_playlists(output_id, value)
                 flexprint('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
                 if (len(playlists) == 0):
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
                     return [meta, []]
                 if (len(playlists) != 1):
-                    meta = {"zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
                     return [meta, playlists]
                 tracks = roon_get_playlist_tracks(output_id, playlists[0])
-                meta = {"zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
                 return [meta, tracks]
             if type == 'radio':
                 radios = roon_get_radios(output_id, value)
                 flexprint('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
                 if (len(radios) == 0):
-                    meta = {"zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
                     return [meta, []]
                 if (len(radios) != 1):
-                    meta = {"zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
                     return [meta, radios]
                 radio = radios[0]
-                meta = {"zonetype": zonetype, "type": 'radio', 'search': value.title(), "radio":radios[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radio', 'search': value.title(), "radio":radios[0]}
                 try:
                     roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
                 except Exception as e:
                     flexprint('roonapi.play_media error: ' + str(e))
                 return [meta, radios]
-    meta = {"zonetype": zonetype, "type": 'search', 'search': value.title()}
+    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'search', 'search': value.title()}
     return [meta, []]
 
 def on_itemclick(meta, search, itemname, zone):
+    is_stream = meta['stream'] if 'stream' in meta else False # TODO: get from props
     control_id = None
     is_webserver = False
     is_spotify = False
@@ -2809,11 +3016,14 @@ def on_itemclick(meta, search, itemname, zone):
                     return ['track', itemname]
         else:
             if meta['type'] == 'artists':
-                raw = send_webserver_zone_control(control_id, 'albums', itemname)
-                if raw is None:
-                    return ['albums', search, []]
-                albums = json.loads(raw)
-                albums = replace_escaped_list(albums)
+                if is_stream is True:
+                    albums = applemusic_get_artist_relationship(itemname,'albums')
+                else:
+                    raw = send_webserver_zone_control(control_id, 'albums', itemname)
+                    if raw is None:
+                        return ['albums', search, []]
+                    albums = json.loads(raw)
+                    albums = replace_escaped_list(albums)
                 return ['albums', search, albums]
             if meta['type'] == 'genres':
                 raw = send_webserver_zone_control(control_id, 'artists-in-genre', itemname)
@@ -2823,23 +3033,46 @@ def on_itemclick(meta, search, itemname, zone):
                 artists = replace_escaped_list(artists)
                 return ['artists', search, artists]
             if meta['type'] == 'albums':
-                itemname = itemname.replace('"', '\\\"')
-                raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname)
-                if raw is None:
-                    return ['tracks', search, itemname, []]
-                tracks = json.loads(raw)
-                tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
+                if is_stream is True and 'searchtype' in meta and meta['searchtype']=='tracklist':
+                    itemname = ''
+                    tracks = []
+                    albums = applemusic_get_artist_albums(meta['artist'])
+                    albums = [e for e in albums if e['name'] == meta['album']]
+                    if len(albums) > 0:
+                        itemname = albums[0]['id']
+                else:
+                    itemname = itemname.replace('"', '\\\"')
+                if is_stream is True:
+                    if itemname!='':
+                        tracks = applemusic_get_album_tracks(itemname)
+                else:
+                    raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname)
+                    if raw is None:
+                        return ['tracks', search, itemname, []]
+                    tracks = json.loads(raw)
+                    tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
                 meta['tracks'] = tracks
                 flexprint('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
+            if meta['type'] == 'radios':
+                itemname = itemname.replace('"', '\\\"')
+                if is_stream is True:
+                    radios = [e for e in meta['radios'] if e['id'] == itemname]
+                    if len(radios) > 0:
+                        radio = radios[0]
+                        send_webserver_zone_control(control_id, 'applemusic-play-url', radio['url'], 0)
+                return ['radio', radio]
             if meta['type'] == 'playlists':
                 flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
                 itemname = itemname.replace('"', '\\\"')
-                raw = send_webserver_zone_control(control_id, 'playlist-tracks', itemname)
-                if raw is None:
-                    return ['tracks', search, itemname, []]
-                tracks = json.loads(raw)
-                tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
+                if is_stream is True:
+                    tracks = applemusic_get_playlist_relationship(itemname, 'tracks')
+                else:
+                    raw = send_webserver_zone_control(control_id, 'playlist-tracks', itemname)
+                    if raw is None:
+                        return ['tracks', search, itemname, []]
+                    tracks = json.loads(raw)
+                    tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
                 meta['tracks'] = tracks
                 flexprint('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
                 return ['tracks', search, itemname, tracks]
@@ -2849,34 +3082,66 @@ def on_itemclick(meta, search, itemname, zone):
                     album = meta['album']
                     album = album.replace('"', '\\"')
                     if itemname == '[FULLALBUM]':
-                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
+                        if is_stream is True:
+                            send_webserver_zone_control(control_id, 'applemusic-play-url', meta['tracks'][0]['url'], 2)
+                        else:
+                            send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
                     else:
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
-                        send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, itemname)
+                        if is_stream is True:
+                            tracks = [e for e in meta['tracks'] if e['id'] == itemname]
+                            if len(tracks) > 0:
+                                track = tracks[0]
+                                send_webserver_zone_control(control_id, 'applemusic-play-url', track['url'], 2)
+                        else:
+                            send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, itemname)
                     return ['track', meta['artist'], meta['album'], itemname]
                 elif 'playlist' in meta:
                     playlist = meta['playlist']
                     if len(playlist) > 0 and '"' in playlist and '\\\"' not in playlist:
                         playlist = playlist.replace('"', '\\"')                        
                     if itemname == '[FULLPLAYLIST]':
-                        send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
+                        if is_stream is True:
+                            items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
+                            if len(items) > 0:
+                                playlist = items[0]
+                                send_webserver_zone_control(control_id, 'applemusic-playlist-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
+                        else:
+                            send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
                     else:
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
-                        send_webserver_zone_control(control_id, 'play-playlist-track', playlist, itemname)
+                        if is_stream is True:
+                            items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
+                            if len(items) > 0:
+                                playlist_url = items[0]['url']                        
+                                tracks = [e for e in meta['tracks'] if e['id'] == itemname]
+                                if len(tracks) > 0:
+                                    track = tracks[0]
+                                    track_url = track['url'] # album link with track selection (autostart of play is working)
+                                    #track_url = playlist_url + '?i=' + track['id'] # playlist link with song item anchor (open page but without selection in app - not possible to autostart of play)
+                                    send_webserver_zone_control(control_id, 'applemusic-play-url', track_url, 3)
+                        else:
+                            send_webserver_zone_control(control_id, 'play-playlist-track', playlist, itemname)
                     return ['track', meta['playlist'], itemname]
                 else:
                     if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                         itemname = itemname.replace('"', '\\"')
-                    if len(itemname.split('|')) == 2:
-                        itemparts = itemname.split('|')
-                        itemname = itemparts[0]
-                        artist = itemparts[1]
-                        send_webserver_zone_control(control_id, 'playtrack', itemname, artist)
-                        return ['track', itemname, artist]
-                    else:
-                        send_webserver_zone_control(control_id, 'playtrack', itemname)                    
+                    if is_stream is True:
+                        tracks = [e for e in meta['tracks'] if e['id'] == itemname]
+                        if len(tracks) > 0:
+                            track = tracks[0]
+                            send_webserver_zone_control(control_id, 'applemusic-play-url', track['url'], 2)
+                    else:    
+                        if len(itemname.split('|')) == 2:
+                            itemparts = itemname.split('|')
+                            itemname = itemparts[0]
+                            artist = itemparts[1]
+                            send_webserver_zone_control(control_id, 'playtrack', itemname, artist)
+                            return ['track', itemname, artist]
+                        else:
+                            send_webserver_zone_control(control_id, 'playtrack', itemname)                    
                     return ['track', itemname]
     if is_webserver is False and control_id is not None and zone in channels.values():
         outputs = roonapi.outputs
@@ -3026,8 +3291,9 @@ def webserver_zone_not_running_coverplayer_updates(result, name, obj):
             is_playing = False
             shuffle_on = False
             repeat_on = False
+            sourcetype = 'local'
             flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
-            Coverplayer.update(-1, -1, None, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            Coverplayer.update(-1, -1, None, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
 
 def prepend_cover_url(obj, url):
     if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
@@ -3038,11 +3304,12 @@ def get_and_set_play_shuffle_repeat(name, obj):
     playing = 'status' in obj and obj['status'] == 'playing'
     shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
     repeat = 'repeat' in obj and (obj['repeat'] == 'true' or obj['repeat'] == 'all' or obj['repeat'] == 'one')
+    sourcetype = obj['sourcetype'] if 'sourcetype' in obj else 'local'
     zid = name + '-' + obj["zone"]
     set_play_mode(zid, playing, False)
     set_shuffle_mode(zid, shuffle, False)
     set_repeat_mode(zid, repeat, False)
-    return {'playing': playing, 'shuffle':shuffle, 'repeat':repeat}
+    return {'playing': playing, 'sourcetype':sourcetype, 'shuffle':shuffle, 'repeat':repeat}
 
 def add_separator(displaystr, playprops):
     if type(displaystr) == list:
@@ -3061,6 +3328,7 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
     shuffle_on_last = shuffle_on
     repeat_on_last = repeat_on
     is_playing = playprops['playing']
+    sourcetype = playprops['sourcetype']
     shuffle_on = playprops['shuffle']
     repeat_on = playprops['repeat']
 
@@ -3079,10 +3347,10 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
             zones = get_zone_names()
             flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
-            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
         else:
             flexprint('[bold red]Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
-            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, shuffle_on, repeat_on, cover_text_line_parts)
+            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts)
 
 def remove_prepended_from_displaystr(displaystr):
     if type(displaystr) == list:
@@ -3481,11 +3749,12 @@ def roon_state_callback(event, changed_ids):
                         shuffle_on_last = shuffle_on
                         repeat_on_last = repeat_on
                         is_playing = playing
+                        sourcetype = 'local'
                         shuffle_on = shuffle
                         repeat_on = repeat
                                     
                         flexprint('[bold red]Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts)
+                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts)
 
 
             if name not in channels.values():
@@ -3537,7 +3806,7 @@ def check_webserver_for_playouts():
             displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
         allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
 
-        print('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + str((fetch_output_time - datetime.now()).total_seconds()))
+        if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + str((fetch_output_time - datetime.now()).total_seconds()))
         if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
             if log is True: flexprint('webserver playout detected => interrupt message')
             interrupt_message = True
@@ -3860,11 +4129,12 @@ def build_output():
                                     shuffle_on_last = shuffle_on
                                     repeat_on_last = repeat_on
                                     is_playing = playing
+                                    sourcetype = 'local'
                                     shuffle_on = shuffle
                                     repeat_on = repeat
                                     
                                     flexprint('[bold red]Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'

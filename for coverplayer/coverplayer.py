@@ -54,32 +54,32 @@ class Coverplayer:
     @classmethod
     def set_keyboard_codes(cls, keyb_list):
         cls._ensure_running()
-        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def config(cls, lang, webserver_url_request_timeout, display_auto_wakeup):
         cls._ensure_running()
-        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_spotify(cls, disabled):
         cls._ensure_running()
-        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
 
     @classmethod
-    def setpos(cls, playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text = []):
+    def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text = []):
         cls._ensure_running()
-        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, shuffle_on, repeat_on, text, None, None, None, None, None))
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text, None, None, None, None, None))
 
     @classmethod
     def setZones(cls, buttons):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, None, buttons or [], None, None, None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, buttons or [], None, None, None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -413,6 +413,7 @@ class Coverplayer:
         self.search_callback = None
         self.itemclick_callback = None
         self.is_playing = True
+        self.sourcetype = 'local'
         self.shuffle_on = False
         self.repeat_on = False
         self.control_icons = {}
@@ -420,10 +421,10 @@ class Coverplayer:
         self.tracklist_btn = None
 
         from vkeyboard import VirtualKeyboard
-        self.vkeyb = VirtualKeyboard()
+        self.vkeyb = VirtualKeyboard(self.log,self.maxpx_x,self.maxpx_y)
 
         from itemlist import ItemList
-        self.itemlistclass = ItemList()
+        self.itemlistclass = ItemList(self.log,self.maxpx_x,self.maxpx_y)
 
         self.root.after(1000, self.update_playpos)
 
@@ -499,6 +500,8 @@ class Coverplayer:
                 "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
                 "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
                 "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
+                "stream_on": PhotoImage(file = self.scriptpath + "icons/stream-on.png"),
+                "stream_off": PhotoImage(file = self.scriptpath + "icons/stream-off.png"),
                 "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
                 "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
@@ -794,10 +797,10 @@ class Coverplayer:
                 idlist.append(item['id'])
         return filtered_items
     
-    def on_search(self, type, key):
+    def on_search(self, is_stream, type, key):
         self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
         if self.search_callback is not None:
-            data = self.search_callback(key, self.zone, type)
+            data = self.search_callback(is_stream, key, self.zone, type)
             if isinstance(data, str):
                 self.vkeyb.error_message(data)
                 return
@@ -842,7 +845,8 @@ class Coverplayer:
                     self.search = meta['search']
                     tracks = data[1]
                     if meta['zonetype'] == 'Apple Music':
-                        tracks = list(map(lambda name: {"name": (name.split('|')[0] + ' [' + name.split('|')[1] + ']') if len(name.split('|')) == 2 else name, "id": name.split('|')[0]}, tracks))
+                        if is_stream is False:
+                            tracks = list(map(lambda name: {"name": (name.split('|')[0] + ' [' + name.split('|')[1] + ']') if len(name.split('|')) == 2 else name, "id": name.split('|')[0]}, tracks))
                         tracks = self.filter_list_to_unique_id(tracks)
                         if 'playlist' in meta:
                             tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
@@ -861,6 +865,8 @@ class Coverplayer:
                         print(*playlists, sep="\n")
                         meta['label'] = self.lang['select_playlist'].title()
                         meta['listname'] = None
+                        if meta['zonetype']=='Apple Music' and meta['stream'] is True:
+                            meta['playlists'] = playlists
                         self._open_list(meta, playlists)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
@@ -998,26 +1004,27 @@ class Coverplayer:
                 album = self.text[2].split(':')[1].strip()
                 track = self.text[3].split(':')[1].strip()
                 if zone == self.zone:
-                    meta = {"zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': self.lang['artist'].title(), 'listname': artist}   
+                    is_stream = self.sourcetype == 'stream'
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': self.lang['artist'].title(), 'listname': artist}   
                     self.search = artist
                     self.on_itemclick(meta, album)
         else:
             self.hasRadioSearch = False
             zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-            if (zonetype!='Apple Music' and zonetype!='Spotify'):
+            if (zonetype!='Spotify'):
                 self.hasRadioSearch = True
             self.flexprint('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
-            self.vkeyb.start(type, [], self.keyb_list, self.maxpx_x, self.maxpx_y, self.lang, self.hasRadioSearch, self.on_search, self.close_keyb)
+            self.vkeyb.start(type, [], self.keyb_list, self.lang, self.hasRadioSearch, zonetype, self.sourcetype, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
         #self.root.withdraw()
-        self.itemlistclass.start(self.maxpx_x, self.maxpx_y, meta, items, self.lang, self.on_itemclick, self.close_list)
+        self.itemlistclass.start(meta, items, self.lang, self.on_itemclick, self.close_list)
 
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
+                func, playpos, playlen, path, is_playing, sourcetype, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
@@ -1029,6 +1036,7 @@ class Coverplayer:
                     self._set_repeatmode(repeat_on, playlen)
 
                     self.is_playing = is_playing
+                    self.sourcetype = sourcetype
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
 
@@ -1207,6 +1215,7 @@ class Coverplayer:
 
                     self.playlen = playlen
                     self.is_playing = is_playing
+                    self.sourcetype = sourcetype
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
                 if func == 'setZones' and self.buttons != buttons:
