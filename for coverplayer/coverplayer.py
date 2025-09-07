@@ -67,6 +67,16 @@ class Coverplayer:
         cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
+    def vkeyb_error_message(cls, message):
+        cls._ensure_running()
+        cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
+    def itemlist_error_message(cls, message):
+        cls._ensure_running()
+        cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
     def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
         cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
@@ -810,7 +820,7 @@ class Coverplayer:
                 if meta['type'] == 'albums':
                     self.search = meta['artist']
                     albums = data[1]
-                    if albums is not None and len(albums) > 0:
+                    if albums is not None and isinstance(albums, str) is False and len(albums) > 0:
                         if isinstance(albums[0], str) is True:
                             print(*albums, sep="\n")
                         else:
@@ -819,65 +829,77 @@ class Coverplayer:
                         meta['label'] = self.lang['artist'].title()
                         meta['listname'] = self.unescape_quotes(meta['artist'])
                         self._open_list(meta, albums)
+                    elif albums is not None and isinstance(albums, str) is True:
+                        self.vkeyb.error_message(albums)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'artists' and len(data) == 2:
                     self.search = meta['search']
                     artists = data[1]
-                    if artists is not None and len(artists) > 0:
+                    if artists is not None and isinstance(artists, str) is False and len(artists) > 0:
                         print(*artists, sep="\n")
                         meta['label'] = self.lang['select_artist'].title()
                         meta['listname'] = None
                         self._open_list(meta, artists)
+                    elif artists is not None and isinstance(artists, str) is True:
+                        self.vkeyb.error_message(artists)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'genres' and len(data) == 2:
                     self.search = meta['search']
                     genres = data[1]
-                    if genres is not None and len(genres) > 0:
+                    if genres is not None and isinstance(genres, str) is False and len(genres) > 0:
                         print(*genres, sep="\n")
                         meta['label'] = self.lang['select_genre'].title()
                         meta['listname'] = None
                         self._open_list(meta, genres)
+                    elif genres is not None and isinstance(genres, str) is True:
+                        self.vkeyb.error_message(genres)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'tracks' and len(data) == 2:
                     self.search = meta['search']
                     tracks = data[1]
-                    if meta['zonetype'] == 'Apple Music':
-                        if is_stream is False:
-                            tracks = list(map(lambda name: {"name": (name.split('|')[0] + ' [' + name.split('|')[1] + ']') if len(name.split('|')) == 2 else name, "id": name.split('|')[0]}, tracks))
-                        tracks = self.filter_list_to_unique_id(tracks)
-                        if 'playlist' in meta:
-                            tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
-                    if tracks is not None and len(tracks) > 0:
+                    if tracks is not None and isinstance(tracks, str) is False and len(tracks) > 0:
+                        if meta['zonetype'] == 'Apple Music':
+                            if is_stream is False:
+                                tracks = list(map(lambda name: {"name": (name.split('|')[0] + ' [' + name.split('|')[1] + ']') if len(name.split('|')) == 2 else name, "id": name.split('|')[0]}, tracks))
+                            tracks = self.filter_list_to_unique_id(tracks)
+                            if 'playlist' in meta:
+                                tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
                         print(*tracks, sep="\n")
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = self.unescape_quotes(meta['search'])
                         self.flexprint('coverplayer applemusic playlist tracks: ' + str(tracks))
                         self._open_list(meta, tracks)
+                    elif tracks is not None and isinstance(tracks, str) is True:
+                        self.vkeyb.error_message(tracks)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'playlists' and len(data) == 2:
                     self.search = meta['search']
                     playlists = data[1]
-                    if playlists is not None and len(playlists) > 0:
+                    if playlists is not None and isinstance(playlists, str) is False and len(playlists) > 0:
                         print(*playlists, sep="\n")
                         meta['label'] = self.lang['select_playlist'].title()
                         meta['listname'] = None
                         if meta['zonetype']=='Apple Music' and meta['stream'] is True:
                             meta['playlists'] = playlists
                         self._open_list(meta, playlists)
+                    elif playlists is not None and isinstance(playlists, str) is True:
+                        self.vkeyb.error_message(playlists)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'radios' and len(data) == 2:
                     self.search = meta['search']
                     radios = data[1]
-                    if radios is not None and len(radios) > 0:
+                    if radios is not None and isinstance(radios, str) is False and len(radios) > 0:
                         print(*radios, sep="\n")
                         meta['label'] = self.lang['select_radio'].title()
                         meta['listname'] = None
                         self._open_list(meta, radios)
+                    elif radios is not None and isinstance(radios, str) is True:
+                        self.vkeyb.error_message(radios)
                     else:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'radio':
@@ -1020,7 +1042,7 @@ class Coverplayer:
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
         #self.root.withdraw()
         self.itemlistclass.start(meta, items, self.lang, self.on_itemclick, self.close_list)
-
+    
     def _poll_queue(self):
         try:
             while True:
@@ -1127,6 +1149,10 @@ class Coverplayer:
                     self.display_auto_wakeup = path
                 if func == 'disable_spotify':
                     self.spotify_disabled = playpos
+                if func == 'vkeyb_error_message' and self.vkeyb is not None:
+                    self.vkeyb.error_message(playpos)
+                if func == 'itemlist_error_message' and self.itemlistclass is not None:
+                    self.itemlistclass.error_message(playpos)
                 if func == 'setpos':
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')

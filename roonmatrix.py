@@ -23,6 +23,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil import tz
 import time
 import requests
+import requests.packages.urllib3.util.connection as urllib3_cn
 import argparse
 import RPi.GPIO as GPIO
 from ast import literal_eval
@@ -104,6 +105,30 @@ def init_logging():
         ]
     )
 
+def flexprint(str, objStr = None):
+    if log is True:
+        if objStr is None:
+            if sys.stdout.isatty() or logger is None:
+                print(str)
+            else:
+                logger.info(str)
+        else:
+            if sys.stdout.isatty() or logger is None:
+                print(str, objStr)
+            else:
+                logger.info(str, objStr)
+
+def force_ipv4_only():
+    # IPv4-only patch (for DS-Lite as example)
+    def allowed_gai_family():
+        return socket.AF_INET
+
+    try:
+        urllib3_cn.allowed_gai_family = allowed_gai_family
+        flexprint("force IPv4 requests")
+    except Exception as e:
+        flexprint("Warning: IPv4 forcing failed:", e)
+
 base_path = '/usr/local/Roon/etc/'
 # core id and token files
 idfile = base_path + 'coreid.txt'
@@ -152,18 +177,9 @@ else:
     logger = None
     serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
-def flexprint(str, objStr = None):
-    if log is True:
-        if objStr is None:
-            if sys.stdout.isatty() or logger is None:
-                print(str)
-            else:
-                logger.info(str)
-        else:
-            if sys.stdout.isatty() or logger is None:
-                print(str, objStr)
-            else:
-                logger.info(str, objStr)
+ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
+if ipv4_only is True:
+    force_ipv4_only()
 
 async def head_url(session, reqobj):
    # Helper function to fetch a single URL asynchronously
@@ -537,6 +553,7 @@ datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and ti
 datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
 countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
+#ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
 
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
 display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
@@ -703,6 +720,7 @@ async def rest_config():
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
                             {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
                             {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']}
                         ]
                     },
                     {
@@ -793,7 +811,8 @@ async def rest_config():
                         {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
                         {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
                         {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
-                        {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']}
+                        {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                        {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
                     ]
                 },
                 {
@@ -2348,10 +2367,18 @@ def applemusic_init():
         return coverplayer_lang['applemusic_no_credentials']
 
     try:
-        am = applemusicpy.AppleMusic(secret_key=applemusic_secret_key, key_id=applemusic_key_id, team_id=applemusic_team_id)
+        am = applemusicpy.AppleMusic(
+            secret_key=applemusic_secret_key,
+            team_id=applemusic_team_id,
+            key_id=applemusic_key_id,
+            requests_timeout=10,
+            max_retries=3,
+            requests_session=False
+        )
     except Exception as e:
         flexprint("AppleMusic auth error:", e)
         return coverplayer_lang['applemusic_auth_error']
+
     flexprint('applemusic_init auth ok')
     return am
 
@@ -2361,7 +2388,15 @@ def applemusic_search_artist(artist_name):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.search(artist_name, types=['artists'], limit=25)   # limit range: 1..25 
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         artists = results['results']['artists']['data']
         artists = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, artists))
 
@@ -2376,7 +2411,15 @@ def applemusic_genres():
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.genres_all(limit=25)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         genres = results['data']
         genres = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['id']}, genres))
         
@@ -2391,7 +2434,15 @@ def applemusic_station(stations_name):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.search(stations_name, types=['stations'], limit=25)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         stations = results['results']['stations']['data']
         stations = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['stationProviderName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, stations))
        
@@ -2406,7 +2457,15 @@ def applemusic_get_artist_albums(artist_name):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.search(artist_name, types=['albums'])
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         albums = results['results']['albums']['data']
         albums = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
         if len(albums) == 0:
@@ -2423,7 +2482,14 @@ def applemusic_get_artist_relationship(artist_id,relationship):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.artist_relationship(artist_id, relationship=relationship)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
         
         items = results['data']
         items = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, items))
@@ -2441,7 +2507,15 @@ def applemusic_get_playlist_relationship(playlist_id, relationship):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.playlist_relationship(playlist_id, relationship=relationship)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         tracks = results['data']
         tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, tracks))
         
@@ -2459,7 +2533,15 @@ def applemusic_get_playlist_tracks(playlist_id):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.playlist(playlist_id)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         tracks = results['data'][0]['relationships']['tracks']['data']
         tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, tracks))
         
@@ -2477,7 +2559,15 @@ def applemusic_get_album_tracks(album_id):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.album(album_id)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         tracks = results['data'][0]['relationships']['tracks']['data']
         tracks = list(map(lambda obj: {"name": str(obj['attributes']['trackNumber']) + '. ' + obj['attributes']['name'], "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:'), "playable": True if ('playParams' in obj['attributes'] and 'id' in obj['attributes']['playParams']) else False}, tracks))
 
@@ -2492,7 +2582,15 @@ def applemusic_search_track(track_name):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.search(track_name, types=['songs'], limit=25)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         tracks = results['results']['songs']['data']
         tracks = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['artistName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:'), "playable": True if ('playParams' in obj['attributes'] and 'id' in obj['attributes']['playParams']) else False}, tracks))
 
@@ -2507,7 +2605,15 @@ def applemusic_search_playlist(playlist_name):
         if isinstance(am, str):
             return am
 
+        req_start_time = time.time()
         results = am.search(playlist_name, types=['playlists'], limit=25)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
         playlists = results['results']['playlists']['data']
         playlists = list(map(lambda obj: {"name": obj['attributes']['name'] + ' [' + obj['attributes']['curatorName'] + ']', "id": obj['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, playlists))
 
@@ -2525,14 +2631,6 @@ def spotipy_init():
     if spotify_client_id=='' or spotify_client_secret=='':
         return coverplayer_lang['spotify_no_credentials']
 
-    # IPv4-only Monkeypatch (for DS-Lite as example)
-    try:
-        import urllib3.util.connection as urllib3_cn
-        urllib3_cn.allowed_gai_family = lambda: socket.AF_INET
-    except Exception as e:
-        flexprint("Warning: IPv4 forcing failed:", e)
-        return coverplayer_lang['spotify_ipv4_failed']
-
     # Prepare session with SSL context
     class IPv4OnlyAdapter(requests.adapters.HTTPAdapter):
         def init_poolmanager(self, *args, **kwargs):
@@ -2541,7 +2639,8 @@ def spotipy_init():
             self.poolmanager = urllib3.poolmanager.PoolManager(*args, **kwargs)
 
     session = requests.Session()
-    session.mount("https://", IPv4OnlyAdapter())
+    if force_ipv4_only is True:
+        session.mount("https://", IPv4OnlyAdapter())
 
     # Initialize Spotipy with session
     auth_manager = SpotifyClientCredentials()
@@ -3661,10 +3760,11 @@ def set_default_zone():
         if control_id is None:
             flexprint("actual control zone: -")
         else:
-            if channels[control_id]=='webserver':
-                flexprint("actual control zone (webserver): " + control_id)
-            else:
-                flexprint("actual control zone (roon): " + channels[control_id])
+            if control_id in channels:
+                if channels[control_id]=='webserver':
+                    flexprint("actual control zone (webserver): " + control_id)
+                else:
+                    flexprint("actual control zone (roon): " + channels[control_id])
 
 def roon_state_callback(event, changed_ids):
     global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
