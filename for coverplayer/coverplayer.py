@@ -736,7 +736,7 @@ class Coverplayer:
     
     def _toggle_shuffle(self):
         self._start_overlay_timer()
-        self._control("shuffle_off" if (self.is_radio is False or self.shuffle_on) else "shuffle_on")
+        self._control("shuffle_off" if (self.is_radio is True or self.shuffle_on) else "shuffle_on")
 
     def _set_shufflemode(self, mode, playlen):
         if self.in_menu_mode is True and self.shuffle_btn is not None:
@@ -747,7 +747,7 @@ class Coverplayer:
 
     def _toggle_repeat(self):
         self._start_overlay_timer()
-        self._control("repeat_off" if (self.is_radio is False or self.repeat_on) else "repeat_on")
+        self._control("repeat_off" if (self.is_radio is True or self.repeat_on) else "repeat_on")
 
     def _set_repeatmode(self, mode, playlen):
         if self.in_menu_mode is True and self.repeat_btn is not None:
