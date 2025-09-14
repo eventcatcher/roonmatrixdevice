@@ -54,42 +54,42 @@ class Coverplayer:
     @classmethod
     def set_keyboard_codes(cls, keyb_list):
         cls._ensure_running()
-        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def config(cls, lang, webserver_url_request_timeout, display_auto_wakeup):
         cls._ensure_running()
-        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_spotify(cls, disabled):
         cls._ensure_running()
-        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def vkeyb_error_message(cls, message):
         cls._ensure_running()
-        cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def itemlist_error_message(cls, message):
         cls._ensure_running()
-        cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
 
     @classmethod
-    def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text = []):
+    def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = []):
         cls._ensure_running()
-        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, shuffle_on, repeat_on, text, None, None, None, None, None))
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, None, None, None, None, None))
 
     @classmethod
     def setZones(cls, buttons):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, buttons or [], None, None, None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, None, buttons or [], None, None, None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -1048,7 +1048,7 @@ class Coverplayer:
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, sourcetype, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
+                func, playpos, playlen, path, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
@@ -1061,7 +1061,7 @@ class Coverplayer:
 
                     self.is_playing = is_playing
                     self.sourcetype = sourcetype
-                    #self.is_radio = False
+                    self.is_radio = is_radio
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
 
@@ -1245,6 +1245,7 @@ class Coverplayer:
                     self.playlen = playlen
                     self.is_playing = is_playing
                     self.sourcetype = sourcetype
+                    self.is_radio = is_radio
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
                 if func == 'setZones' and self.buttons != buttons:

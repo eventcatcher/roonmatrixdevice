@@ -3454,9 +3454,10 @@ def webserver_zone_not_running_coverplayer_updates(result, name, obj):
             is_playing = False
             shuffle_on = False
             repeat_on = False
+            is_radio = False
             sourcetype = 'local'
             flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
-            Coverplayer.update(-1, -1, None, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
 
 def prepend_cover_url(obj, url):
     if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
@@ -3494,6 +3495,7 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
     sourcetype = playprops['sourcetype']
     shuffle_on = playprops['shuffle']
     repeat_on = playprops['repeat']
+    is_radio = obj['zone'] == 'Apple Music' and sourcetype == 'stream' and playpos == 0
 
     if display_cover is True and 'cover' in obj and len(obj["cover"]) > 0:
         cover_text_line_parts = []
@@ -3510,10 +3512,10 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
             zones = get_zone_names()
             flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
-            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
         else:
             flexprint('[bold red]Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
-            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts)
+            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts)
 
 def remove_prepended_from_displaystr(displaystr):
     if type(displaystr) == list:
@@ -3916,9 +3918,10 @@ def roon_state_callback(event, changed_ids):
                         sourcetype = 'local'
                         shuffle_on = shuffle
                         repeat_on = repeat
+                        is_radio = False
                                     
                         flexprint('[bold red]Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts)
+                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts)
 
 
             if name not in channels.values():
@@ -4296,9 +4299,10 @@ def build_output():
                                     sourcetype = 'local'
                                     shuffle_on = shuffle
                                     repeat_on = repeat
+                                    is_radio = False
                                     
                                     flexprint('[bold red]Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'
