@@ -424,6 +424,7 @@ class Coverplayer:
         self.itemclick_callback = None
         self.is_playing = True
         self.sourcetype = 'local'
+        self.is_radio = False
         self.shuffle_on = False
         self.repeat_on = False
         self.control_icons = {}
@@ -593,13 +594,13 @@ class Coverplayer:
 
         # shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-        switch_enabled = self.playlen is not None and self.playlen!=-1
+        switch_enabled = self.is_radio is False and self.playlen is not None and self.playlen!=-1
         bg = self.btn_small_bgcolor if switch_enabled else self.btn_disabled_color
         self.shuffle_btn = Button(self.overlay, image = icon, bg=bg, bd = 0, command = self._toggle_shuffle if switch_enabled else lambda: None, takefocus = 0, activebackground = bg, height = corner_btn_size, width = corner_btn_size)
         self.shuffle_btn.place(relx = 0.0, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
 		# repeat button at the bottom left
-        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+        icon = self.control_icons["repeat_on"] if (self.repeat_on and self.is_radio is False) else self.control_icons["repeat_off"]
         self.repeat_btn = Button(self.overlay, image = icon, bg = bg, bd = 0, command = self._toggle_repeat if switch_enabled else lambda: None, takefocus = 0, activebackground = bg, height = corner_btn_size, width = corner_btn_size)
         self.repeat_btn.place(relx = 0.14, rely = 1.0, anchor = "sw", x = 0, y = 0)
 
@@ -683,7 +684,7 @@ class Coverplayer:
     
     def _control(self, action):
         self._start_overlay_timer()   
-        self.flexprint('_control action: ' + str(action))
+        self.flexprint('_control action: ' + str(action) + ', is_radio: ' + str(self.is_radio))
         if action == 'pause' or action == 'play':
             icon = self.control_icons['pause' if action=='play' else 'play']
             self.play_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
@@ -696,7 +697,7 @@ class Coverplayer:
         if action == 'forward':
             self.forward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
 
-        switch_enabled = self.playlen is not None and self.playlen!=-1
+        switch_enabled = self.is_radio is False and self.playlen is not None and self.playlen!=-1
         if switch_enabled and (action == 'shuffle_off' or action == 'shuffle_on'):
             bg = self.pending_btn_small_bgcolor if switch_enabled else self.btn_disabled_color
             self.shuffle_btn.config(image = icon, command = self._toggle_shuffle if switch_enabled else lambda: None, bg=bg, activebackground=bg)
@@ -706,11 +707,12 @@ class Coverplayer:
             self.repeat_btn.config(image = icon, command = self._toggle_repeat if switch_enabled else lambda: None, bg=bg, activebackground=bg)
         
         if self.control_callback:
-            stateupdate = self.control_callback(action)
-            self.flexprint('control_callback DONE')
-            is_playing = stateupdate[0]
-            shuffle_on = stateupdate[1]
-            repeat_on = stateupdate[2]
+            if self.is_radio is False or action == 'pause' or action == 'play':
+                stateupdate = self.control_callback(action)
+                self.flexprint('control_callback DONE')
+                is_playing = stateupdate[0]
+                shuffle_on = stateupdate[1]
+                repeat_on = stateupdate[2]
             #self._set_playmode(is_playing)
             #self.is_playing = is_playing
             if action == 'backward':
@@ -734,23 +736,23 @@ class Coverplayer:
     
     def _toggle_shuffle(self):
         self._start_overlay_timer()
-        self._control("shuffle_off" if self.shuffle_on else "shuffle_on")
+        self._control("shuffle_off" if (self.is_radio is False or self.shuffle_on) else "shuffle_on")
 
     def _set_shufflemode(self, mode, playlen):
         if self.in_menu_mode is True and self.shuffle_btn is not None:
-            icon = self.control_icons["shuffle_on"] if mode is True else self.control_icons["shuffle_off"]
-            bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
+            icon = self.control_icons["shuffle_on"] if (self.is_radio is False and mode is True) else self.control_icons["shuffle_off"]
+            bg = self.btn_small_bgcolor if (self.is_radio is False and playlen is not None and playlen!=-1) else self.btn_disabled_color
             self.shuffle_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
 
     def _toggle_repeat(self):
         self._start_overlay_timer()
-        self._control("repeat_off" if self.repeat_on else "repeat_on")
+        self._control("repeat_off" if (self.is_radio is False or self.repeat_on) else "repeat_on")
 
     def _set_repeatmode(self, mode, playlen):
         if self.in_menu_mode is True and self.repeat_btn is not None:
-            icon = self.control_icons["repeat_on"] if mode is True else self.control_icons["repeat_off"]
-            bg = self.btn_small_bgcolor if (playlen is not None and playlen!=-1) else self.btn_disabled_color
+            icon = self.control_icons["repeat_on"] if (self.is_radio is False and mode is True) else self.control_icons["repeat_off"]
+            bg = self.btn_small_bgcolor if (self.is_radio is False and playlen is not None and playlen!=-1) else self.btn_disabled_color
             self.repeat_btn.config(image = icon, bg=bg, activebackground=bg)
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
@@ -1059,6 +1061,7 @@ class Coverplayer:
 
                     self.is_playing = is_playing
                     self.sourcetype = sourcetype
+                    #self.is_radio = False
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
 
@@ -1097,10 +1100,10 @@ class Coverplayer:
 
                     # shuffle and repeat button at the bottom left
                     if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
-                        icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-                        switch_enabled = playlen is not None and playlen!=-1
+                        icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
+                        switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
                         self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
-                        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+                        icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
                         self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
                     
                     self.playlen = playlen
@@ -1233,10 +1236,10 @@ class Coverplayer:
 
                     # shuffle and repeat button at the bottom left
                     if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
-                        icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
-                        switch_enabled = playlen is not None and playlen!=-1
+                        icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
+                        switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
                         self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
-                        icon = self.control_icons["repeat_on"] if self.repeat_on else self.control_icons["repeat_off"]
+                        icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
                         self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
 
                     self.playlen = playlen

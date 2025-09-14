@@ -258,6 +258,35 @@ async def async_web_requests(requestlist, get_head, timeout):
             tasks = [fetch_url(session, reqobj) for reqobj in requestlist]
         return await asyncio.gather(*tasks)
 
+def sync_web_requests(requestlist, timeout):
+    #blocking implementation that fetches multiple URLs
+    responses = []
+    for reqobj in requestlist:
+        name = reqobj['name']
+        url = reqobj['url']
+
+        try:
+            data = (parse.urlencode(reqobj['data']).encode()) if 'data' in reqobj else None
+            req = Request(url, headers={'User-Agent': 'Mozilla/5.0'}, data=data)
+            response = urlopen(req, timeout=timeout)
+            text = response.read().decode('utf8')
+            obj = {
+                'url': url,
+                'name': name,
+                'status': response.status,
+                'length': len(text),
+                'text': text
+            }
+        except Exception as e:
+            obj = {
+                'url': url,
+                'name': name,
+                'error': str(e)
+            }
+        finally:
+            responses.append(obj)
+    return responses
+
 def async_web_requests_with_timing(requestlist):
     max_retry = 5
     
@@ -290,6 +319,39 @@ def async_web_requests_with_timing(requestlist):
     
     return [async_results,req_time]
 
+def sync_web_requests_with_timing(requestlist):
+    max_retry = 5
+    
+    for retry in range(1, max_retry + 1):
+        err = ''
+        req_start_time = time.time()
+        sync_results = sync_web_requests(requestlist, webserver_url_request_timeout)
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        if debug is True:
+            flexprint(f"sync_web_requests results (try {retry}, {req_time:.2f} seconds):", sync_results)
+        else:
+            flexprint(f"sync_web_requests time: (try {retry}, {req_time:.2f} seconds)")
+        
+        if sync_results is not None and isinstance(sync_results, list):
+            for idx,data in enumerate(sync_results,1):     
+                if log is True and 'status' in data: flexprint('[green]Webserver ' + data['name']  + ' with status ' + str(data['status']) + '[/green]')
+                if log is True and (len(sync_results) == 0 or 'error' in data):
+                    err = data['error'] if 'error' in data else ''
+                    if err == '' and req_time >= webserver_url_request_timeout:
+                        err = 'timeout'
+                    if err == '' and len(sync_results) == 0:
+                        err = 'empty result'
+                    flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
+        else:
+            if log is True: flexprint('[red]sync_web_requests: lost response[/red]')
+            sync_results = []
+        if err == '':
+            break
+    
+    print('sync_results: ' + str(sync_results))
+    return [sync_results,req_time]
+
 def get_countrycode_from_public_ip():
     cc = 'en'
     try:
@@ -305,7 +367,6 @@ def get_countrycode_from_public_ip():
 
 def creation_date(path_to_file):
     return path.getctime(path_to_file)
-    
 
 def translation_exist(cc, update):
     current_path = Path(__file__).parent
@@ -990,19 +1051,19 @@ async def rest_zone_control(params: ZoneControlParams):
         flexprint(msg)
 
     if cmd=='previous':
-        play_previous(params.control_id)
+        play_previous(params.control_id, False)
         return True
     if cmd=="next":
-        play_next(params.control_id)
+        play_next(params.control_id, False)
         return True
     if cmd=="playmode":
-        set_play_mode(params.control_id, enable, True)
+        set_play_mode(params.control_id, enable, True, False)
         return True
     if cmd=="shufflemode":
-        set_shuffle_mode(params.control_id, enable, True)
+        set_shuffle_mode(params.control_id, enable, True, False)
         return True
     if cmd=="repeatmode":
-        set_repeat_mode(params.control_id, enable, True)
+        set_repeat_mode(params.control_id, enable, True, False)
         return True
     if cmd=="switch":
         control_id = params.control_id
@@ -1726,7 +1787,7 @@ def getPlaystateFromPlaymode(control_id):
     else:
         return False
 
-def set_play_mode(control_id, enable, send):
+def set_play_mode(control_id, enable, send, do_async=True):
     global data_changed
     if control_id is not None and control_id in channels.keys():
         playmode_last = playmode[control_id] if control_id in playmode else None
@@ -1739,7 +1800,7 @@ def set_play_mode(control_id, enable, send):
 
         if send is True:
             if channels[control_id]=='webserver':
-                send_webserver_zone_control(control_id, playmode[control_id])
+                send_webserver_zone_control(control_id, do_async, playmode[control_id])
             else:
                 if roon_show == True and roon_servers:
                     roonapi.playback_control(control_id, playmode[control_id])
@@ -1750,7 +1811,7 @@ def getShufflestateFromPlaymode(control_id):
     else:
         return False
 
-def set_shuffle_mode(control_id, enable, send):
+def set_shuffle_mode(control_id, enable, send, do_async=True):
     global data_changed
     shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
     if control_id is not None and control_id in channels.keys():
@@ -1760,7 +1821,7 @@ def set_shuffle_mode(control_id, enable, send):
             else:
                 shufflemode[control_id] = 'noshuffle'
             if send is True:
-                send_webserver_zone_control(control_id, shufflemode[control_id])
+                send_webserver_zone_control(control_id, do_async, shufflemode[control_id])
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -1781,7 +1842,7 @@ def getRepeatstateFromPlaymode(control_id):
     else:
         return False
 
-def set_repeat_mode(control_id, enable, send):
+def set_repeat_mode(control_id, enable, send, do_async=True):
     global data_changed
     repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
     if control_id is not None and control_id in channels.keys():
@@ -1791,7 +1852,7 @@ def set_repeat_mode(control_id, enable, send):
             else:
                 repeatmode[control_id] = 'norepeat'
             if send is True:
-                send_webserver_zone_control(control_id, repeatmode[control_id])
+                send_webserver_zone_control(control_id, do_async, repeatmode[control_id])
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -1806,18 +1867,18 @@ def set_repeat_mode(control_id, enable, send):
     if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
         data_changed = True
 
-def play_previous(control_id):
+def play_previous(control_id, do_async=True):
     if control_id is not None:
         if channels[control_id]=='webserver':
-            send_webserver_zone_control(control_id, "previous")
+            send_webserver_zone_control(control_id, do_async, "previous")
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "previous")
 
-def play_next(control_id):
+def play_next(control_id, do_async=True):
     if control_id is not None:
         if channels[control_id]=='webserver':
-            send_webserver_zone_control(control_id, "next")
+            send_webserver_zone_control(control_id, do_async, "next")
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "next")
@@ -1982,7 +2043,7 @@ def pressed_enter(channel):
         time.sleep(0.1)
         GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
 
-def send_webserver_zone_control(control_id, code, search = '', detail = '', detail2 = ''):
+def send_webserver_zone_control(control_id, do_async, code, search = '', detail = '', detail2 = ''):
     if webservers_show == True and control_id is not None:
         url = ''
         name_parts = control_id.split('-')
@@ -1998,11 +2059,14 @@ def send_webserver_zone_control(control_id, code, search = '', detail = '', deta
             
             requestlist = [{'name':name,'url':url,'data':payload}]            
             try:
-                async_web_response = async_web_requests_with_timing(requestlist)
-                async_results = async_web_response[0]
-                req_time = async_web_response[1]          
-                if len(async_results) > 0 and 'error' not in async_results[0]:
-                    result = async_results[0]['text']
+                if do_async is True:
+                    web_response = async_web_requests_with_timing(requestlist)
+                else:
+                    web_response = sync_web_requests_with_timing(requestlist)
+                results = web_response[0]
+                req_time = web_response[1]          
+                if len(results) > 0 and 'error' not in results[0]:
+                    result = results[0]['text']
 
                     playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
                     if code in playcontrols:
@@ -2869,7 +2933,7 @@ def on_search(is_stream, value, zone, type):
                 if is_stream is True:
                     artists = applemusic_search_artist(value)
                 else:
-                    raw = send_webserver_zone_control(control_id, 'artists', value)
+                    raw = send_webserver_zone_control(control_id, True, 'artists', value)
                     if raw is None:
                         return [meta, []]
                     flexprint('************ Apple Music artist search raw response: ' + str(raw))
@@ -2886,7 +2950,7 @@ def on_search(is_stream, value, zone, type):
                 if is_stream is True:
                     albums = applemusic_get_artist_albums(artist)
                 else:
-                    raw = send_webserver_zone_control(control_id, 'albums', artist)
+                    raw = send_webserver_zone_control(control_id, True, 'albums', artist)
                     value = artist
                     flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
                     if raw is None:
@@ -2896,7 +2960,7 @@ def on_search(is_stream, value, zone, type):
             if type == 'genre' and is_stream is False:
                 value = value.replace('"','\\"')
                 flexprint('************ Apple Music genre search value: ' + str(value))
-                raw = send_webserver_zone_control(control_id, 'genres', value)
+                raw = send_webserver_zone_control(control_id, True, 'genres', value)
                 if raw is None:
                     return [meta, []]
                 flexprint('************ Apple Music genre search raw response: ' + str(raw))
@@ -2909,7 +2973,7 @@ def on_search(is_stream, value, zone, type):
                     meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
                     return [meta, genres]
                 genre = genres[0].replace('"','\\\"')
-                raw = send_webserver_zone_control(control_id, 'artists-in-genre', genre)
+                raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', genre)
                 value = genre
                 flexprint('genre '+str(genre)+' artists raw: ' + str(raw))
                 if raw is None:
@@ -2922,7 +2986,7 @@ def on_search(is_stream, value, zone, type):
                 if is_stream is True:
                     playlists = applemusic_search_playlist(value)
                 else:
-                    raw = send_webserver_zone_control(control_id, 'playlists', value)
+                    raw = send_webserver_zone_control(control_id, True, 'playlists', value)
                     if raw is None:
                         return [meta, []]
                     flexprint('playlist apple music raw: ' + str(raw))
@@ -2942,7 +3006,7 @@ def on_search(is_stream, value, zone, type):
                 if is_stream is True:
                     tracks = applemusic_get_playlist_relationship(playlist, 'tracks')
                 else:
-                    raw = send_webserver_zone_control(control_id, 'playlist-tracks', playlist)
+                    raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist)
                     flexprint('#applemusic raw: ' + str(raw))
                     if raw is None:
                         return [meta, []]
@@ -2964,7 +3028,7 @@ def on_search(is_stream, value, zone, type):
                 if is_stream is True:
                     tracks = applemusic_search_track(value)
                 else:
-                    raw = send_webserver_zone_control(control_id, 'tracks-with-artist', value)
+                    raw = send_webserver_zone_control(control_id, True, 'tracks-with-artist', value)
                     if raw is None:
                         return [meta, []]
                     flexprint('************ Apple Music track search raw response: ' + str(raw))
@@ -3103,29 +3167,29 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['tracks', search, itemname, tracknames]
             if meta['type'] == 'tracks':
                 if 'artist' in meta:
-                    send_webserver_zone_control(control_id, 'playtrack', itemname)
+                    send_webserver_zone_control(control_id, True, 'playtrack', itemname)
                     return ['track', meta['artist'], itemname]
                 elif 'playlist' in meta:
                     if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                         itemname = itemname.replace('"', '\\"')
-                    send_webserver_zone_control(control_id, 'play-playlist-track', itemname)
+                    send_webserver_zone_control(control_id, True, 'play-playlist-track', itemname)
                     return ['track', meta['playlist'], itemname]
                 else:
-                    send_webserver_zone_control(control_id, 'playtrack', 'spotify:track:' + itemname)
+                    send_webserver_zone_control(control_id, True, 'playtrack', 'spotify:track:' + itemname)
                     return ['track', itemname]
         else:
             if meta['type'] == 'artists':
                 if is_stream is True:
                     albums = applemusic_get_artist_relationship(itemname,'albums')
                 else:
-                    raw = send_webserver_zone_control(control_id, 'albums', itemname)
+                    raw = send_webserver_zone_control(control_id, True, 'albums', itemname)
                     if raw is None:
                         return ['albums', search, []]
                     albums = json.loads(raw)
                     albums = replace_escaped_list(albums)
                 return ['albums', search, albums]
             if meta['type'] == 'genres':
-                raw = send_webserver_zone_control(control_id, 'artists-in-genre', itemname)
+                raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', itemname)
                 if raw is None:
                     return ['artists', search, []]
                 artists = json.loads(raw)
@@ -3145,7 +3209,7 @@ def on_itemclick(meta, search, itemname, zone):
                     if itemname!='':
                         tracks = applemusic_get_album_tracks(itemname)
                 else:
-                    raw = send_webserver_zone_control(control_id, 'albumtracks', search, itemname)
+                    raw = send_webserver_zone_control(control_id, True, 'albumtracks', search, itemname)
                     if raw is None:
                         return ['tracks', search, itemname, []]
                     tracks = json.loads(raw)
@@ -3159,7 +3223,7 @@ def on_itemclick(meta, search, itemname, zone):
                     radios = [e for e in meta['radios'] if e['id'] == itemname]
                     if len(radios) > 0:
                         radio = radios[0]
-                        send_webserver_zone_control(control_id, 'applemusic-play-url', radio['url'], 0)
+                        send_webserver_zone_control(control_id, True, 'applemusic-play-url', radio['url'], 0)
                 return ['radio', radio]
             if meta['type'] == 'playlists':
                 flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
@@ -3167,7 +3231,7 @@ def on_itemclick(meta, search, itemname, zone):
                 if is_stream is True:
                     tracks = applemusic_get_playlist_relationship(itemname, 'tracks')
                 else:
-                    raw = send_webserver_zone_control(control_id, 'playlist-tracks', itemname)
+                    raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', itemname)
                     if raw is None:
                         return ['tracks', search, itemname, []]
                     tracks = json.loads(raw)
@@ -3182,9 +3246,9 @@ def on_itemclick(meta, search, itemname, zone):
                     album = album.replace('"', '\\"')
                     if itemname == '[FULLALBUM]':
                         if is_stream is True:
-                            send_webserver_zone_control(control_id, 'applemusic-play-url', meta['tracks'][0]['url'], 2)
+                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', meta['tracks'][0]['url'], 2)
                         else:
-                            send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
+                            send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
                     else:
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
@@ -3192,9 +3256,9 @@ def on_itemclick(meta, search, itemname, zone):
                             tracks = [e for e in meta['tracks'] if e['id'] == itemname]
                             if len(tracks) > 0:
                                 track = tracks[0]
-                                send_webserver_zone_control(control_id, 'applemusic-play-url', track['url'], 2)
+                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], 2)
                         else:
-                            send_webserver_zone_control(control_id, 'playtrack', meta['artist'], album, itemname)
+                            send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, itemname)
                     return ['track', meta['artist'], meta['album'], itemname]
                 elif 'playlist' in meta:
                     playlist = meta['playlist']
@@ -3205,9 +3269,9 @@ def on_itemclick(meta, search, itemname, zone):
                             items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
                             if len(items) > 0:
                                 playlist = items[0]
-                                send_webserver_zone_control(control_id, 'applemusic-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
+                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
                         else:
-                            send_webserver_zone_control(control_id, 'play-playlist-track', playlist)
+                            send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist)
                     else:
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
@@ -3220,9 +3284,9 @@ def on_itemclick(meta, search, itemname, zone):
                                     track = tracks[0]
                                     track_url = track['url'] # album link with track selection (autostart of play is working)
                                     #track_url = playlist_url + '?i=' + track['id'] # playlist link with song item anchor (open page but without selection in app - not possible to autostart of play)
-                                    send_webserver_zone_control(control_id, 'applemusic-play-url', track_url, 3)
+                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', track_url, 3)
                         else:
-                            send_webserver_zone_control(control_id, 'play-playlist-track', playlist, itemname)
+                            send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist, itemname)
                     return ['track', meta['playlist'], itemname]
                 else:
                     if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
@@ -3231,16 +3295,16 @@ def on_itemclick(meta, search, itemname, zone):
                         tracks = [e for e in meta['tracks'] if e['id'] == itemname]
                         if len(tracks) > 0:
                             track = tracks[0]
-                            send_webserver_zone_control(control_id, 'applemusic-play-url', track['url'], 2)
+                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], 2)
                     else:    
                         if len(itemname.split('|')) == 2:
                             itemparts = itemname.split('|')
                             itemname = itemparts[0]
                             artist = itemparts[1]
-                            send_webserver_zone_control(control_id, 'playtrack', itemname, artist)
+                            send_webserver_zone_control(control_id, True, 'playtrack', itemname, artist)
                             return ['track', itemname, artist]
                         else:
-                            send_webserver_zone_control(control_id, 'playtrack', itemname)                    
+                            send_webserver_zone_control(control_id, True, 'playtrack', itemname)                    
                     return ['track', itemname]
     if is_webserver is False and control_id is not None and zone in channels.values():
         outputs = roonapi.outputs
