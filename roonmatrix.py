@@ -3973,7 +3973,7 @@ def check_webserver_for_playouts():
             displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
         allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
 
-        if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + str((fetch_output_time - datetime.now()).total_seconds()))
+        if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
         if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
             if log is True: flexprint('webserver playout detected => interrupt message')
             interrupt_message = True
