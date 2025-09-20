@@ -615,6 +615,7 @@ datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show o
 socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
 countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
 #ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
+alternative_layout = eval(config['SYSTEM']['alternative_layout']) if 'alternative_layout' in config['SYSTEM'] else False # true: use alternative keyboard layout (special buttons like lock, shift, BS, enter, moved to spacebar row to get more width for buttons), false: standard keyboard layout 
 
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
 display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
@@ -732,7 +733,7 @@ socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
 if display_cover is True:
     Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
-    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
+    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
     Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
     Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
     
@@ -783,7 +784,8 @@ async def rest_config():
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
                             {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
                             {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
-                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']},
+                            {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']}
                         ]
                     },
                     {
@@ -976,7 +978,7 @@ class SetupParams(BaseModel):
 
 @app.post("/setup/")
 async def rest_setup(params: SetupParams):
-    global config, reboot, screensaver_seconds
+    global config, reboot, screensaver_seconds, alternative_layout
     jsonObj = json.loads(params.data)
     doReboot = False
 
@@ -988,7 +990,7 @@ async def rest_setup(params: SetupParams):
             if '\\' in fieldValue and '\\\\' not in fieldValue: 
                 fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
             if config[areaKey][fieldKey]!=fieldValue:
-                if fieldKey!='screensaver_seconds':
+                if fieldKey!='screensaver_seconds' and fieldKey!='alternative_layout':
                     config_str_masked = config[areaKey][fieldKey]
                     if '%' in config_str_masked and '%%' not in config_str_masked: 
                         config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
@@ -1006,6 +1008,10 @@ async def rest_setup(params: SetupParams):
                 config[areaKey][fieldKey] = fieldValue
                 screensaver_seconds = int(fieldValue)
                 setScreensaver(config[areaKey][fieldKey])
+            if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
+                config[areaKey][fieldKey] = fieldValue
+                alternative_layout = eval(fieldValue)
+                Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
             if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
                 if display_cover is True:
                     setUserPassword('coverplayer',config[areaKey][fieldKey])

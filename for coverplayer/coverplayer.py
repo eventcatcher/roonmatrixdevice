@@ -52,9 +52,9 @@ class Coverplayer:
                     self.logger.info(str, objStr)
 
     @classmethod
-    def set_keyboard_codes(cls, keyb_list):
+    def set_keyboard_codes(cls, keyb_list, alternative_layout):
         cls._ensure_running()
-        cls._queue.put(('set_keyboard_codes', keyb_list, None, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('set_keyboard_codes', keyb_list, alternative_layout, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def config(cls, lang, webserver_url_request_timeout, display_auto_wakeup):
@@ -416,6 +416,7 @@ class Coverplayer:
         self.playpos_next = None
         self.playpos_text = None
         self.playlen_text = None
+        self.playlen_canvas = None
         self.canvas = None
         self.canvas_clear = None
         self.text = []
@@ -430,6 +431,7 @@ class Coverplayer:
         self.itemclick_callback = None
         self.is_playing = True
         self.sourcetype = 'local'
+        self.alternative_layout = False
         self.is_radio = False # true: is applemusic radio stream
         self.shuffle_on = False
         self.repeat_on = False
@@ -574,6 +576,19 @@ class Coverplayer:
                 icon_enabled = False
             self.switch_button_state(self.tracklist_btn, icon_enabled)
     
+    def draw_progressbar(self, playpos, playlen):
+        if self.canvas is not None:
+            self.canvas.config(width = self.progressbar_width_std)
+        else:
+            self.canvas=Canvas(self.overlay, width = self.progressbar_width_std, height = 5)
+            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+        self.canvas.create_line(0, 0, self.progressbar_width_std,0, fill = "white", width = 14)
+        if playpos > 0:
+            w = (self.progressbar_width_std - 3) / ((playlen / playpos) if playlen is not None and playlen > 0 else 1)
+        else:
+             w = 0
+        self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
+    
     def _show_overlay(self):
         self._start_overlay_timer()
         
@@ -652,29 +667,24 @@ class Coverplayer:
         # back button at the bottom right
         #back_btn = Button(self.overlay, image = self.control_icons["close"], bg = self.overlay_bgcolor, bd = 0, command = self._hide_overlay, takefocus=False, height = corner_btn_size, width = corner_btn_size)
         #back_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
-
+        
         if self.playpos is not None and self.playpos != -1:
             self.playpos_text = Label(self.overlay, text = timedelta(seconds=self.playpos), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
             self.playpos_text.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-            self.canvas=Canvas(self.overlay, width = self.progressbar_width_std, height = 5)
-            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-            self.canvas.create_line(0, 0, self.progressbar_width_std,0, fill = "white", width = 14)
-            if self.playpos > 0:
-                w = (self.progressbar_width_std - 3) / ((self.playlen / self.playpos) if self.playlen is not None and self.playlen > 0 else 1)
-            else:
-                w = 0
-            self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
+            self.draw_progressbar(self.playpos, self.playlen)
 
         if self.playlen is not None and self.playlen > 0:
             self.playlen_text = Label(self.overlay, text = timedelta(seconds=self.playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
             self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
         else:
-            self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
-            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-            self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
-            self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
-            self.playlen_text = Label(self.overlay, text = '\u221E', bg = self.overlay_bgcolor, font = "Arial 40 bold", fg = 'white')
-            self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
+            if self.playpos is not None and self.playpos != -1:
+                self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+                self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+                self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+                self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+                playlen_canvas = Canvas(self.overlay, width = 40, height = 36, bg = self.overlay_bgcolor, bd = 0, highlightthickness = 0)
+                playlen_canvas.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height)   
+                txtid = playlen_canvas.create_text(0, -15, text='\u221E', fill="white", font=('Arial', 40), anchor='nw')             
 
     def update_playpos(self):
         switch_enabled = self.playlen is not None and self.playlen!=-1
@@ -800,6 +810,7 @@ class Coverplayer:
         if self.overlay:
             self.playpos_text = None
             self.playlen_text = None
+            self.playlen_canvas = None
             if self.canvas is not None:
                 self.canvas.destroy()
                 self.canvas = None
@@ -1059,20 +1070,29 @@ class Coverplayer:
             if (zonetype!='Spotify'):
                 self.hasRadioSearch = True
             self.flexprint('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
-            self.vkeyb.start(type, [], self.keyb_list, self.lang, self.hasRadioSearch, zonetype, self.sourcetype, self.on_search, self.close_keyb)
+            self.vkeyb.start(type, [], self.keyb_list, self.lang, self.hasRadioSearch, zonetype, self.sourcetype, self.alternative_layout, self.on_search, self.close_keyb)
 
     def _open_list(self, meta, items):
         self.flexprint('coverplayer => open_list, meta: ' + str(meta) + ', items: ' + str(len(items)))
         #self.root.withdraw()
         self.itemlistclass.start(meta, items, self.lang, self.on_itemclick, self.close_list)
     
-    def draw_progressbar_with_endless_symbol(self):
-        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
-        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
-        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
-        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
-        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
+    def draw_progressbar_with_endless_symbol(self, playpos, playlen):
+        if self.canvas is not None:
+            self.canvas.config(width = self.progressbar_width_disabled)
+        else:
+            self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+            self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+        if playlen == -1 and playpos == -1:
+            if self.playlen_canvas != None:
+                self.playlen_canvas.destroy()
+                self.playlen_canvas = None
+        else:
+            self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+            self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+            self.playlen_canvas = Canvas(self.overlay, width = 40, height = 36, bg = self.overlay_bgcolor, bd = 0, highlightthickness = 0)
+            self.playlen_canvas.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height)   
+            txtid = self.playlen_canvas.create_text(0, -15, text='\u221E', fill="white", font=('Arial', 40), anchor='nw')             
     
     def wakeup_load_image_select_zone_disable_tracklist_and_search(self, playmode, path, text):
         # wakeup, load_image, select zone button, disable tracklist and search button if zone is spotify or applemusic streaming and disabled or zone is inactive, 
@@ -1105,20 +1125,21 @@ class Coverplayer:
             if self.debug is True:
                 self.flexprint('[red]CoverPlayer: poll_queue ' + func + ' => playpos_next: ' + str(playpos) + '[/red]')
     
-    def set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(self, playlen):
+    def set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(self, playpos, playlen):
         # remove progressbar if playlen is changed to negative, set playlen text if playlen is negative, set endless symbol if playlen is none or negative
         if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
             if playlen == -1:
                 self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
                 self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
             else:
+                self.draw_progressbar(self.playpos, self.playlen)
                 self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
                 self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
                 if self.canvas_clear is not None:
                     self.canvas_clear.destroy()
                     self.canvas_clear = None
-        if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
-            self.draw_progressbar_with_endless_symbol()
+        if self.in_menu_mode is True and (playlen is None or playlen == -1):
+            self.draw_progressbar_with_endless_symbol(playpos, playlen)
     
     def set_playpos(self, playpos):
         if self.in_menu_mode is True and self.debug is True:
@@ -1170,7 +1191,7 @@ class Coverplayer:
                         self.playpos_next = 0
 
                     self.update_playpos_next(func, playpos, playpos, is_radio)
-                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playlen)
+                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
                     self.set_shuffle_and_repeat(playlen)
                     
                     self.playlen = playlen
@@ -1183,6 +1204,7 @@ class Coverplayer:
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
+                    self.alternative_layout = playlen
                 if func == 'config':
                     self.lang = playpos
                     self.webserver_url_request_timeout = playlen 
@@ -1190,7 +1212,7 @@ class Coverplayer:
                 if func == 'disable_spotify':
                     self.spotify_disabled = playpos
                 if func == 'disable_applemusic':
-                    self.disable_applemusic = playpos
+                    self.applemusic_disabled = playpos
                 if func == 'vkeyb_error_message' and self.vkeyb is not None:
                     self.vkeyb.error_message(playpos)
                 if func == 'itemlist_error_message' and self.itemlistclass is not None:
@@ -1203,7 +1225,7 @@ class Coverplayer:
                             self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
                     else:
                         self.update_playpos_next(func, self.playpos, playpos, is_radio)
-                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playlen)
+                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
 
                     #playmode = playlen is not None and playlen != -1 and is_playing is True
                     playmode = is_playing # new for roon radio
