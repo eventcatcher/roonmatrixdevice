@@ -734,6 +734,8 @@ if display_cover is True:
     Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt])
     Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
+    Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
+    
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
             environ['SPOTIPY_CLIENT_ID'] = spotify_client_id

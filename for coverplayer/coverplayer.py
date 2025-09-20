@@ -67,6 +67,11 @@ class Coverplayer:
         cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
+    def disable_applemusic(cls, disabled):
+        cls._ensure_running()
+        cls._queue.put(('disable_applemusic', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None))
+
+    @classmethod
     def vkeyb_error_message(cls, message):
         cls._ensure_running()
         cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
@@ -393,6 +398,7 @@ class Coverplayer:
 
         self.debug = False
         self.spotify_disabled = False
+        self.applemusic_disabled = False
         self.display_auto_wakeup = False
         self.webserver_url_request_timeout = 8
         self.count = 0
@@ -424,7 +430,7 @@ class Coverplayer:
         self.itemclick_callback = None
         self.is_playing = True
         self.sourcetype = 'local'
-        self.is_radio = False
+        self.is_radio = False # true: is applemusic radio stream
         self.shuffle_on = False
         self.repeat_on = False
         self.control_icons = {}
@@ -545,6 +551,29 @@ class Coverplayer:
             else:
                 btn.config(state=DISABLED, bg = self.btn_disabled_color)
 
+    def get_zonetype(self):
+        return (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
+
+    def set_search_button(self):
+        if self.in_menu_mode is True and self.keyb_btn is not None:
+            icon_enabled = self.zone is not None
+            zonetype = self.get_zonetype()
+            if zonetype == 'Spotify' and self.spotify_disabled is True:
+                icon_enabled = False
+            if zonetype == 'Apple Music' and self.applemusic_disabled is True:
+                icon_enabled = False
+            self.switch_button_state(self.keyb_btn, icon_enabled)
+
+    def set_tracklist_button(self, zone):
+        if self.in_menu_mode is True and self.tracklist_btn is not None:
+            icon_enabled = self.zone is not None and zone == self.zone
+            zonetype = self.get_zonetype()
+            if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
+                icon_enabled = False
+            if (zonetype == 'Apple Music' or zone == 'Apple Music') and self.applemusic_disabled is True:
+                icon_enabled = False
+            self.switch_button_state(self.tracklist_btn, icon_enabled)
+    
     def _show_overlay(self):
         self._start_overlay_timer()
         
@@ -608,11 +637,7 @@ class Coverplayer:
         icon = self.control_icons["keyb"]
         self.keyb_btn = Button(self.overlay, image = icon, bg = self.btn_small_bgcolor, bd = 0, state=DISABLED, command = lambda: self._open_keyb('search'), takefocus = 0, activebackground = self.btn_small_bgcolor, height = corner_btn_size, width = corner_btn_size)
         self.keyb_btn.place(relx = 0.86, rely = 1.0, anchor = "se", x = 0, y = 0)
-        icon_enabled = self.zone is not None
-        zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-        if zonetype == 'Spotify' and self.spotify_disabled is True:
-            icon_enabled = False
-        self.switch_button_state(self.keyb_btn, icon_enabled)
+        self.set_search_button()
 
         # tracklist button at the bottom right        
         icon = self.control_icons["tracklist"]
@@ -620,11 +645,7 @@ class Coverplayer:
         self.tracklist_btn.place(relx = 1.0, rely = 1.0, anchor = "se", x = 0, y = 0)
         if self.text is not None and len(self.text) > 3:
             zone = self.text[0].split(':')[1].strip()
-            zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-            icon_enabled = self.zone is not None and zone == self.zone
-            if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
-                icon_enabled = False
-            self.switch_button_state(self.tracklist_btn, icon_enabled)
+            self.set_tracklist_button(zone)
         else:
             self.switch_button_state(self.tracklist_btn, False)
 
@@ -662,7 +683,7 @@ class Coverplayer:
             self.playpos = self.playpos_next
             self.playpos_next = None
         if self.is_playing is True and self.playpos is not None and self.playpos != -1:
-            if self.playlen is None or self.playpos < self.playlen:
+            if self.is_radio is False and (self.playlen is None or self.playpos < self.playlen):
                 self.playpos += 1
             if self.in_menu_mode is True:
                 if self.playpos_text is None:
@@ -1034,7 +1055,7 @@ class Coverplayer:
                     self.on_itemclick(meta, album)
         else:
             self.hasRadioSearch = False
-            zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
+            zonetype = self.get_zonetype()
             if (zonetype!='Spotify'):
                 self.hasRadioSearch = True
             self.flexprint('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
@@ -1045,6 +1066,76 @@ class Coverplayer:
         #self.root.withdraw()
         self.itemlistclass.start(meta, items, self.lang, self.on_itemclick, self.close_list)
     
+    def draw_progressbar_with_endless_symbol(self):
+        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
+        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
+        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
+        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
+        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
+        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
+    
+    def wakeup_load_image_select_zone_disable_tracklist_and_search(self, playmode, path, text):
+        # wakeup, load_image, select zone button, disable tracklist and search button if zone is spotify or applemusic streaming and disabled or zone is inactive, 
+        paused = not playmode
+        icon_path = self.scriptpath + "icons/play.png"
+        self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+        if self.display_auto_wakeup is True:
+            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
+        self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
+        self.text = text
+        if len(text) > 0:
+            line_parts = text[0].split(':')
+            if len(line_parts) > 0:
+                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                    self.zone_btn[self.zone].config(bg = None)
+                self.zone = line_parts[1].strip()
+                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                    self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                if self.in_menu_mode is True and self.tracklist_btn is not None:
+                    if self.text is not None and len(self.text) > 3:
+                        zone = self.text[0].split(':')[1].strip()
+                        self.set_tracklist_button(zone)
+                    else:
+                        self.switch_button_state(self.tracklist_btn, False)                                
+                self.set_search_button()
+    
+    def update_playpos_next(self, func, check_playpos, playpos, is_radio):
+        if check_playpos is not None and check_playpos != -1:
+            self.playpos_next = playpos if is_radio is False else 0
+            if self.debug is True:
+                self.flexprint('[red]CoverPlayer: poll_queue ' + func + ' => playpos_next: ' + str(playpos) + '[/red]')
+    
+    def set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(self, playlen):
+        # remove progressbar if playlen is changed to negative, set playlen text if playlen is negative, set endless symbol if playlen is none or negative
+        if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
+            if playlen == -1:
+                self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
+                self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+            else:
+                self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+                self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
+                if self.canvas_clear is not None:
+                    self.canvas_clear.destroy()
+                    self.canvas_clear = None
+        if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
+            self.draw_progressbar_with_endless_symbol()
+    
+    def set_playpos(self, playpos):
+        if self.in_menu_mode is True and self.debug is True:
+            self.count += 1
+            upd_pos_text = str(timedelta(seconds=playpos)) + ' / ' + str(self.count) if (playpos is not None and playpos != -1) else str(playpos) + ' / ' + str(self.count)
+            upd_pos = Label(self.overlay, text = upd_pos_text, bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
+            upd_pos.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height + 40)
+    
+    def set_shuffle_and_repeat(self, playlen):
+        # shuffle and repeat button at the bottom left
+        if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
+            icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
+            switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
+            self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
+            icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
+            self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
+    
     def _poll_queue(self):
         try:
             while True:
@@ -1052,10 +1143,12 @@ class Coverplayer:
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+
                     #playmode = playlen is not None and playlen != -1 and is_playing is True
                     playmode = is_playing # new for roon radio
                     self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
                     self._set_playmode(playmode)
+
                     self._set_shufflemode(shuffle_on, playlen)
                     self._set_repeatmode(repeat_on, playlen)
 
@@ -1073,76 +1166,20 @@ class Coverplayer:
                             self.flexprint('[red]CoverPlayer: poll_queue update => playpos: is None[/red]')
                     if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
                         self.playpos_next = -1
-                    if playpos is None and playlen != -1:
+                    if (playpos is None or is_radio is True) and playlen != -1:
                         self.playpos_next = 0
-                    if playpos is not None and playpos != -1:
-                        self.playpos_next = playpos
-                        if self.debug is True:
-                            self.flexprint('[red]CoverPlayer: poll_queue update => playpos_next: ' + str(playpos) + '[/red]')
-                    
-                    if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
-                        if playlen == -1:
-                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
-                            self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-                        else:
-                            self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-                            if self.canvas_clear is not None:
-                                self.canvas_clear.destroy()
-                                self.canvas_clear = None
-                    if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
-                        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
-                        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-                        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
-                        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
-                        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
-                        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
 
-                    # shuffle and repeat button at the bottom left
-                    if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
-                        icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
-                        switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
-                        self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
-                        icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
-                        self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
+                    self.update_playpos_next(func, playpos, playpos, is_radio)
+                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playlen)
+                    self.set_shuffle_and_repeat(playlen)
                     
                     self.playlen = playlen
-
                     self.callback = callback
                     self.control_callback = control_callback
                     self.search_callback = search_callback
                     self.itemclick_callback = itemclick_callback
-                    paused = not playmode
-                    icon_path = self.scriptpath + "icons/play.png"
-                    self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
-                    if self.display_auto_wakeup is True:
-                        subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                    self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-                    self.text = text
-                    if len(text) > 0:
-                        line_parts = text[0].split(':')
-                        if len(line_parts) > 0:
-                            if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                                self.zone_btn[self.zone].config(bg = None)
-                            self.zone = line_parts[1].strip()
-                            if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                                self.zone_btn[self.zone].config(bg = self.button_highlight_color)
-                            if self.in_menu_mode is True and self.tracklist_btn is not None:
-                                if self.text is not None and len(self.text) > 3:
-                                    zone = self.text[0].split(':')[1].strip()
-                                    icon_enabled = self.zone is not None and zone == self.zone
-                                    zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-                                    if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
-                                        icon_enabled = False
-                                    self.switch_button_state(self.tracklist_btn, icon_enabled)
-                                else:
-                                    self.switch_button_state(self.tracklist_btn, False)                                
-                            if self.in_menu_mode is True and self.keyb_btn is not None:
-                                icon_enabled = self.zone is not None
-                                zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-                                if zonetype == 'Spotify' and self.spotify_disabled is True:
-                                    icon_enabled = False
-                                self.switch_button_state(self.keyb_btn, icon_enabled)
+
+                    self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                
                     self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
@@ -1152,6 +1189,8 @@ class Coverplayer:
                     self.display_auto_wakeup = path
                 if func == 'disable_spotify':
                     self.spotify_disabled = playpos
+                if func == 'disable_applemusic':
+                    self.disable_applemusic = playpos
                 if func == 'vkeyb_error_message' and self.vkeyb is not None:
                     self.vkeyb.error_message(playpos)
                 if func == 'itemlist_error_message' and self.itemlistclass is not None:
@@ -1163,27 +1202,8 @@ class Coverplayer:
                         if self.debug is True:
                             self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
                     else:
-                        if self.playpos is not None and self.playpos != -1:
-                            self.playpos_next = playpos
-                            if self.debug is True:
-                                self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos_next: ' + str(playpos) + '[/red]')
-                    if self.in_menu_mode is True and playlen is not None and self.playlen != playlen:
-                        if playlen == -1:
-                            self.canvas_clear = Canvas(self.overlay, width = self.maxpx_x, height = 40, bd = 0, highlightthickness = 0, relief = 'ridge', bg = self.overlay_bgcolor)
-                            self.canvas_clear.place(x = 0, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-                        else:
-                            self.playlen_text = Label(self.overlay, text = timedelta(seconds=playlen), bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                            self.playlen_text.place(x = self.playlen_pos_std, y = self.overlay_height - self.control_button_height - self.extra_space_height)
-                            if self.canvas_clear is not None:
-                                self.canvas_clear.destroy()
-                                self.canvas_clear = None
-                    if self.in_menu_mode is True and (playlen is None or playlen == -1) and self.playlen_text is not None:
-                        self.canvas=Canvas(self.overlay, width = self.progressbar_width_disabled, height = 5)
-                        self.canvas.place(x = 120, y = self.overlay_height - self.control_button_height - self.extra_space_height + 15)
-                        self.canvas.create_line(0, 0, self.progressbar_width_disabled,0, fill = "white", width = 14)
-                        self.canvas.create_line(1, 1, self.progressbar_width_disabled - 3, 1, fill = "green", width = 12)
-                        self.playlen_text.config(text = '\u221E', font = "Arial 40 bold")
-                        self.playlen_text.place(x = self.playlen_pos_disabled, y = self.overlay_height - self.control_button_height - self.extra_space_height - 19)
+                        self.update_playpos_next(func, self.playpos, playpos, is_radio)
+                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playlen)
 
                     #playmode = playlen is not None and playlen != -1 and is_playing is True
                     playmode = is_playing # new for roon radio
@@ -1193,54 +1213,12 @@ class Coverplayer:
                     self._set_repeatmode(repeat_on, playlen)
                             
                     if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
-                        paused = not playmode
-                        icon_path = self.scriptpath + "icons/play.png"
-                        self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
-                        if self.display_auto_wakeup is True:
-                            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-                        self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-                        self.path = path
-                        self.text = text
-                        if len(text) > 0:
-                            line_parts = text[0].split(':')
-                            if len(line_parts) > 0:
-                                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                                    self.zone_btn[self.zone].config(bg = None)
-                                self.zone = line_parts[1].strip()
-                                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                                    self.zone_btn[self.zone].config(bg = self.button_highlight_color)
-                                if self.in_menu_mode is True and self.tracklist_btn is not None:
-                                    if self.text is not None and len(self.text) > 3:
-                                        zone = self.text[0].split(':')[1].strip()
-                                        icon_enabled = self.zone is not None and zone == self.zone
-                                        zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-                                        if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
-                                            icon_enabled = False
-                                        self.switch_button_state(self.tracklist_btn, icon_enabled)
-                                    else:
-                                        self.switch_button_state(self.tracklist_btn, False)
-                                if self.in_menu_mode is True and self.keyb_btn is not None:
-                                    icon_enabled = self.zone is not None
-                                    zonetype = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-                                    if zonetype == 'Spotify' and self.spotify_disabled is True:
-                                        icon_enabled = False
-                                    self.switch_button_state(self.keyb_btn, icon_enabled)
-                        if playpos is None:
+                        self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                    
+                        if playpos is None or is_radio is True:
                             self.playpos_next = 0
 
-                    if self.in_menu_mode is True and self.debug is True:
-                        self.count += 1
-                        upd_pos_text = str(timedelta(seconds=playpos)) + ' / ' + str(self.count) if (playpos is not None and playpos != -1) else str(playpos) + ' / ' + str(self.count)
-                        upd_pos = Label(self.overlay, text = upd_pos_text, bg = self.overlay_bgcolor, font = "Arial 20 bold", fg = 'white')
-                        upd_pos.place(x = 10, y = self.overlay_height - self.control_button_height - self.extra_space_height + 40)
-
-                    # shuffle and repeat button at the bottom left
-                    if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
-                        icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
-                        switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
-                        self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
-                        icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
-                        self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
+                    self.set_playpos(playpos)
+                    self.set_shuffle_and_repeat(playlen)
 
                     self.playlen = playlen
                     self.is_playing = is_playing
