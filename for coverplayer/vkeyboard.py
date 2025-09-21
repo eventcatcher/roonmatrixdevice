@@ -26,11 +26,11 @@ import logging
 has_keyboard = True
 
 class TouchFriendlyButton(Button):
-    def __init__(self, master, **kwargs):
-        self.bg_normal = "#383838"
-        self.bg_active = "#242424"
-        self.fg_normal = "white"
-        self.fg_active = "#bababa"
+    def __init__(self, master, bg_normal, bg_active, fg_normal, fg_active, **kwargs):
+        self.bg_normal = bg_normal
+        self.bg_active = bg_active
+        self.fg_normal = fg_normal
+        self.fg_active = fg_active
         super().__init__(master, **kwargs)
         self.bind("<ButtonPress-1>", self.on_press)
         self.bind("<Leave>", self.on_leave)
@@ -250,7 +250,16 @@ class VirtualKeyboard:
             value = None
         elif x == 'back':
             if len(actualValue) > 0:
-                value = actualValue[:-1]
+                value = ''
+                if cursor_pos > 1:
+                    value = actualValue[0:cursor_pos - 1]
+                if cursor_pos < len(actualValue):
+                    value += actualValue[cursor_pos:]
+                self.inpstr.set(value)
+                self.inp.delete(0, END) #deletes the current value
+                self.inp.insert(0, value) #inserts new value assigned by 2nd parameter
+                self.inp.icursor(cursor_pos - 1)
+                return
         elif x == 'del':
             if len(actualValue) > 0:
                 value = ''
@@ -381,7 +390,7 @@ class VirtualKeyboard:
         }
         except Exception as e:
             self.flexprint(f"[red]Icon loading error:[/red] {e}")
-    
+        
     # start keyboard
     def start(self, type, data, keyb_list, lang, hasRadioSearch, zonetype, sourcetype, alternative_layout, kp_callback, close_callback):
         self.flexprint('vkeyboard ==> start')
@@ -410,7 +419,7 @@ class VirtualKeyboard:
         self.on_search = kp_callback
         self.on_close = close_callback
         self.scriptpath = path.dirname(__file__) + '/'
-     
+
         self.init()
         self.engine()
         
@@ -418,7 +427,7 @@ class VirtualKeyboard:
 
     def _control(self, action):
         if action == 'stream_off' or action == 'stream_on':
-            bg = self.btn_small_bgcolor
+            bg = None
             icon = self.control_icons["stream_on"] if self.stream_on else self.control_icons["stream_off"]
             self.sourcetype_btn.config(image = icon, bg=bg, activebackground=bg)
             if self.zonetype=='Apple Music' and self.stream_on is True and self.searchtype=='genre':
@@ -451,6 +460,8 @@ class VirtualKeyboard:
         self.darkyellow = "#bfb967"
         self.yellow = "#ebe481"
         self.btn_small_bgcolor = "#383838"	# background color of small buttons
+        self.fg_active = "#bababa"
+        self.fg_normal = "white"
         
         self.icon_btn_size = 48		# button size in px
 
@@ -508,22 +519,28 @@ class VirtualKeyboard:
         self.alt_key_pressed = False
 
         # create a frame for searchtype info field
-        infoField = Frame(self.master, height=0.5)
-        infoField.rowconfigure(0, weight=1)
-        self.label = Label(infoField, text=self.searchlabel, font = "Arial 36", anchor="w", padx = 10)
+        self.infoField = Frame(self.master, height=0.5)
+        self.infoField.rowconfigure(0, weight=1)
+        self.label = Label(self.infoField, text=self.searchlabel, font = "Arial 36", anchor="w", padx = 10)
         self.label.bind("<Button-1>",lambda e:self.on_labelTap())
         self.label.pack(side='left', expand = True, fill = 'both')
         
         if self.zonetype=='Apple Music':        
             icon = self.control_icons["stream_on"] if self.stream_on else self.control_icons["stream_off"]
             self.sourcetype_btn = TouchFriendlyButton(
-                infoField,
+                self.infoField,
+                None,
+                None,
+                None,
+                None,
                 image = icon,
-                bg = self.btn_small_bgcolor,
+                bg = None,
+                fg = None,
                 bd = 0,
                 command = lambda: self.toggle_sourcetype(), 
                 takefocus = 0, 
-                activebackground = self.btn_small_bgcolor, 
+                activebackground = None,
+                activeforeground = None, 
                 height = self.icon_btn_size, 
                 width = self.icon_btn_size
             )
@@ -555,12 +572,16 @@ class VirtualKeyboard:
                 keyframe1.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe1,
+                self.btn_small_bgcolor,
+                self.darkgray,
+                self.fg_normal, 
+                self.fg_active,
                 font=("Arial", 24),
                 border=7,
                 bg=self.gray,
                 activebackground=self.darkgray,
-                activeforeground="#bababa",
-                fg="white",
+                activeforeground=self.fg_active,
+                fg=self.fg_normal,
                 width=1,
                 relief=RAISED
             )
@@ -597,12 +618,16 @@ class VirtualKeyboard:
                 keyframe2.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe2,
+                self.btn_small_bgcolor,
+                self.darkgray,
+                self.fg_normal, 
+                self.fg_active,
                 font=("Arial", 24),
                 border=7,
                 bg=self.gray,	# background color is not clicked
                 activebackground=self.darkgray, # background color if clicked
-                activeforeground="#bababa",
-                fg="white",
+                activeforeground=self.fg_active,
+                fg=self.fg_normal,
                 width=1,
                 relief=RAISED
             )
@@ -639,12 +664,16 @@ class VirtualKeyboard:
                 keyframe3.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe3,
+                self.btn_small_bgcolor,
+                self.darkgray,
+                self.fg_normal, 
+                self.fg_active,
                 font=("Arial", 24),
                 border=7,
                 bg=self.gray,
                 activebackground=self.darkgray,
-                activeforeground="#bababa",
-                fg="white",
+                activeforeground=self.fg_active,
+                fg=self.fg_normal,
                 width=2,
                 relief=RAISED
             )                
@@ -681,12 +710,16 @@ class VirtualKeyboard:
                 keyframe4.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe4,
+                self.btn_small_bgcolor,
+                self.darkgray,
+                self.fg_normal, 
+                self.fg_active,
                 font=("Arial", 24),
                 border=7,
                 bg=self.gray,
                 activebackground=self.darkgray,
-                activeforeground="#bababa",
-                fg="white",
+                activeforeground=self.fg_active,
+                fg=self.fg_normal,
                 width=1,
                 relief=RAISED
             )
@@ -727,12 +760,16 @@ class VirtualKeyboard:
                 
             btn = TouchFriendlyButton(
                 keyframe5,
+                self.btn_small_bgcolor,
+                self.darkgray,
+                self.fg_normal, 
+                self.fg_active,
                 font=("Arial", 24),
                 border=7,
                 bg=self.gray,
                 activebackground=self.darkgray,
-                activeforeground="#bababa",
-                fg="white",
+                activeforeground=self.fg_active,
+                fg=self.fg_normal,
                 width=1,
                 relief=RAISED
             )
@@ -788,7 +825,7 @@ class VirtualKeyboard:
             self.row5buttons[ind].grid(row=0, column=ind, sticky="NSEW")
 
         # add the frames to the main window
-        infoField.grid(row=0, sticky="NSEW", padx=9, pady=1)
+        self.infoField.grid(row=0, sticky="NSEW", padx=9, pady=1)
         inputField.grid(row=1, sticky="NSEW", padx=9, pady=1)
         keyframe1.grid(row=2, sticky="NSEW", padx=9, pady=6)
         keyframe2.grid(row=3, sticky="NSEW", padx=9)

@@ -2134,7 +2134,7 @@ def getShufflestateFromPlayouts():
     return shuffle
 
 def getRepeatstateFromPlayouts():
-    shuffle = False
+    repeat = False
     if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
         name_parts = control_id.split('-')
         serverName = name_parts[0]
