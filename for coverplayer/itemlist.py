@@ -86,6 +86,7 @@ class ItemList:
         self.log = log			# log infos on or off
         self.maxpx_x = maxpx_x  # screen width in px
         self.maxpx_y = maxpx_y  # screen height in px
+        self.logger = logging.getLogger('itemlist')
         
         self.on_close = None
 
@@ -113,7 +114,7 @@ class ItemList:
         self.master.resizable(False, False)
 
     def flexprint(self, str, objStr = None):
-        if self.log not in globals() or self.log is True:
+        if self.log is True:
             if objStr is None:
                 if sys.stdout.isatty():
                     print(str)

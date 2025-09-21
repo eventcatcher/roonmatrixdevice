@@ -349,7 +349,7 @@ def sync_web_requests_with_timing(requestlist):
         if err == '':
             break
     
-    print('sync_results: ' + str(sync_results))
+    flexprint('sync_results: ' + str(sync_results))
     return [sync_results,req_time]
 
 def get_countrycode_from_public_ip():

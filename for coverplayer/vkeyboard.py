@@ -51,6 +51,7 @@ class VirtualKeyboard:
         self.log = log			# log infos on or off
         self.maxpx_x = maxpx_x  # screen width in px
         self.maxpx_y = maxpx_y  # screen height in px
+        self.logger = logging.getLogger('vkeyboard')
         
         self.on_close = None
 
@@ -139,7 +140,6 @@ class VirtualKeyboard:
         return x - radius, y - radius, x + radius, y + radius
 
     def update_keyboard(self):
-        print('UPDATE KEYBOARD START')
         if self.alt_key_pressed is True:
             # alt row 1
             idx = 1 if self.alternative_layout is False else 0
@@ -234,7 +234,6 @@ class VirtualKeyboard:
                             self.buttons[key].config(text = key.title())
                         else:
                             self.buttons[key].config(text = key)
-        print('UPDATE KEYBOARD END, shift: ' + str(self.shift_key_pressed) + ', alt: ' + str(self.alt_key_pressed))
         
     # function to press and release keys
     def vpresskey(self, x):
@@ -385,6 +384,7 @@ class VirtualKeyboard:
     
     # start keyboard
     def start(self, type, data, keyb_list, lang, hasRadioSearch, zonetype, sourcetype, alternative_layout, kp_callback, close_callback):
+        self.flexprint('vkeyboard ==> start')
         self.type = type
         self.data = data
         
