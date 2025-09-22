@@ -81,12 +81,12 @@ class VirtualKeyboard:
         master.config(cursor="none")
         master.resizable(False, False)
     
-        canvas = Canvas(master, width=self.maxpx_x, height=self.maxpx_y, background="black", bd=0, highlightthickness=0, relief='ridge')
+        canvas = Canvas(master, width=self.maxpx_x, height=self.maxpx_y, background=self.infopage_bg_color, bd=0, highlightthickness=0, relief='ridge')
         canvas.pack(fill=BOTH, expand=1)
         searchkey = self.search
         if self.search == '':
             self.search = self.lang[self.searchtype]
-        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = "white", font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = self.lang['searchfor'] + '\n' + self.search)
+        canvas.create_text(self.maxpx_x / 2, self.maxpx_y / 2, width = self.maxpx_x / 3 * 2, fill = self.infopage_fg_color, font = "Times 36 italic bold", anchor = 'center', justify = 'center', text = self.lang['searchfor'] + '\n' + self.search)
                         
         # Radius in pixels of a single dot.
         self.dot_radius = self.maxpx_x * 0.05
@@ -451,17 +451,28 @@ class VirtualKeyboard:
         # Colors
         self.darkgray = "#242424"
         self.gray = "#383838"
-        self.darkred = "#591717"
+        self.lightgray = "#bababa"
+        self.darkred = "#9e1717"
         self.red = "#822626"
-        self.darkpurple = "#7151c4"
-        self.purple = "#9369ff"
-        self.darkblue = "#386cba"
-        self.blue = "#488bf0"
-        self.darkyellow = "#bfb967"
-        self.yellow = "#ebe481"
-        self.btn_small_bgcolor = "#383838"	# background color of small buttons
-        self.fg_active = "#bababa"
-        self.fg_normal = "white"
+        self.white = "white"
+        self.black = "black"
+        #self.darkpurple = "#7151c4"
+        #self.purple = "#9369ff"
+        #self.darkblue = "#386cba"
+        #self.blue = "#488bf0"
+        #self.darkyellow = "#bfb967"
+        #self.yellow = "#ebe481"
+        
+        self.bg_normal = self.gray          # background color of released buttons
+        self.bg_active = self.darkgray      # background color of pressed buttons
+        self.fg_normal = self.white         # foreground color of released buttons
+        self.fg_active = self.lightgray     # foreground color of pressed buttons
+        
+        self.close_bg_normal = self.red     # background color of released close button
+        self.close_bg_active = self.darkred # background color of pressed close button
+        
+        self.infopage_bg_color = self.black # background color of error and circle progress info pages
+        self.infopage_fg_color = self.white # foreground color of error and circle progress info text
         
         self.icon_btn_size = 48		# button size in px
 
@@ -572,15 +583,15 @@ class VirtualKeyboard:
                 keyframe1.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe1,
-                self.btn_small_bgcolor,
-                self.darkgray,
+                self.close_bg_normal if key == "close" else self.bg_normal,
+                self.close_bg_active if key == "close" else self.bg_active,
                 self.fg_normal, 
                 self.fg_active,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,
-                activebackground=self.darkgray,
-                activeforeground=self.fg_active,
+                bg=self.bg_normal,
+                activebackground=self.bg_normal,
+                activeforeground=self.fg_normal,
                 fg=self.fg_normal,
                 width=1,
                 relief=RAISED
@@ -589,7 +600,7 @@ class VirtualKeyboard:
             self.buttons[key] = self.row1buttons[ind]
 
             if key == "close":
-                self.row1buttons[ind].config(font=("Arial", 24), text="\u2716", bg=self.red, activebackground=self.darkred, padx=12)
+                self.row1buttons[ind].config(font=("Arial", 24), text="\u2716", bg=self.close_bg_normal, activebackground=self.close_bg_active, padx=12)
             elif key == 'back': # back key
                 self.buttonsTranslate[origKey] = key
                 if origKey.startswith('u+'):
@@ -618,15 +629,15 @@ class VirtualKeyboard:
                 keyframe2.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe2,
-                self.btn_small_bgcolor,
-                self.darkgray,
+                self.bg_normal,
+                self.bg_active,
                 self.fg_normal, 
                 self.fg_active,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,	# background color is not clicked
-                activebackground=self.darkgray, # background color if clicked
-                activeforeground=self.fg_active,
+                bg=self.bg_normal,	# background color is not clicked
+                activebackground=self.bg_normal,
+                activeforeground=self.fg_normal,
                 fg=self.fg_normal,
                 width=1,
                 relief=RAISED
@@ -664,15 +675,15 @@ class VirtualKeyboard:
                 keyframe3.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe3,
-                self.btn_small_bgcolor,
-                self.darkgray,
+                self.bg_normal,
+                self.bg_active,
                 self.fg_normal, 
                 self.fg_active,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,
-                activebackground=self.darkgray,
-                activeforeground=self.fg_active,
+                bg=self.bg_normal,
+                activebackground=self.bg_normal,
+                activeforeground=self.fg_normal,
                 fg=self.fg_normal,
                 width=2,
                 relief=RAISED
@@ -710,15 +721,15 @@ class VirtualKeyboard:
                 keyframe4.columnconfigure(ind, weight=1)
             btn = TouchFriendlyButton(
                 keyframe4,
-                self.btn_small_bgcolor,
-                self.darkgray,
+                self.bg_normal,
+                self.bg_active,
                 self.fg_normal, 
                 self.fg_active,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,
-                activebackground=self.darkgray,
-                activeforeground=self.fg_active,
+                bg=self.bg_normal,
+                activebackground=self.bg_normal,
+                activeforeground=self.fg_normal,
                 fg=self.fg_normal,
                 width=1,
                 relief=RAISED
@@ -760,15 +771,15 @@ class VirtualKeyboard:
                 
             btn = TouchFriendlyButton(
                 keyframe5,
-                self.btn_small_bgcolor,
-                self.darkgray,
+                self.close_bg_normal if key == "close" else self.bg_normal,
+                self.close_bg_active if key == "close" else self.bg_active,
                 self.fg_normal, 
                 self.fg_active,
                 font=("Arial", 24),
                 border=7,
-                bg=self.gray,
-                activebackground=self.darkgray,
-                activeforeground=self.fg_active,
+                bg=self.bg_normal,
+                activebackground=self.bg_normal,
+                activeforeground=self.fg_normal,
                 fg=self.fg_normal,
                 width=1,
                 relief=RAISED
@@ -780,7 +791,7 @@ class VirtualKeyboard:
                 self.row5buttons[ind].config(font=("Arial", 20))
 
             if key == "close":
-                self.row5buttons[ind].config(font=("Arial", 24), text="\u2716", bg=self.red, activebackground=self.darkred, padx=12)
+                self.row5buttons[ind].config(font=("Arial", 24), text="\u2716", bg=self.close_bg_normal, activebackground=self.close_bg_active, padx=12)
             elif key == "lock":
                 origKey = self.row3keyb[0]
                 self.buttonsTranslate[origKey] = key
@@ -876,11 +887,11 @@ class VirtualKeyboard:
         self.master.attributes('-topmost', True)
         self.master.overrideredirect(True)
         self.master.geometry(str(self.maxpx_x) + 'x' + str(self.maxpx_y) + '+0+0')
-        self.master.config(cursor="none", background="black")
+        self.master.config(cursor="none", background=self.infopage_bg_color)
         self.master.resizable(False, False)
         parent = Frame(self.master)
         fontsize = int(self.maxpx_x / len(message))
-        Label(parent, text = message, font = "Arial " + str(fontsize), fg="white", bg="black").pack(fill="x")
+        Label(parent, text = message, font = "Arial " + str(fontsize), fg=self.infopage_fg_color, bg=self.infopage_bg_color).pack(fill="x")
         parent.pack(expand=1)
         self.master.after(4000, self.close)
         self.master.mainloop()
