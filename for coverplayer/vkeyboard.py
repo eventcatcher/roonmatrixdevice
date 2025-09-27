@@ -393,7 +393,7 @@ class VirtualKeyboard:
         
     # start keyboard
     def start(self, type, data, keyb_list, lang, hasRadioSearch, zonetype, sourcetype, alternative_layout, kp_callback, close_callback):
-        self.flexprint('vkeyboard ==> start')
+        self.flexprint('vkeyboard ==> start, zonetype: ' + str(zonetype) + ', sourcetype: ' + str(sourcetype))
         self.type = type
         self.data = data
         

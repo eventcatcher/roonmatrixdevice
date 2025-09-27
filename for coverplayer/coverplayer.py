@@ -82,9 +82,9 @@ class Coverplayer:
         cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = [], buttons = None, callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = [], buttons = None, zone_callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons or [], callback, control_callback, search_callback, itemclick_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons or [], zone_callback, control_callback, search_callback, itemclick_callback))
 
     @classmethod
     def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = []):
@@ -92,9 +92,9 @@ class Coverplayer:
         cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, None, None, None, None, None))
 
     @classmethod
-    def setZones(cls, buttons):
+    def setZones(cls, buttons, text, zone_callback):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, None, buttons or [], None, None, None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, text, buttons or [], zone_callback, None, None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -309,7 +309,7 @@ class Coverplayer:
             return async_results
 
         try:
-            if path_or_url is None:
+            if path_or_url is None or path_or_url == '':
             	path_or_url = path.dirname(__file__) + '/cover_fallback.png'
             if path_or_url.startswith("http"):
                 requestlist = [{'name':'imageSource','url':path_or_url}]
@@ -421,9 +421,10 @@ class Coverplayer:
         self.canvas_clear = None
         self.text = []
         self.zone = None
+        self.zone_off = True
         self.zone_btn = {}
         self.path = ''
-        self.callback = None
+        self.zone_callback = None
         self.control_callback = None
         self.search = ''
         self.searchtype = ''
@@ -554,7 +555,9 @@ class Coverplayer:
                 btn.config(state=DISABLED, bg = self.btn_disabled_color)
 
     def get_zonetype(self):
-        return (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2) else ''
+        if self.zone is None:
+            return ''
+        return (self.zone.split('-')[1].strip()) if (len(self.zone.split('-'))==2 and (self.zone.endswith('-Apple Music') or self.zone.endswith('-Spotify'))) else 'Roon'
 
     def set_search_button(self):
         if self.in_menu_mode is True and self.keyb_btn is not None:
@@ -563,6 +566,8 @@ class Coverplayer:
             if zonetype == 'Spotify' and self.spotify_disabled is True:
                 icon_enabled = False
             if zonetype == 'Apple Music' and self.applemusic_disabled is True:
+                icon_enabled = False
+            if zonetype == 'Roon' and self.zone not in self.buttons:
                 icon_enabled = False
             self.switch_button_state(self.keyb_btn, icon_enabled)
 
@@ -788,9 +793,9 @@ class Coverplayer:
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
-        if self.callback:
+        if self.zone_callback:
             self.zone = value
-            self.callback(value)
+            self.zone_callback(value)
 
             if self.in_menu_mode is True and self.tracklist_btn is not None:
                 if self.text is not None and len(self.text) > 3:
@@ -843,7 +848,7 @@ class Coverplayer:
     
     def on_search(self, is_stream, type, key):
         self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
-        if self.search_callback is not None:
+        if self.search_callback is not None and self.zone is not None:
             data = self.search_callback(is_stream, key, self.zone, type)
             if isinstance(data, str):
                 self.vkeyb.error_message(data)
@@ -851,6 +856,9 @@ class Coverplayer:
             if len(data) > 0:
                 meta = data[0]
                 self.flexprint("coverplayer => on_search, meta:" + str(meta))
+                if 'zonetype' in meta and meta['zonetype']=='':
+                    self.vkeyb.error_message(self.lang['Zone'] + ' ' + self.lang['inactive'].upper())
+                    return
                 if meta['type'] == 'albums':
                     self.search = meta['artist']
                     albums = data[1]
@@ -938,6 +946,8 @@ class Coverplayer:
                         self.vkeyb.error_message(self.lang['notfound'].upper())
                 if meta['type'] == 'radio':
                     self.close_list()
+        else:
+            self.vkeyb.error_message(self.lang['Zone'] + ' ' + self.lang['inactive'].upper())
 
     def on_itemclick(self, meta, name, id = None):
         self.flexprint('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
@@ -1102,10 +1112,10 @@ class Coverplayer:
         if self.display_auto_wakeup is True:
             subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
         self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-        self.text = text
         if len(text) > 0:
+            self.text = text
             line_parts = text[0].split(':')
-            if len(line_parts) > 0:
+            if len(line_parts) > 1:
                 if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
                     self.zone_btn[self.zone].config(bg = None)
                 self.zone = line_parts[1].strip()
@@ -1160,8 +1170,9 @@ class Coverplayer:
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons, callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
+                func, playpos, playlen, path, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons, zone_callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
                 if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
+                    self.zone_off = False
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
 
@@ -1195,7 +1206,7 @@ class Coverplayer:
                     self.set_shuffle_and_repeat(playlen)
                     
                     self.playlen = playlen
-                    self.callback = callback
+                    self.zone_callback = zone_callback
                     self.control_callback = control_callback
                     self.search_callback = search_callback
                     self.itemclick_callback = itemclick_callback
@@ -1218,6 +1229,7 @@ class Coverplayer:
                 if func == 'itemlist_error_message' and self.itemlistclass is not None:
                     self.itemlistclass.error_message(playpos)
                 if func == 'setpos':
+                    self.zone_off = False
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                     if playpos is None:
@@ -1233,8 +1245,8 @@ class Coverplayer:
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on, playlen)
                     self._set_repeatmode(repeat_on, playlen)
-                            
-                    if self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
+                    
+                    if self.text is not None and len(self.text) > 0 and self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
                         self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                    
                         if playpos is None or is_radio is True:
                             self.playpos_next = 0
@@ -1249,7 +1261,23 @@ class Coverplayer:
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
                 if func == 'setZones' and self.buttons != buttons:
+                    buttons_backup = self.buttons
                     self.buttons = buttons
+                    self.zone_callback = zone_callback
+                    first_load = len(self.text) == 0 and text is not None and len(text) == 2 and (text[1] == '[offline]' or text[1] == '[inactive]')
+                    missing_zone = self.zone not in self.buttons and text is not None and len(text) == 2 and text[1] == '[offline]'
+                    stopped_zone = self.zone in self.buttons and text is not None and len(text) == 2 and text[1] == '[inactive]'
+                    self.flexprint('[red]CoverPlayer setZones => first_load: ' + str(first_load) + ', missing_zone: ' + str(missing_zone) + ', stopped_zone: ' + str(stopped_zone) + ', zone: ' + str(self.zone) + ', buttons_backup: ' + str('|'.join(buttons_backup)) + ', buttons: ' + str('|'.join(self.buttons))  + ', text: ' + str(text) + '[/red]')
+                    if first_load or missing_zone or stopped_zone:
+                        if len(text) == 2 and (text[1] == '[offline]' or text[1] == '[inactive]'):
+                            text[1] = self.lang[text[1][1:-1]]
+                            self.zone_off = text[1] == '[offline]'
+                        else:
+                            self.zone_off = False
+                        self.text = text
+                        self.wakeup_load_image_select_zone_disable_tracklist_and_search(False, '', self.text)
+                    else:
+                        self.zone_off = False
 
         except queue.Empty:
             pass

@@ -598,6 +598,7 @@ controlswitch_bouncetime = int(config['SYSTEM']['controlswitch_bouncetime']) # b
 internet_connection_timeout = int(config['SYSTEM']['internet_connection_timeout']) # request timeout in seconds
 internet_connection_url = config['SYSTEM']['internet_connection_url'] # url used to check if internet is available
 separator = ' ' + config['SYSTEM']['separator'] + ' ' # string which is used to separate the different content messages
+zone_autoswitch = eval(config['SYSTEM']['zone_autoswitch']) if 'zone_autoswitch' in config['SYSTEM'] else True # true: switch to another zone if channel_id is lost (offline), false: switch zone only manually
 control_zone = config['SYSTEM']['control_zone'] # name of default roon or webserver zone (example: MacStudio-Spotify, which is a concatenation of webserver zone name, hyphen, and app name like Spotify or AppleMusic) the buttons will control (play, pause, next, track before, shuffle)
 zone_control_map = literal_eval(config['SYSTEM']['zone_control_map']) # map names of control zones to shorter variant (for matrix with less modules)
 zone_control_timeout = int(config['SYSTEM']['zone_control_timeout']) # max time in seconds the zone control mode is displayed (before the message playout restarts)
@@ -720,7 +721,8 @@ shuffle_on_last = None # shuffle state before of actual zone
 repeat_on = False # repeat state of actual zone
 repeat_on_last = None # repeat state before of actual zone
 last_cover_url = '' # cover url of active zone (backup to check for changes)
-last_zones = [] # list of zone names (backup to check for changes)
+last_zones_online = [] # list of zone names of all online zones (backup to check for changes)
+last_zones_playing = [] # list of zone names of all playing zones (backup to check for changes)
 last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
 playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
@@ -777,7 +779,8 @@ async def rest_config():
                             {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                             {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
                             {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},                          
+                            {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
                             {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
                             {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                             {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
@@ -862,6 +865,7 @@ async def rest_config():
                         {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
                         {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
                         {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
+                        {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
                         {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
                         {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
                         {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
@@ -1877,7 +1881,7 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
 
 def play_previous(control_id, do_async=True):
     if control_id is not None:
-        if channels[control_id]=='webserver':
+        if control_id in channels.keys() and channels[control_id]=='webserver':
             send_webserver_zone_control(control_id, do_async, "previous")
         else:
             if roon_show == True and roon_servers:
@@ -1885,7 +1889,7 @@ def play_previous(control_id, do_async=True):
 
 def play_next(control_id, do_async=True):
     if control_id is not None:
-        if channels[control_id]=='webserver':
+        if control_id in channels.keys() and channels[control_id]=='webserver':
             send_webserver_zone_control(control_id, do_async, "next")
         else:
             if roon_show == True and roon_servers:
@@ -1922,7 +1926,7 @@ def pressed_up(channel):
                 is_playing = getPlaystateFromPlayouts()
                 shuffle_on = getShufflestateFromPlayouts()
                 repeat_on = getRepeatstateFromPlayouts()
-                if log is True:
+                if log is True and control_id in channels.keys():
                     if channels[control_id]=='webserver':
                         flexprint("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
                     else:
@@ -1944,7 +1948,7 @@ def pressed_down(channel):
             clear_display('pressed_down')
             refresh_output_data()
             if log is True: flexprint('close zone control setup')
-            if control_id is not None and log is True:
+            if control_id is not None and log is True and control_id in channels.keys():
                 if channels[control_id]=='webserver':
                     flexprint("actual control zone (webserver): " + control_id)
                 else:
@@ -2040,7 +2044,7 @@ def pressed_enter(channel):
                 is_playing = getPlaystateFromPlayouts()
                 shuffle_on = getShufflestateFromPlayouts()
                 repeat_on = getRepeatstateFromPlayouts()
-                if log is True:
+                if log is True and control_id in channels.keys():
                     if channels[control_id]=='webserver':
                         flexprint("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
                     else:
@@ -2061,7 +2065,7 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
             if name == name_parts[0]:
                 url = data['url']
                 break
-        if channels[control_id] == 'webserver' and url != '':
+        if control_id in channels.keys() and channels[control_id] == 'webserver' and url != '':
             payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
             flexprint('send_webserver_zone_control => payload: ' + str(payload))
             
@@ -2102,7 +2106,7 @@ def getPlaystateFromPlayouts():
         serverName = name_parts[0]
         zoneName = name_parts[1]
         if serverName in web_playouts:
-            zones = web_playouts[serverName]
+            #zones = web_playouts[serverName]
             for item in web_playouts[serverName]:
                 if 'zone' in item and item['zone'] == zoneName:
                     idle = 'status' in item and item['status'] != 'playing'
@@ -2121,7 +2125,7 @@ def getShufflestateFromPlayouts():
         serverName = name_parts[0]
         zoneName = name_parts[1]
         if serverName in web_playouts:
-            zones = web_playouts[serverName]
+            #zones = web_playouts[serverName]
             for item in web_playouts[serverName]:
                 if 'zone' in item and item['zone'] == zoneName:
                     shuffle = 'shuffle' in item and item['shuffle'] == 'true'
@@ -2140,7 +2144,7 @@ def getRepeatstateFromPlayouts():
         serverName = name_parts[0]
         zoneName = name_parts[1]
         if serverName in web_playouts:
-            zones = web_playouts[serverName]
+            #zones = web_playouts[serverName]
             for item in web_playouts[serverName]:
                 if 'zone' in item and item['zone'] == zoneName:
                     repeat = 'repeat' in item and (item['repeat'] == 'true' or item['repeat'] == 'all' or item['repeat'] == 'one')
@@ -2265,15 +2269,17 @@ def get_message(key):
         return key
 
 def zone_selection(selection):
-    global control_id, is_playing_last, shuffle_on_last, repeat_on_last, is_playing, shuffle_on, repeat_on
+    global control_id, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, is_playing, shuffle_on, repeat_on
     flexprint("[bold magenta]zone selection:[/bold magenta]", selection)
     if selection in channels.keys() and channels[selection] == 'webserver':
         control_id = selection
+        control_zone = selection
     else:
         if selection in channels.values():
             for id, name in channels.items():
                 if channels[id] != 'webserver' and name == selection:
                     control_id = id
+                    control_zone = name
                     break
     is_playing_last = None
     shuffle_on_last = None
@@ -2874,7 +2880,7 @@ def on_search(is_stream, value, zone, type):
                 if channels[id] != 'webserver' and name == zone:
                     control_id = id
                     break
-    flexprint("roonmatrix => on_search:" + value + ', zone: ' + zone + ', control_id: ' + control_id + ', type:' + type)
+    flexprint("roonmatrix => on_search:" + str(value) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id) + ', type:' + str(type))
     if is_webserver is True:
         if zonetype == 'Spotify':
             if type == 'artist':
@@ -3450,22 +3456,25 @@ def set_data_changed_and_web_playouts_raw(result, name):
 def webserver_zone_not_running_coverplayer_updates(result, name, obj):
     if log is True: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
     set_data_changed_and_web_playouts_raw(result, name)
-    if display_cover is True and control_id is not None and channels[control_id]=='webserver':
+    if display_cover is True and control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
         name_parts = control_id.split('-')
         zone = name_parts[1]
         if name == name_parts[0] and obj["zone"] == zone:
             cover_text_line_parts = []
             cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+            cover_text_line_parts.append(get_message('inactive'))
             last_cover_url = ''
             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-            zones = get_zone_names()
+            zonestatus_list = get_zone_names()
+            zones_online = zonestatus_list[0]
+            zones_playing = zonestatus_list[1]
             is_playing = False
             shuffle_on = False
             repeat_on = False
             is_radio = False
             sourcetype = 'local'
-            flexprint('[bold red]Coverplayer.update (web): not running[/bold red]')
-            Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            flexprint('[bold red]Roonmatrix => Coverplayer.update (web): not running[/bold red]')
+            Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
 
 def prepend_cover_url(obj, url):
     if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
@@ -3518,11 +3527,13 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
         if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
             last_cover_url = obj["cover"]
             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-            zones = get_zone_names()
-            flexprint('[bold red]Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
-            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+            zonestatus_list = get_zone_names()
+            zones_online = zonestatus_list[0]
+            zones_playing = zonestatus_list[1]
+            flexprint('[bold red]Roonmatrix => Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
+            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
         else:
-            flexprint('[bold red]Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
+            flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + '[/bold red]')            
             Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts)
 
 def remove_prepended_from_displaystr(displaystr):
@@ -3534,7 +3545,7 @@ def remove_prepended_from_displaystr(displaystr):
 
 def get_name_zone_and_controlled_marker(name, obj, playprops):
     controlled = ''
-    if control_id is not None and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
         control_id_parts = control_id.split('-')
         name_part = control_id_parts[0]
         zone = control_id_parts[1]
@@ -3634,7 +3645,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                 flexprint('webserver ' + name + ' => has_changed: ' + str(has_changed))
                                 set_data_changed_and_web_playouts_raw(result, name)
 
-                                active = (control_id is not None and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
+                                active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
                                 if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
                                     if log is True: flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
                                     displaystr = remove_prepended_from_displaystr(displaystr)
@@ -3661,7 +3672,7 @@ def set_control_zone(waiting = True):
     if control_id_update is None:
         channel_name = '-'
     else:
-        channel_name = control_id_update.replace(' ','') if channels[control_id_update]=='webserver' else channels[control_id_update]
+        channel_name = control_id_update.replace(' ','') if (control_id_update in channels.keys() and channels[control_id_update]=='webserver') else channels[control_id_update]
 
     if debug is True: flexprint('set_control_zone message')
     if display_cover is False:
@@ -3834,7 +3845,7 @@ def set_default_zone():
         if control_id is None:
             flexprint("actual control zone: -")
         else:
-            if control_id in channels:
+            if control_id in channels.keys():
                 if channels[control_id]=='webserver':
                     flexprint("actual control zone (webserver): " + control_id)
                 else:
@@ -3890,7 +3901,7 @@ def roon_state_callback(event, changed_ids):
                 if image_key:
                     cover_url = roonapi.get_image(image_key)
 
-                if display_cover is True and control_id is not None and name == channels[control_id]:
+                if display_cover is True and control_id is not None and control_id in channels.keys() and name == channels[control_id]:
                     cover_text_line_parts = []
                     cover_text_line_parts.append(get_message('Zone') + ': ' + name)
                     if artistFiltered != '':
@@ -3916,7 +3927,9 @@ def roon_state_callback(event, changed_ids):
                     if (anything_changed is True or (anything_changed is False and playpos_changed is True)):
                         last_cover_url = cover_url
                         last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-                        zones = get_zone_names()                                    
+                        #zonestatus_list = get_zone_names()
+                        #zones_online = zonestatus_list[0]
+                        #zones_playing = zonestatus_list[1]
                         playpos_last = playpos
                         playlen_last = playlen
                         is_playing_last = is_playing
@@ -3928,7 +3941,7 @@ def roon_state_callback(event, changed_ids):
                         repeat_on = repeat
                         is_radio = False
                                     
-                        flexprint('[bold red]Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        flexprint('[bold red]Roonmatrix => Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
                         Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts)
 
 
@@ -3953,7 +3966,7 @@ def roon_state_callback(event, changed_ids):
 
                 # state variants: loading, playing, paused, stopped, not running
                 if state == 'playing':
-                    if ((force_active_roon_zone_only is False or name == channels[control_id]) and playing_data_has_changed is True):
+                    if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
                         allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
                         if allowed is True:
                             if log is True: flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
@@ -4046,7 +4059,7 @@ def update_roon_channels():
             del channels[key]
             del playmode[key]
             del repeatmode[key]
-            if (control_id==key):
+            if control_id==key and zone_autoswitch is True:
                 control_id = None
 
     get_new_control_id_by_roon_control_zone()
@@ -4060,7 +4073,7 @@ def update_webserver_channels(name, online):
     global control_id, channels, playmode, shufflemode, repeatmode
 
     if debug is True:
-        flexprint('update_webserver_channels => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels else ''))
+        flexprint('update_webserver_channels => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
         flexprint(name + ' online:' + str(online))
     keys = list(channels.keys())
     players = ['Spotify', 'Apple Music']
@@ -4082,7 +4095,7 @@ def update_webserver_channels(name, online):
                 del playmode[key]
                 del shufflemode[key]
                 del repeatmode[key]
-                if (control_id==key):
+                if control_id==key and zone_autoswitch is True:
                     control_id = None
 
     get_new_control_id_by_webserver_control_zone()
@@ -4091,15 +4104,22 @@ def update_webserver_channels(name, online):
     get_new_control_id_by_webserver_zone_online()
     get_new_control_id_by_roon_zone_online()
 
-    if debug is True: flexprint('update_webserver_channels => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels else ''))
+    if debug is True: flexprint('update_webserver_channels => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
 
 def get_new_control_id_by_webserver_control_zone():
     global control_id, control_zone
 
     if control_zone is not None and webservers_show == True and control_zone in channels.keys() and channels[control_zone]=='webserver':
-        control_id = control_zone
-        if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
-        control_zone = None
+        if zone_autoswitch is True:
+            control_id = control_zone 
+            if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+            control_zone = None
+        else:
+            if control_id is None:
+                control_id = control_zone 
+                if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+            else:
+                if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
 
 def get_new_control_id_by_webserver_zone_online():
     global control_id
@@ -4110,8 +4130,15 @@ def get_new_control_id_by_webserver_zone_online():
         if keys_len > 0:
             for key in keys:
                 if channels[key]=='webserver':
-                    control_id = key
-                    if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                    if zone_autoswitch is True:
+                        control_id = key
+                        if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                    else:
+                        if control_id is None and key==control_zone:
+                            control_id = key
+                            if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                        else: 
+                            if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
                     break
 
 def get_new_control_id_by_roon_control_zone():
@@ -4123,9 +4150,16 @@ def get_new_control_id_by_roon_control_zone():
         if keys_len > 0:
             for key in keys:
                 if not channels[key]=='webserver' and channels[key]==control_zone:
-                    control_id = key
-                    if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
-                    control_zone = None
+                    if zone_autoswitch is True:
+                        control_id = key
+                        if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                        control_zone = None
+                    else:
+                        if control_id is None:
+                            control_id = key
+                            if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                        else:
+                            if log is True: flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
                     break
 
 def get_new_control_id_by_roon_zone_playing():
@@ -4141,8 +4175,15 @@ def get_new_control_id_by_roon_zone_playing():
                 if log is True: flexprint('zone: ' + str(zone))
                 for id, name in channels.items():
                     if name == zone["display_name"]:
-                        control_id = id
-                        if log is True: flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                        if zone_autoswitch is True:
+                            control_id = id
+                            if log is True: flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                        else:
+                            if control_id is None and name==control_zone:
+                                control_id = id
+                                if log is True: flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                            else:
+                                if log is True: flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
                         return
 
 def get_zone_names():
@@ -4150,19 +4191,21 @@ def get_zone_names():
 
     if (len(roon_zones) == 0 and roonapi != None):
         roon_zones = list(roonapi.zones.values())
-    zone_id_list = []
+    zones_online = []
+    zones_playing = []
     for zone in roon_zones:
-        if zone["state"] is not None and zone["state"] != "Unknown" and 'now_playing' in zone:
-            zone_id_list.append(zone['zone_id'])
+        if zone["state"] is not None and zone["state"] != "Unknown":
+            zones_online.append(zone['display_name'])
+            if 'now_playing' in zone:
+                zones_playing.append(zone['display_name'])
 
-    zones = []
     for id, name in channels.items():
         if name == 'webserver':
-            zones.append(id)
-        elif id in zone_id_list:
-            zones.append(name)
-    zones.sort()
-    return zones
+            zones_online.append(id)
+            zones_playing.append(id)
+    zones_online.sort()
+    zones_playing.sort()
+    return [zones_online, zones_playing]
 
 def get_new_control_id_by_roon_zone_online():
     global control_id
@@ -4173,8 +4216,15 @@ def get_new_control_id_by_roon_zone_online():
         if keys_len > 0:
             for key in keys:
                 if not channels[key]=='webserver':
-                    control_id = key
-                    if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                    if zone_autoswitch is True:
+                        control_id = key 
+                        if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                    else:
+                        if control_id is None and channels[key]==control_zone:
+                            control_id = key
+                            if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                        else:
+                            if log is True: flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
                     break
 
 def get_zone_control_shortname(str):
@@ -4214,8 +4264,33 @@ def filterIllegalChars(str):
     filtered = str.replace("\\\"","”") # RIGHT DOUBLE QUOTATION MARK
     return filtered
 
+def is_active_roon_zone(zone):
+    return zone["display_name"] == control_zone or control_id == zone['zone_id']
+
+def is_active_web_zone(name):
+    for id, name in channels.items():
+        if name == 'webserver' and id == name:
+            return True
+    return False
+
+def reconnect_roon_api_if_zone_is_stopped(roon_zones):
+    global roonapi
+    stopped_zone_found = False
+    for zone in roon_zones:
+        if 'state' in zone and zone["state"] is not None and zone["state"]=='stopped' and 'now_playing' not in zone:
+            stopped_zone_found = True
+            break
+    if stopped_zone_found is True:
+        flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
+        roonapi.stop()
+        roonapi = None
+        get_roon_api()
+        if roonapi is not None:
+            return list(roonapi.zones.values())
+    return roon_zones
+
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones
+    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
 
     buildstr = ''
@@ -4241,7 +4316,29 @@ def build_output():
             flexprint('roon_active: ' + str(roon_active) + ', core_ip: ' + str(core_ip) + ', core_port: ' + str(core_port) + ', roonapi: ' + str(roonapi is not None))
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
                 update_roon_channels()
-                roon_zones = list(roonapi.zones.values())
+                roon_zones = reconnect_roon_api_if_zone_is_stopped(list(roonapi.zones.values()))
+
+                if display_cover is True:
+                    upcoming_control_zone = None # the actual selected roon zone which is coming online again
+                    zonestatus_list = get_zone_names()
+                    zones_online = zonestatus_list[0]
+                    zones_playing = zonestatus_list[1]
+                    if last_zones_online != zones_online or last_zones_playing != zones_playing:
+                        missing_control_zone = control_zone not in zones_online
+                        stopped_control_zone = control_zone not in zones_playing
+                        if control_zone not in last_zones_online and control_zone in zones_online:
+                            upcoming_control_zone = control_zone # zone is online again
+                        last_zones_online = zones_online
+                        last_zones_playing = zones_playing
+                        flexprint('[bold red]Roonmatrix => Coverplayer.setZones (roon build_output) => zones online: ' + str(zones_online) + ', control_zone: ' + str(control_zone) + ', control_id: ' + str(control_id) + ', missing_control_zone: ' + str(missing_control_zone) + ', stopped_control_zone: ' + str(stopped_control_zone) + ', upcoming_control_zone: ' + str(upcoming_control_zone) + '[/bold red]')
+                        if stopped_control_zone or missing_control_zone:
+                            cover_text_line_parts = []
+                            cover_text_line_parts.append(get_message('Zone') + ': ' + control_zone)
+                            cover_text_line_parts.append('[offline]' if missing_control_zone else '[inactive]')
+                        else:
+                            cover_text_line_parts = None
+                        Coverplayer.setZones(zones_online, cover_text_line_parts, zone_selection)    
+
                 for zone in roon_zones:
                     state = "Unknown"
                     artistFiltered = ''
@@ -4252,6 +4349,12 @@ def build_output():
                     if zone["state"] is not None:
                         state = zone["state"] # state variants: loading, playing, paused, stopped, not running
                     flexprint('### roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else 'None'))
+                    
+                    if state=='stopped' and 'now_playing' not in zone:
+                        flexprint('[red]stopped state found => reconnect roon api[/red]')
+                        roonapi.stop()
+                        get_roon_api()
+                    
                     if state == "Unknown" or 'now_playing' not in zone:
                         continue
                     else:
@@ -4277,13 +4380,7 @@ def build_output():
                             cover_url = roonapi.get_image(image_key)
 
                         if display_cover is True:
-                            zones = get_zone_names()
-                            if last_zones != zones:
-                                last_zones = zones
-                                flexprint('[bold red]Coverplayer.setZones (roon build_output) => zones: ' + str(zones) + '[/bold red]')
-                                Coverplayer.setZones(zones)
-
-                            if control_id is not None and zone["display_name"] == channels[control_id]:
+                            if control_id is not None and control_id in channels.keys() and zone["display_name"] == channels[control_id]:
                                 cover_text_line_parts = []
                                 cover_text_line_parts.append(get_message('Zone') + ': ' + zone["display_name"])
                                 if artistFiltered != '':
@@ -4293,7 +4390,8 @@ def build_output():
                                 if trackFiltered != '':
                                     cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
 
-                                if (cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or playing != is_playing_last or shuffle != shuffle_on_last or repeat != repeat_on_last):
+                                if ((upcoming_control_zone is not None and control_zone in zones_online and is_active_roon_zone(zone)) or cover_url != last_cover_url or last_cover_text_line_parts != '|'.join(cover_text_line_parts) or playing != is_playing_last or shuffle != shuffle_on_last or repeat != repeat_on_last):
+                                    upcoming_control_zone = None
                                     last_cover_url = cover_url
                                     last_cover_text_line_parts = '|'.join(cover_text_line_parts)
                                     playpos = zone.get("seek_position")
@@ -4309,8 +4407,8 @@ def build_output():
                                     repeat_on = repeat
                                     is_radio = False
                                     
-                                    flexprint('[bold red]Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones, zone_selection, on_control_click, on_search, on_itemclick)
+                                    flexprint('[bold red]Roonmatrix => Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                                    Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'
@@ -4322,7 +4420,7 @@ def build_output():
                         continue
                     else:
                         if log is True: flexprint('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
-                        if control_id is not None and zone["display_name"] == channels[control_id]:
+                        if control_id is not None and control_id in channels.keys() and zone["display_name"] == channels[control_id]:
                             zone_name = '[*] '
                         else:
                             zone_name = ''
