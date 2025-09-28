@@ -2079,15 +2079,24 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
                 req_time = web_response[1]          
                 if len(results) > 0 and 'error' not in results[0]:
                     result = results[0]['text']
-
+                    if is_json_str(result) is False:
+                        if isinstance(result, str) is True:
+                            flexprint('send_webserver_zone_control => error: ' + str(result))
+                        else:
+                            result = '[]'
+                        return result
                     playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
                     if code in playcontrols:
                         flexprint('playcontrol result: ' + str(result))
                         get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
                     return result
                 else:
-                    flexprint('send_webserver_zone_control => async response is empty!')
-                    return
+                    if 'error' in results[0]:
+                        flexprint('send_webserver_zone_control => error: ' + str(results[0]['error']))
+                        return results[0]['error']
+                    else:
+                        flexprint('send_webserver_zone_control => async response is empty!')
+                        return '[]'
             except HTTPError as e:
                 if errorlog is True:
                     flexprint('The webserver couldn\'t fulfill the request.')
@@ -2865,6 +2874,15 @@ def replace_escaped_list(items):
         filteredItems.append(replace_escaped_item(item))
     return filteredItems
 
+def is_json_str(raw):
+    not_valid = isinstance(raw, str) is False or len(raw)<2 or (raw[0:1] != '{' and raw[0:1] != '[') or (raw[-1:] != '}' and raw[-1:] != ']')
+    if not_valid is True:
+        if raw is None or isinstance(raw, str) is False:
+            flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)))
+        else:
+            flexprint('json string not valid => len: ' + str(len(raw)) + ', first char: ' + raw[0:1] + ', last char: ' + raw[-1:])
+    return not_valid is False
+
 def on_search(is_stream, value, zone, type):
     control_id = None
     albums = None
@@ -2950,6 +2968,8 @@ def on_search(is_stream, value, zone, type):
                     raw = send_webserver_zone_control(control_id, True, 'artists', value)
                     if raw is None:
                         return [meta, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     flexprint('************ Apple Music artist search raw response: ' + str(raw))
                     artists = json.loads(raw)
                 if (len(artists) == 0):
@@ -2969,6 +2989,8 @@ def on_search(is_stream, value, zone, type):
                     flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
                     if raw is None:
                         return [meta, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     albums = json.loads(raw)
                     albums = replace_escaped_list(albums)
             if type == 'genre' and is_stream is False:
@@ -2977,6 +2999,8 @@ def on_search(is_stream, value, zone, type):
                 raw = send_webserver_zone_control(control_id, True, 'genres', value)
                 if raw is None:
                     return [meta, []]
+                if is_json_str(raw) is False:
+                    return str(raw)
                 flexprint('************ Apple Music genre search raw response: ' + str(raw))
                 genres = json.loads(raw)
                 if (len(genres) == 0):
@@ -2992,6 +3016,8 @@ def on_search(is_stream, value, zone, type):
                 flexprint('genre '+str(genre)+' artists raw: ' + str(raw))
                 if raw is None:
                     return [meta, []]
+                if is_json_str(raw) is False:
+                    return str(raw)
                 artists = json.loads(raw)
                 artists = replace_escaped_list(artists)
             if type == 'playlist':
@@ -3003,6 +3029,8 @@ def on_search(is_stream, value, zone, type):
                     raw = send_webserver_zone_control(control_id, True, 'playlists', value)
                     if raw is None:
                         return [meta, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     flexprint('playlist apple music raw: ' + str(raw))
                     playlists = json.loads(raw)
                 if (len(playlists) == 0):
@@ -3024,6 +3052,8 @@ def on_search(is_stream, value, zone, type):
                     flexprint('#applemusic raw: ' + str(raw))
                     if raw is None:
                         return [meta, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     flexprint('#applemusic before loads: ' + str(raw))
                     tracks = json.loads(raw)
                     tracks = replace_escaped_list(tracks)
@@ -3045,6 +3075,8 @@ def on_search(is_stream, value, zone, type):
                     raw = send_webserver_zone_control(control_id, True, 'tracks-with-artist', value)
                     if raw is None:
                         return [meta, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     flexprint('************ Apple Music track search raw response: ' + str(raw))
                     tracks = json.loads(raw)
                     tracks = replace_escaped_list(tracks)
@@ -3199,6 +3231,8 @@ def on_itemclick(meta, search, itemname, zone):
                     raw = send_webserver_zone_control(control_id, True, 'albums', itemname)
                     if raw is None:
                         return ['albums', search, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     albums = json.loads(raw)
                     albums = replace_escaped_list(albums)
                 return ['albums', search, albums]
@@ -3206,6 +3240,8 @@ def on_itemclick(meta, search, itemname, zone):
                 raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', itemname)
                 if raw is None:
                     return ['artists', search, []]
+                if is_json_str(raw) is False:
+                    return str(raw)
                 artists = json.loads(raw)
                 artists = replace_escaped_list(artists)
                 return ['artists', search, artists]
@@ -3226,6 +3262,8 @@ def on_itemclick(meta, search, itemname, zone):
                     raw = send_webserver_zone_control(control_id, True, 'albumtracks', search, itemname)
                     if raw is None:
                         return ['tracks', search, itemname, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     tracks = json.loads(raw)
                     tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
                 meta['tracks'] = tracks
@@ -3248,6 +3286,8 @@ def on_itemclick(meta, search, itemname, zone):
                     raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', itemname)
                     if raw is None:
                         return ['tracks', search, itemname, []]
+                    if is_json_str(raw) is False:
+                        return str(raw)
                     tracks = json.loads(raw)
                     tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
                 meta['tracks'] = tracks

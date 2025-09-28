@@ -341,6 +341,7 @@ try {
                         repeat with aTrack in allTracks
                             set artistName to artist of aTrack
                             if artistName is not missing value then
+                                set artistName to my replaceText("\"", "[dq]", artistName)
                                 set artistStr to "\"" & artistName & "\""
                                 if artistStr is not in foundArtists then
                                     set end of foundArtists to artistStr
@@ -350,6 +351,7 @@ try {
 
                         return foundArtists as list
                     end tell
+                    $replaceText
                     EOD;    
 				}
 				break;
