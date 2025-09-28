@@ -524,7 +524,7 @@ try {
 		        if ($json_str != null) {
 			        $output = "[".$json_str."]";
 		        } else {
-        	        $output = 'script error';
+        	        $output = '[]';	// maybe a script error
 		        }
 		
 		        header('Content-Type: application/json; charset=utf-8');
