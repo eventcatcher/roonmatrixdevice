@@ -2538,7 +2538,7 @@ def applemusic_station(stations_name):
         flexprint('applemusic_station error: ' + str(e))
         return []
 
-def applemusic_get_artist_albums(artist_name):
+def applemusic_get_albums_by_artist_name(artist_name):
     try:
         am = applemusic_init()
         if isinstance(am, str):
@@ -2553,14 +2553,39 @@ def applemusic_get_artist_albums(artist_name):
             flexprint('applemusic request error: timeout')
             return []
 
-        albums = results['results']['albums']['data']
-        albums = list(map(lambda obj: {"name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
+        albums = results['results']['albums']['data'] if ('albums' in results['results'] and 'data' in results['results']['albums']) else []
+        albums = list(map(lambda obj: {"artistName": obj['attributes']['artistName'], "name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
         if len(albums) == 0:
             return []
 
         return albums
     except Exception as e:
-        flexprint('applemusic_get_artist_albums error: ' + str(e))
+        flexprint('applemusic_get_albums_by_artist_name error: ' + str(e))
+        return []
+
+def applemusic_get_albums_by_albumname(album_name):
+    try:
+        am = applemusic_init()
+        if isinstance(am, str):
+            return am
+
+        req_start_time = time.time()
+        results = am.search(album_name, types=['albums'])
+        req_end_time = time.time()
+        req_time = req_end_time - req_start_time
+        flexprint(f"applemusic request time: {req_time:.2f} seconds")
+        if results is None:
+            flexprint('applemusic request error: timeout')
+            return []
+
+        albums = results['results']['albums']['data'] if ('albums' in results['results'] and 'data' in results['results']['albums']) else []
+        albums = list(map(lambda obj: {"artistName": obj['attributes']['artistName'], "name": obj['attributes']['name'], "id": obj['attributes']['playParams']['id'], "url": obj['attributes']['url'].replace('https:','itmss:')}, albums))
+        if len(albums) == 0:
+            return []
+
+        return albums
+    except Exception as e:
+        flexprint('applemusic_get_albums_by_albumname error: ' + str(e))
         return []
 
 def applemusic_get_artist_relationship(artist_id,relationship):
@@ -2982,7 +3007,7 @@ def on_search(is_stream, value, zone, type):
                     return [meta, artists]
                 artist = artists[0].replace('"','\\\"')
                 if is_stream is True:
-                    albums = applemusic_get_artist_albums(artist)
+                    albums = applemusic_get_albums_by_artist_name(artist)
                 else:
                     raw = send_webserver_zone_control(control_id, True, 'albums', artist)
                     value = artist
@@ -3249,10 +3274,18 @@ def on_itemclick(meta, search, itemname, zone):
                 if is_stream is True and 'searchtype' in meta and meta['searchtype']=='tracklist':
                     itemname = ''
                     tracks = []
-                    albums = applemusic_get_artist_albums(meta['artist'])
-                    albums = [e for e in albums if e['name'] == meta['album']]
+                    albums = applemusic_get_albums_by_albumname(meta['album'])
+                    albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
+                    flexprint('[bold blue]tracklist => search for albums by album name => albums found: ' + str(len(albums)) + '[/bold blue]')
                     if len(albums) > 0:
                         itemname = albums[0]['id']
+                    else:
+                        flexprint('[bold blue]tracklist => search for albums by albumname empty => try to search for artist name[/bold blue]')
+                        albums = applemusic_get_albums_by_artist_name(meta['artist'])
+                        albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
+                        flexprint('[bold blue]tracklist => search for albums by artist name => albums found: ' + str(len(albums)) + '[/bold blue]')
+                        if len(albums) > 0:
+                            itemname = albums[0]['id']
                 else:
                     itemname = itemname.replace('"', '\\\"')
                 if is_stream is True:

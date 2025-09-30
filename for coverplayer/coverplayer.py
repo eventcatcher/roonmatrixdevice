@@ -1069,6 +1069,10 @@ class Coverplayer:
                     artist = artist.split('/')[0].strip()
                 if ',' in artist:
                     artist = artist.split(',')[0].strip()
+                if '+' in artist:
+                    artist = artist.split('+')[0].strip()
+                if '&' in artist:
+                    artist = artist.split('&')[0].strip()
                 album = self.text[2].split(':')[1].strip()
                 track = self.text[3].split(':')[1].strip()
                 if zone == self.zone:
