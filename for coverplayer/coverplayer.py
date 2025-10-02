@@ -384,7 +384,7 @@ class Coverplayer:
         self.btn_small_bgcolor = "#222222"	# background color of small buttons
         self.pending_btn_small_bgcolor = '#303030' # background color of small buttons in pending state
         self.btn_disabled_color = "#555555"	# background color of disabled button
-        self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=13, weight=tkFont.NORMAL)
+        self.buttonFont = tkFont.Font(family='Noto Sans Mono', size=15, weight=tkFont.NORMAL)
         self.button_highlight_color = '#80ed99'
 
         # button size in px (screensize is 72mm x 72mm for 720px x 720px => 10px / mm on screen)
@@ -527,6 +527,9 @@ class Coverplayer:
                 "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
                 "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
                 "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
+                "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
+                "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
+                "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
         }
         except Exception as e:
             self.flexprint(f"[red]Icon loading error:[/red] {e}")
@@ -594,6 +597,17 @@ class Coverplayer:
              w = 0
         self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
     
+    def get_sourcetype_icon(self, label):
+        if 'apple music' in label:
+            return 'applemusic'
+        elif 'spotify' in label:
+            return 'spotify'
+        else:
+            return 'roon'
+
+    def get_zonebutton_label_without_type(self, label):
+        return label.replace('-Apple Music', '').replace('-Spotify', '')
+    
     def _show_overlay(self):
         self._start_overlay_timer()
         
@@ -621,10 +635,14 @@ class Coverplayer:
         for col in range(max_per_row):
             zone_frame.grid_columnconfigure(col, weight = 1)
     
+        wraplength = int(self.maxpx_x / 3) - 80
         for idx, label in enumerate(self.buttons):
             row = idx // max_per_row
             col = idx % max_per_row
-            self.zone_btn[label] = Button(zone_frame, text = label, bg = self.button_highlight_color if (self.zone is not None and label == self.zone) else None, wraplength = self.maxpx_x / 4 , font = self.buttonFont, command = lambda l = label: self._on_button_click(l), pady = 20, height = 1)
+            icon_key = self.get_sourcetype_icon(label.lower())
+            icon = self.control_icons[icon_key]
+            text = self.get_zonebutton_label_without_type(label)
+            self.zone_btn[label] = Button(zone_frame, text = text, image=icon, anchor="w", justify="left", compound="left", wraplength = wraplength, bg = self.button_highlight_color if (self.zone is not None and label == self.zone) else None, font = self.buttonFont, command = lambda l = label: self._on_button_click(l), padx = 4, pady = 5, height = 56)
             self.zone_btn[label].grid(row = row, column = col, padx = 10, pady = 10, sticky = "ew")
 
         # container for play control buttons (bottom)
