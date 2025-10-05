@@ -2903,7 +2903,7 @@ def is_json_str(raw):
     not_valid = isinstance(raw, str) is False or len(raw)<2 or (raw[0:1] != '{' and raw[0:1] != '[') or (raw[-1:] != '}' and raw[-1:] != ']')
     if not_valid is True:
         if raw is None or isinstance(raw, str) is False:
-            flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)))
+            flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)) + ', str: ' + str(raw))
         else:
             flexprint('json string not valid => len: ' + str(len(raw)) + ', first char: ' + raw[0:1] + ', last char: ' + raw[-1:])
     return not_valid is False
@@ -3410,6 +3410,12 @@ def on_itemclick(meta, search, itemname, zone):
                     return ['albums', itemname, albums]
                 else:
                     return ['artist', itemname]
+            if meta['type'] == 'artistalbums':
+                try:
+                    albums = roon_get_artist_albums(output_id, search)
+                except Exception as e:
+                    albums = []
+                return ['albums', itemname, albums]
             if meta['type'] == 'genres':
                 try:
                     artists = roon_get_genre_artists(output_id, itemname)

@@ -865,7 +865,7 @@ class Coverplayer:
         return filtered_items
     
     def on_search(self, is_stream, type, key):
-        self.flexprint("coverplayer => on_search:" + str(key) + ', zone: ' + self.zone)
+        self.flexprint('coverplayer => on_search, zone: ' + str(self.zone) + ', is_stream:' + str(is_stream) + ', type: ' + str(type) + ', key: ' + str(key))
         if self.search_callback is not None and self.zone is not None:
             data = self.search_callback(is_stream, key, self.zone, type)
             if isinstance(data, str):
@@ -886,7 +886,7 @@ class Coverplayer:
                         else:
                             album_names = list(map(lambda obj: obj['name'], albums))
                             print(*album_names, sep="\n")
-                        meta['label'] = self.lang['artist'].title()
+                        meta['label'] = self.lang['select_album'].title()
                         meta['listname'] = self.unescape_quotes(meta['artist'])
                         self._open_list(meta, albums)
                     elif albums is not None and isinstance(albums, str) is True:
@@ -971,7 +971,7 @@ class Coverplayer:
         self.flexprint('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
         self.close_list()
         if self.itemclick_callback is not None:
-            data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
+            data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='artistalbums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
             if isinstance(data, str):
                 self.itemlistclass.error_message(data)
                 return
@@ -980,7 +980,10 @@ class Coverplayer:
                 result_type = data[0]
                 if result_type == 'artist':
                     self.search = data[1]
-                    self.on_search(self.search)
+                    meta['type'] = 'artistalbums'
+                    meta['artist'] = self.search
+                    meta['label'] = self.lang['select_album'].title()
+                    self.on_itemclick(meta, 'albums', self.search)
                 if result_type == 'artists':
                     self.search = data[1]
                     artists = data[2]
@@ -995,7 +998,7 @@ class Coverplayer:
                         meta['genreId'] = id
                         meta['label'] = self.lang['genre'].title()
                         meta['listname'] = self.unescape_quotes(self.search)
-                        self.flexprint('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self.flexprint('on_itemclick before _open_list, meta: ' + str(meta))
                         self._open_list(meta, artists)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
@@ -1011,9 +1014,9 @@ class Coverplayer:
                         meta['type'] = result_type
                         meta['artist'] = self.search
                         meta['artistId'] = id
-                        meta['label'] = self.lang['artist'].title()
+                        meta['label'] = self.lang['select_album'].title()
                         meta['listname'] = self.unescape_quotes(self.search)
-                        self.flexprint('on_itemclick before _open_list1, meta: ' + str(meta))
+                        self.flexprint('on_itemclick before _open_list, meta: ' + str(meta))
                         self._open_list(meta, albums)
                     else:
                         self.itemlistclass.error_message(self.lang['notfound'].upper())
