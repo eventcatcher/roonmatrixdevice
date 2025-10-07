@@ -2323,14 +2323,19 @@ def roon_get_artists(output_id, name):
     try:
         artists = roonapi.list_media(output_id, ["Library", "Artists", name ])
         if artists is not None and len(artists) > 0:
+            artists = list(set(artists))
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.title() ])
         if artists is not None and len(artists) > 0:
+            artists = list(set(artists))
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.upper() ])
         if artists is not None and len(artists) > 0:
+            artists = list(set(artists))
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.lower() ])
+        if artists is not None and len(artists) > 0:
+            artists = list(set(artists))
         return artists
     except Exception as e:
         return []
