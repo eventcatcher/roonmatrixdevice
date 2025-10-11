@@ -3271,6 +3271,7 @@ def on_itemclick(meta, search, itemname, zone):
             if meta['type'] == 'albums':
                 if 'searchtype' in meta and meta['searchtype']=='tracklist':
                     if 'trackId' in meta and meta['trackId']!='':
+                        flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
                         album = spotify_get_album_by_track_uri(meta['trackId'])
                         if isinstance(album, str):
                             return album
@@ -3288,6 +3289,7 @@ def on_itemclick(meta, search, itemname, zone):
                         else:
                             return coverplayer_lang['unknown_error']
                     else:
+                        flexprint('roonmatrix search tracklist by artist and album name: ' + str(meta['artist']) + ' / ' + str(meta['album']))
                         # fallback if trackId is undefined or empty
                         album_obj = spotify_search_artist_album(meta['artist'], meta['album'])
                         if isinstance(album_obj, str):
@@ -3370,6 +3372,7 @@ def on_itemclick(meta, search, itemname, zone):
                         tracks = applemusic_get_album_tracks(itemname)
                 else:
                     if 'trackId' in meta and meta['trackId']!='':
+                        flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
                         raw = send_webserver_zone_control(control_id, True, 'artist-and-album-by-track-id', meta['trackId'])
                         if is_json_str(raw) is False:
                             return str(raw)
@@ -3380,6 +3383,7 @@ def on_itemclick(meta, search, itemname, zone):
                         album_name = result_json[1]
                         raw = send_webserver_zone_control(control_id, True, 'albumtracks', artist_name, album_name)
                     else:
+                        flexprint('roonmatrix search tracklist by artist and album name: ' + str(search) + ' / ' + str(itemname))
                         raw = send_webserver_zone_control(control_id, True, 'albumtracks', search, itemname) # fallback if trackId is undefined or empty
                     if raw is None:
                         return ['tracks', search, itemname, []]

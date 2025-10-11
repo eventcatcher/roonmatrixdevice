@@ -267,10 +267,14 @@ class Coverplayer:
                         lines = cls._wrap_text(text_part, font, max_width)
                     for line in lines:
                         text_width, text_height = draw.textsize(line, font = font)
-                        draw.rectangle(
-                            [text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space],
-                            fill = background
-                        )
+                        try:
+                            draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = background)
+                        except Exception as e:
+                            try:
+                                print('=> draw.rectangle fallback for grayscale image')
+                                draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = 0) # fallback for grayscale images (not true color)
+                            except Exception as e:
+                                print('draw.rectangle error: ' + str(e))
                         draw.text((text_x, text_y), line, font = font, fill = "white")
                         text_y += text_height + line_space  # line spacing
 
@@ -422,6 +426,8 @@ class Coverplayer:
         self.text = []
         self.zone = None
         self.zone_off = True
+        self.missing_zone = False
+        self.stopped_zone = False
         self.zone_btn = {}
         self.path = ''
         self.zone_callback = None
@@ -1210,8 +1216,14 @@ class Coverplayer:
                     repeat_changed = self.repeat_on != repeat_on
                     track_id_changed = self.track_id != track_id
         
-                    if text_changed or path_changed or playlen_changed or playing_changed or shuffle_changed or repeat_changed:       
-                        self.zone_off = False
+                    if text_changed or path_changed or playlen_changed or playing_changed or shuffle_changed or repeat_changed:
+                        self.missing_zone = self.text is not None and len(self.text) == 2 and self.text[1] == 'offline'
+                        self.stopped_zone = self.text is not None and len(self.text) == 2 and self.text[1] == 'inactive'
+
+                        if self.zone_off is True or self.missing_zone is True or self.stopped_zone is True:
+                            self.zone_off = False
+                            self.missing_zone = False
+                            self.stopped_zone = False
                         if self.debug is True:
                             self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
 
@@ -1251,7 +1263,7 @@ class Coverplayer:
                         self.search_callback = search_callback
                         self.itemclick_callback = itemclick_callback
 
-                        self.flexprint('[bold red]update wakeup[/bold red]')
+                        self.flexprint('[bold red]update wakeup => playmode: ' + str(playmode) + ', path: ' + str(path) + ', text: ' + str(text) + '[/bold red]')
                         self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                
                         self.path = path
                 if func == 'set_keyboard_codes':
@@ -1274,7 +1286,6 @@ class Coverplayer:
                     path_changed = self.path != path
                     playing_changed = self.is_playing != is_playing 
 
-                    self.zone_off = False
                     if self.debug is True:
                         self.flexprint('[bold red]CoverPlayer: poll_queue => sourcetype: ' + str(sourcetype) + ', setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', is_radio: ' + str(is_radio) + ', track_id: ' + str(track_id) + '[/bold red]')
                     if playpos is None:
@@ -1312,10 +1323,10 @@ class Coverplayer:
                     self.buttons = buttons
                     self.zone_callback = zone_callback
                     first_load = len(self.text) == 0 and text is not None and len(text) == 2 and (text[1] == '[offline]' or text[1] == '[inactive]')
-                    missing_zone = self.zone not in self.buttons and text is not None and len(text) == 2 and text[1] == '[offline]'
-                    stopped_zone = self.zone in self.buttons and text is not None and len(text) == 2 and text[1] == '[inactive]'
-                    self.flexprint('[red]CoverPlayer setZones => first_load: ' + str(first_load) + ', missing_zone: ' + str(missing_zone) + ', stopped_zone: ' + str(stopped_zone) + ', zone: ' + str(self.zone) + ', buttons_backup: ' + str('|'.join(buttons_backup)) + ', buttons: ' + str('|'.join(self.buttons))  + ', text: ' + str(text) + '[/red]')
-                    if first_load or missing_zone or stopped_zone:
+                    self.missing_zone = self.zone not in self.buttons and text is not None and len(text) == 2 and text[1] == '[offline]'
+                    self.stopped_zone = self.zone in self.buttons and text is not None and len(text) == 2 and text[1] == '[inactive]'
+                    self.flexprint('[red]CoverPlayer setZones => first_load: ' + str(first_load) + ', missing_zone: ' + str(self.missing_zone) + ', stopped_zone: ' + str(self.stopped_zone) + ', zone: ' + str(self.zone) + ', buttons_backup: ' + str('|'.join(buttons_backup)) + ', buttons: ' + str('|'.join(self.buttons))  + ', text: ' + str(text) + '[/red]')
+                    if first_load or self.missing_zone or self.stopped_zone:
                         if len(text) == 2 and (text[1] == '[offline]' or text[1] == '[inactive]'):
                             text[1] = self.lang[text[1][1:-1]]
                             self.zone_off = text[1] == '[offline]'
