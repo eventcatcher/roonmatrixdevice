@@ -271,10 +271,10 @@ class Coverplayer:
                             draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = background)
                         except Exception as e:
                             try:
-                                print('=> draw.rectangle fallback for grayscale image')
+                                flexprint('=> draw.rectangle fallback for grayscale image')
                                 draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = 0) # fallback for grayscale images (not true color)
                             except Exception as e:
-                                print('draw.rectangle error: ' + str(e))
+                                flexprint('draw.rectangle error: ' + str(e))
                         draw.text((text_x, text_y), line, font = font, fill = "white")
                         text_y += text_height + line_space  # line spacing
 
