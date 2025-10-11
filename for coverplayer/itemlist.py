@@ -96,7 +96,7 @@ class ItemList:
         self.master = Tk()
         self.inpstr = StringVar()
         self.minLength = 3
-        self.maxRowCount = 7 # too much rows and maxsize too big results in a exception: BadAlloc (insufficient resources for operation)
+        self.maxRowCount = 6 # too much rows and maxsize too big results in a exception: BadAlloc (insufficient resources for operation)
         self.rowheight = 90 # maxsize, for bigger height exception throws: BadAlloc (insufficient resources for operation)
         self.fontSize = 24
         self.gray = "#383838"

@@ -54,47 +54,47 @@ class Coverplayer:
     @classmethod
     def set_keyboard_codes(cls, keyb_list, alternative_layout):
         cls._ensure_running()
-        cls._queue.put(('set_keyboard_codes', keyb_list, alternative_layout, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('set_keyboard_codes', keyb_list, alternative_layout, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def config(cls, lang, webserver_url_request_timeout, display_auto_wakeup):
         cls._ensure_running()
-        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('config', lang, webserver_url_request_timeout, display_auto_wakeup, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_spotify(cls, disabled):
         cls._ensure_running()
-        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('disable_spotify', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def disable_applemusic(cls, disabled):
         cls._ensure_running()
-        cls._queue.put(('disable_applemusic', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('disable_applemusic', disabled, None, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def vkeyb_error_message(cls, message):
         cls._ensure_running()
-        cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('vkeyb_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
     def itemlist_error_message(cls, message):
         cls._ensure_running()
-        cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None))
+        cls._queue.put(('itemlist_error_message', message, None, None, None, None, None, None, None, None, None, None, None, None, None, None))
 
     @classmethod
-    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = [], buttons = None, zone_callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
+    def update(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, text = [], buttons = None, zone_callback = None, control_callback = None, search_callback = None, itemclick_callback = None):
         cls._ensure_running()
-        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons or [], zone_callback, control_callback, search_callback, itemclick_callback))
+        cls._queue.put(('update', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, text, buttons or [], zone_callback, control_callback, search_callback, itemclick_callback))
 
     @classmethod
-    def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text = []):
+    def setpos(cls, playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, text = []):
         cls._ensure_running()
-        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, None, None, None, None, None))
+        cls._queue.put(('setpos', playpos, playlen, path_or_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, text, None, None, None, None, None))
 
     @classmethod
     def setZones(cls, buttons, text, zone_callback):
         cls._ensure_running()
-        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, text, buttons or [], zone_callback, None, None, None))
+        cls._queue.put(('setZones', None, None, None, None, None, None, None, None, None, text, buttons or [], zone_callback, None, None, None))
 
     @classmethod
     def _ensure_running(cls):
@@ -436,6 +436,7 @@ class Coverplayer:
         self.is_radio = False # true: is applemusic radio stream
         self.shuffle_on = False
         self.repeat_on = False
+        self.track_id = ''
         self.control_icons = {}
         self._load_control_icons()
         self.tracklist_btn = None
@@ -767,6 +768,7 @@ class Coverplayer:
                 is_playing = stateupdate[0]
                 shuffle_on = stateupdate[1]
                 repeat_on = stateupdate[2]
+                track_id = stateupdate[3]
             #self._set_playmode(is_playing)
             #self.is_playing = is_playing
             if action == 'backward':
@@ -971,7 +973,7 @@ class Coverplayer:
         self.flexprint('coverplayer => on_itemclick, meta: ' + str(meta) + ', name: ' + str(name) + ', id: ' + str(id) + ', zone: ' + self.zone)
         self.close_list()
         if self.itemclick_callback is not None:
-            data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='artistalbums' or meta['type']=='tracks') else name, id if id is not None else name, self.zone)
+            data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='artistalbums' or meta['type']=='tracks') else name, id if (id is not None and id != '') else name, self.zone)
             if isinstance(data, str):
                 self.itemlistclass.error_message(data)
                 return
@@ -1098,9 +1100,10 @@ class Coverplayer:
                 track = self.text[3].split(':')[1].strip()
                 if zone == self.zone:
                     is_stream = self.sourcetype == 'stream'
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'label': self.lang['artist'].title(), 'listname': artist}   
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'searchtype': type, 'search': artist, 'artist': artist, 'artistId': artist, 'album': album, 'trackId': str(self.track_id), 'label': self.lang['artist'].title(), 'listname': artist}
+                    self.flexprint('tracklist clicked => meta: ' + str(meta))
                     self.search = artist
-                    self.on_itemclick(meta, album)
+                    self.on_itemclick(meta, album, self.track_id)
         else:
             self.hasRadioSearch = False
             zonetype = self.get_zonetype()
@@ -1197,49 +1200,60 @@ class Coverplayer:
     def _poll_queue(self):
         try:
             while True:
-                func, playpos, playlen, path, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, text, buttons, zone_callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
-                if func == 'update' and ('|'.join(self.text) != '|'.join(text) or self.path != path or self.playlen != playlen or self.is_playing != is_playing or self.shuffle_on != shuffle_on or self.repeat_on != repeat_on):
-                    self.zone_off = False
-                    if self.debug is True:
-                        self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
-
-                    #playmode = playlen is not None and playlen != -1 and is_playing is True
-                    playmode = is_playing # new for roon radio
-                    self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + '[/red]')
-                    self._set_playmode(playmode)
-
-                    self._set_shufflemode(shuffle_on, playlen)
-                    self._set_repeatmode(repeat_on, playlen)
-
-                    self.is_playing = is_playing
-                    self.sourcetype = sourcetype
-                    self.is_radio = is_radio
-                    self.shuffle_on = shuffle_on
-                    self.repeat_on = repeat_on
-
-                    if self.buttons != buttons:
-                        self.buttons = buttons
-
-                    if playpos is None:
+                func, playpos, playlen, path, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, text, buttons, zone_callback, control_callback, search_callback, itemclick_callback = self._queue.get_nowait()
+                if func == 'update':
+                    text_changed = '|'.join(self.text) != '|'.join(text)
+                    path_changed = self.path != path
+                    playlen_changed = self.playlen != playlen
+                    playing_changed = self.is_playing != is_playing 
+                    shuffle_changed = self.shuffle_on != shuffle_on
+                    repeat_changed = self.repeat_on != repeat_on
+                    track_id_changed = self.track_id != track_id
+        
+                    if text_changed or path_changed or playlen_changed or playing_changed or shuffle_changed or repeat_changed:       
+                        self.zone_off = False
                         if self.debug is True:
-                            self.flexprint('[red]CoverPlayer: poll_queue update => playpos: is None[/red]')
-                    if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
-                        self.playpos_next = -1
-                    if (playpos is None or is_radio is True) and playlen != -1:
-                        self.playpos_next = 0
+                            self.flexprint('[bold red]CoverPlayer: poll_queue update => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
 
-                    self.update_playpos_next(func, playpos, playpos, is_radio)
-                    self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
-                    self.set_shuffle_and_repeat(playlen)
+                        #playmode = playlen is not None and playlen != -1 and is_playing is True
+                        playmode = is_playing # new for roon radio
+                        self.flexprint('[red]CoverPlayer: poll_queue update => playmode: ' + str(playmode) +  ', path: ' + str(path) + ', text_changed: ' + str(text_changed) + ', path_changed: ' + str(path_changed) + ', playlen_changed: ' + str(playlen_changed) + ', playing_changed: ' + str(playing_changed) + ', shuffle_changed: ' + str(shuffle_changed) + ', repeat_changed: ' + str(repeat_changed) + '[/red]')
+                        self._set_playmode(playmode)
+
+                        self._set_shufflemode(shuffle_on, playlen)
+                        self._set_repeatmode(repeat_on, playlen)
+
+                        self.is_playing = is_playing
+                        self.sourcetype = sourcetype
+                        self.is_radio = is_radio
+                        self.shuffle_on = shuffle_on
+                        self.repeat_on = repeat_on
+                        self.track_id = track_id
+
+                        if self.buttons != buttons:
+                            self.buttons = buttons
+
+                        if playpos is None:
+                            if self.debug is True:
+                                self.flexprint('[red]CoverPlayer: poll_queue update => playpos: is None[/red]')
+                        if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
+                            self.playpos_next = -1
+                        if (playpos is None or is_radio is True) and playlen != -1:
+                            self.playpos_next = 0
+
+                        self.update_playpos_next(func, playpos, playpos, is_radio)
+                        self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
+                        self.set_shuffle_and_repeat(playlen)
                     
-                    self.playlen = playlen
-                    self.zone_callback = zone_callback
-                    self.control_callback = control_callback
-                    self.search_callback = search_callback
-                    self.itemclick_callback = itemclick_callback
+                        self.playlen = playlen
+                        self.zone_callback = zone_callback
+                        self.control_callback = control_callback
+                        self.search_callback = search_callback
+                        self.itemclick_callback = itemclick_callback
 
-                    self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                
-                    self.path = path
+                        self.flexprint('[bold red]update wakeup[/bold red]')
+                        self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                
+                        self.path = path
                 if func == 'set_keyboard_codes':
                     self.keyb_list = playpos
                     self.alternative_layout = playlen
@@ -1256,9 +1270,13 @@ class Coverplayer:
                 if func == 'itemlist_error_message' and self.itemlistclass is not None:
                     self.itemlistclass.error_message(playpos)
                 if func == 'setpos':
+                    text_changed = '|'.join(self.text) != '|'.join(text)
+                    path_changed = self.path != path
+                    playing_changed = self.is_playing != is_playing 
+
                     self.zone_off = False
                     if self.debug is True:
-                        self.flexprint('[bold red]CoverPlayer: poll_queue setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + '[/bold red]')
+                        self.flexprint('[bold red]CoverPlayer: poll_queue => sourcetype: ' + str(sourcetype) + ', setpos => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', is_radio: ' + str(is_radio) + ', track_id: ' + str(track_id) + '[/bold red]')
                     if playpos is None:
                         if self.debug is True:
                             self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
@@ -1273,7 +1291,8 @@ class Coverplayer:
                     self._set_shufflemode(shuffle_on, playlen)
                     self._set_repeatmode(repeat_on, playlen)
                     
-                    if self.text is not None and len(self.text) > 0 and self.path != path or '|'.join(self.text) != '|'.join(text) or self.is_playing != is_playing:
+                    if self.text is not None and len(self.text) > 0 and (path_changed or text_changed or playing_changed):
+                        self.flexprint('[bold red]setpos wakeup => path_changed: ' + str(path_changed) + ', text_changed: ' + str(text_changed) + ', playing_changed: ' + str(playing_changed) + '[/bold red]')
                         self.wakeup_load_image_select_zone_disable_tracklist_and_search(playmode, path, text)                                    
                         if playpos is None or is_radio is True:
                             self.playpos_next = 0
@@ -1287,6 +1306,7 @@ class Coverplayer:
                     self.is_radio = is_radio
                     self.shuffle_on = shuffle_on
                     self.repeat_on = repeat_on
+                    self.track_id = track_id
                 if func == 'setZones' and self.buttons != buttons:
                     buttons_backup = self.buttons
                     self.buttons = buttons
@@ -1302,6 +1322,7 @@ class Coverplayer:
                         else:
                             self.zone_off = False
                         self.text = text
+                        self.flexprint('[bold red]setZones wakeup => buttons: ' + str('|'.join(buttons)) + ', text: ' + str('|'.join(text)) + '[/bold red]')
                         self.wakeup_load_image_select_zone_disable_tracklist_and_search(False, '', self.text)
                     else:
                         self.zone_off = False
