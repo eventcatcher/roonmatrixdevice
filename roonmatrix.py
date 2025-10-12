@@ -3689,7 +3689,8 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
     track_id = playprops['track_id']
     is_radio = obj['zone'] == 'Apple Music' and sourcetype == 'stream' and playpos == 0
 
-    if display_cover is True and 'cover' in obj and len(obj["cover"]) > 0:
+    if display_cover is True and (("cover" in obj and len(obj["cover"]) > 0) or ("track" in obj and len(obj["track"]) > 0)):
+        cover_str = obj["cover"] if "cover" in obj else ""
         cover_text_line_parts = []
         cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
         if 'artist' in obj and obj["artist"] != '':
@@ -3699,17 +3700,17 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
         if 'track' in obj and obj["track"] != '':
             cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
 
-        if (last_cover_url != obj["cover"] or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
-            last_cover_url = obj["cover"]
+        if (last_cover_url != cover_str or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
+            last_cover_url = cover_str
             last_cover_text_line_parts = '|'.join(cover_text_line_parts)
             zonestatus_list = get_zone_names()
             zones_online = zonestatus_list[0]
             zones_playing = zonestatus_list[1]
-            flexprint('[bold red]Roonmatrix => Coverplayer.update (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
-            Coverplayer.update(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+            flexprint('[bold red]Roonmatrix => Coverplayer.update (web) => cover: ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
+            Coverplayer.update(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
         else:
-            flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + obj["cover"] + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
-            Coverplayer.setpos(playpos, playlen, obj["cover"], is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
+            flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
+            Coverplayer.setpos(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
 
 def remove_prepended_from_displaystr(displaystr):
     if type(displaystr) == list:
