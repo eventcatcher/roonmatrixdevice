@@ -232,6 +232,7 @@ class Coverplayer:
                 pos = round((maxpx - size) / 2)
                 img.paste(icon_img, (pos, pos), mask = icon_img)
 
+            img = img.convert("RGBA") # convert img to RGBA mode
             draw = ImageDraw.Draw(img)
 
             if text:
@@ -254,7 +255,7 @@ class Coverplayer:
                 text_x = border_space
                 text_y = img.height - border_space - lines_all_items * (font_size + line_space)
                 
-                background = (0, 0, 0, 128)  # RGB + Alpha (0-255)
+                background = (0, 0, 0, 255)  # RGB + Alpha (0-255)
                 
                 for text_part in text:
                     sep = text_part.split(':')
