@@ -19,6 +19,8 @@
 // 8. environment variable named USER with the name of the macos user the webserver is running on.
 // 9. a subfolder for covers, located in: ~/websites/roonmatrix/covers
 
+$debug = false;
+
 try {
 	$source = isset($_POST['source']) ? $_POST['source'] : '';
 	$sourceKey = $source;
@@ -355,6 +357,35 @@ try {
                     EOD;    
 				}
 				break;
+			case 'artist-and-album-by-track-id':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set resultList to {}
+                        set trackId to track id $search                        
+                        set artistName to artist of trackId
+                        set artistName to my replaceText("\"", "[dq]", artistName)
+                        set albumName to album of trackId
+                        set albumName to my replaceText("\"", "[dq]", albumName)
+                        set end of resultList to "\"" & artistName & "\""
+                        set end of resultList to "\"" & albumName & "\""
+
+                        return resultList
+                    end tell
+                    $replaceText
+                    EOD;    
+				}
+				break;
+			case 'playtrack-with-id':
+				if ($source == "Music") {
+					$script = <<<EOD
+                    tell application "$source"
+                        set myId to $search
+                        play (track id myId)
+                    end tell
+                    EOD;    
+				}
+				break;
 			case 'playtrack':
 				if ($source == "Music") {
 				    if ($detail == '' && $detail2 == '') {
@@ -514,6 +545,7 @@ try {
             	'tracks-with-artist',
             	'playlists',
             	'playlist-tracks',
+            	'artist-and-album-by-track-id',
             	'play-playlist-track',
             	'genres',
             	'artists-in-genre',
@@ -530,7 +562,7 @@ try {
 		        header('Content-Type: application/json; charset=utf-8');
 		        echo $output;
 		    }
-            if ($code=='playtrack') {
+            if ($code=='playtrack' || $code=='playtrack-id') {
 		        header('Content-Type: application/json; charset=utf-8');
 		        echo $cmd;
             }
@@ -546,7 +578,18 @@ try {
 		$envHomePath = getenv('HOME');
 		$envPythonPath = getenv('PIPENV_PYTHON');
 		$envPyenvRoot = getenv('PYENV_ROOT');
-	    
+
+        if ($debug) {
+            echo "envUser: $envUser\n";
+            echo "envHomePath: $envHomePath\n";
+            echo "envPythonPath: $envPythonPath\n";
+            echo "envPyenvRoot: $envPyenvRoot\n\n";
+            
+            echo "directory covers exist: ".(is_dir('covers') ? "true" : "false")."\n";
+            echo "DOCUMENT_ROOT exist: ".(isset($_SERVER['DOCUMENT_ROOT']) ? "true" : "false")."\n";
+            echo "PHP_SELF exist: ".(isset($_SERVER['PHP_SELF']) ? "true" : "false")."\n";
+            echo "PWD exist: ".(isset($_SERVER['PWD']) ? "true" : "false")."\n\n";
+	    }
 	    // create subfolder covers to save all covers which are taken from local Apple Music library (folder for max 50 of the newest covers, the rest will be automatically removed)
 	    if (!is_dir('covers')) {
         	if (!mkdir('covers', 0777, true)) {
@@ -604,8 +647,17 @@ try {
 		} else {
 			$pythonScriptPath = '/Users/'.$username.'/websites/python/';
 		}
+		
+		if ($debug) {
+		    echo "pythonPath: $pythonPath \n";
+		    echo "pythonScriptPath: $pythonScriptPath \n";
+		    echo "pythonScriptName: $pythonScriptName \n\n";
+        }
 
 		$json_str = shell_exec($pythonPath.' '.$pythonScriptPath.$pythonScriptName);	// call python script and get returned payload
+		if ($debug) {
+		    echo "json_str is null: ".($json_str == null ? "true" : "false")." \n";
+        }
 		if ($json_str != null) {
 			// in json string array with objects, escape all doublequotes inside object property values strings
 			$len = strlen($json_str);

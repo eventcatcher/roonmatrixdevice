@@ -51,6 +51,10 @@ class Coverplayer:
                 else:
                     self.logger.info(str, objStr)
 
+    def flexprint_list(self, mylist):
+        for item in mylist:
+            self.flexprint(str(item))
+  
     @classmethod
     def set_keyboard_codes(cls, keyb_list, alternative_layout):
         cls._ensure_running()
@@ -537,6 +541,7 @@ class Coverplayer:
                 "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
                 "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
                 "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
+                "spotify-connect": PhotoImage(file = self.scriptpath + "icons/spotify-connect.png"),
                 "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
         }
         except Exception as e:
@@ -558,6 +563,13 @@ class Coverplayer:
             else:
                 btn.config(command = lambda: None, bg = self.btn_disabled_color, activebackground = self.btn_disabled_color)
 
+    def switch_playcontrol_button_state(self, btn, command, enabled):
+        if self.in_menu_mode is True and btn is not None:
+            if enabled is True:
+                btn.config(command = command, bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor)
+            else:
+                btn.config(command = lambda: None, bg = self.btn_disabled_color, activebackground = self.btn_disabled_color)
+
     def switch_button_state(self, btn, enabled):
         if self.in_menu_mode is True and btn is not None:
             if enabled is True:
@@ -568,13 +580,13 @@ class Coverplayer:
     def get_zonetype(self):
         if self.zone is None:
             return ''
-        return (self.zone.split('-')[1].strip()) if (len(self.zone.split('-'))==2 and (self.zone.endswith('-Apple Music') or self.zone.endswith('-Spotify'))) else 'Roon'
+        return (self.zone.split('-')[1].strip()) if (len(self.zone.split('-'))==2 and (self.zone.endswith('-Apple Music') or self.zone.endswith('-Spotify') or self.zone.endswith('-SpotifyConnect'))) else 'Roon'
 
     def set_search_button(self):
         if self.in_menu_mode is True and self.keyb_btn is not None:
             icon_enabled = self.zone is not None
             zonetype = self.get_zonetype()
-            if zonetype == 'Spotify' and self.spotify_disabled is True:
+            if zonetype.startswith('Spotify') and self.spotify_disabled is True:
                 icon_enabled = False
             if zonetype == 'Apple Music' and self.applemusic_disabled is True:
                 icon_enabled = False
@@ -586,7 +598,7 @@ class Coverplayer:
         if self.in_menu_mode is True and self.tracklist_btn is not None:
             icon_enabled = self.zone is not None and zone == self.zone
             zonetype = self.get_zonetype()
-            if (zonetype == 'Spotify' or zone == 'Spotify') and self.spotify_disabled is True:
+            if (zonetype.startswith('Spotify') or zone.startswith('Spotify')) and self.spotify_disabled is True:
                 icon_enabled = False
             if (zonetype == 'Apple Music' or zone == 'Apple Music') and self.applemusic_disabled is True:
                 icon_enabled = False
@@ -606,15 +618,17 @@ class Coverplayer:
         self.canvas.create_line(1, 1, w, 1, fill = "green", width = 12)
     
     def get_sourcetype_icon(self, label):
-        if 'apple music' in label:
+        if label.endswith('-apple music'):
             return 'applemusic'
-        elif 'spotify' in label:
+        elif label.endswith('-spotifyconnect'):
+            return 'spotify-connect'
+        elif label.endswith('-spotify'):
             return 'spotify'
         else:
             return 'roon'
 
     def get_zonebutton_label_without_type(self, label):
-        return label.replace('-Apple Music', '').replace('-Spotify', '')
+        return label.replace('-Apple Music', '').replace('-SpotifyConnect', '').replace('-Spotify', '')
     
     def _show_overlay(self):
         self._start_overlay_timer()
@@ -662,10 +676,11 @@ class Coverplayer:
         self.backward_btn = Button(control_frame, image = self.control_icons["backward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("backward"), takefocus = 0)
         self.backward_btn.pack(side = "left", padx = (5, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
         icon = self.control_icons["pause"] if self.is_playing else self.control_icons["play"]
-        self.play_btn = Button(control_frame, image = icon, bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
+        self.play_btn = Button(control_frame, image = icon, bg = self.ctrl_btn_bgcolor, takefocus = 0, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
         self.play_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
         self.forward_btn = Button(control_frame, image = self.control_icons["forward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("forward"), takefocus = 0)
         self.forward_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
+        self.set_play_control()
 
         # shuffle button at the bottom left
         icon = self.control_icons["shuffle_on"] if self.shuffle_on else self.control_icons["shuffle_off"]
@@ -723,7 +738,7 @@ class Coverplayer:
         if self.playpos_next != None:
             self.playpos = self.playpos_next
             self.playpos_next = None
-        if self.is_playing is True and self.playpos is not None and self.playpos != -1:
+        if self.missing_zone is False and self.stopped_zone is False and self.is_playing is True and self.playpos is not None and self.playpos != -1:
             if self.is_radio is False and (self.playlen is None or self.playpos < self.playlen):
                 self.playpos += 1
             if self.in_menu_mode is True:
@@ -891,10 +906,10 @@ class Coverplayer:
                     albums = data[1]
                     if albums is not None and isinstance(albums, str) is False and len(albums) > 0:
                         if isinstance(albums[0], str) is True:
-                            print(*albums, sep="\n")
+                            self.flexprint_list(albums)
                         else:
                             album_names = list(map(lambda obj: obj['name'], albums))
-                            print(*album_names, sep="\n")
+                            self.flexprint_list(album_names)
                         meta['label'] = self.lang['select_album'].title()
                         meta['listname'] = self.unescape_quotes(meta['artist'])
                         self._open_list(meta, albums)
@@ -906,7 +921,7 @@ class Coverplayer:
                     self.search = meta['search']
                     artists = data[1]
                     if artists is not None and isinstance(artists, str) is False and len(artists) > 0:
-                        print(*artists, sep="\n")
+                        self.flexprint_list(artists)
                         meta['label'] = self.lang['select_artist'].title()
                         meta['listname'] = None
                         self._open_list(meta, artists)
@@ -918,7 +933,7 @@ class Coverplayer:
                     self.search = meta['search']
                     genres = data[1]
                     if genres is not None and isinstance(genres, str) is False and len(genres) > 0:
-                        print(*genres, sep="\n")
+                        self.flexprint_list(genres)
                         meta['label'] = self.lang['select_genre'].title()
                         meta['listname'] = None
                         self._open_list(meta, genres)
@@ -936,7 +951,7 @@ class Coverplayer:
                             tracks = self.filter_list_to_unique_id(tracks)
                             if 'playlist' in meta:
                                 tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
-                        print(*tracks, sep="\n")
+                        self.flexprint_list(tracks)
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = self.unescape_quotes(meta['search'])
                         self.flexprint('coverplayer applemusic playlist tracks: ' + str(tracks))
@@ -949,7 +964,7 @@ class Coverplayer:
                     self.search = meta['search']
                     playlists = data[1]
                     if playlists is not None and isinstance(playlists, str) is False and len(playlists) > 0:
-                        print(*playlists, sep="\n")
+                        self.flexprint_list(playlists)
                         meta['label'] = self.lang['select_playlist'].title()
                         meta['listname'] = None
                         if meta['zonetype']=='Apple Music' and meta['stream'] is True:
@@ -963,7 +978,7 @@ class Coverplayer:
                     self.search = meta['search']
                     radios = data[1]
                     if radios is not None and isinstance(radios, str) is False and len(radios) > 0:
-                        print(*radios, sep="\n")
+                        self.flexprint_list(radios)
                         meta['label'] = self.lang['select_radio'].title()
                         meta['listname'] = None
                         self._open_list(meta, radios)
@@ -982,7 +997,7 @@ class Coverplayer:
         if self.itemclick_callback is not None:
             data = self.itemclick_callback(meta, self.search if (meta['type'] == 'albums' or meta['type']=='artistalbums' or meta['type']=='tracks') else name, id if (id is not None and id != '') else name, self.zone)
             if isinstance(data, str):
-                self.itemlistclass.error_message(data)
+                self.itemlistclass.error_message(data if data !='' else self.lang['unknown_error'])
                 return
             self.flexprint('coverplayer ==> itemclick_callback, data: ' + str(data))
             if data is not None and len(data) > 0:
@@ -998,10 +1013,10 @@ class Coverplayer:
                     artists = data[2]
                     if artists is not None and len(artists) > 0:
                         if isinstance(artists[0], str) is True:
-                            print(*artists, sep="\n")
+                            self.flexprint_list(artists)
                         else:
                             artist_names = list(map(lambda obj: obj['name'], artists))
-                            print(*artist_names, sep="\n")
+                            self.flexprint_list(artist_names)
                         meta['type'] = result_type
                         meta['genre'] = self.search
                         meta['genreId'] = id
@@ -1016,10 +1031,10 @@ class Coverplayer:
                     albums = data[2]
                     if albums is not None and len(albums) > 0:
                         if isinstance(albums[0], str) is True:
-                            print(*albums, sep="\n")
+                            self.flexprint_list(albums)
                         else:
                             album_names = list(map(lambda obj: obj['name'], albums))
-                            print(*album_names, sep="\n")
+                            self.flexprint_list(album_names)
                         meta['type'] = result_type
                         meta['artist'] = self.search
                         meta['artistId'] = id
@@ -1036,20 +1051,22 @@ class Coverplayer:
                     tracks = data[3]
                     self.flexprint('coverplayer on_itemclick tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', album: ' + album)
                     if tracks is not None and len(tracks) > 0:
+                        albumId = id
                         if isinstance(tracks[0], str) is True:
-                            print(*tracks, sep="\n")
+                            self.flexprint_list(tracks)
                         else:
                             tracks = self.filter_list_to_unique_id(tracks)
                             if meta['zonetype'] == 'Apple Music':
                                 tracks.insert(0, {"name": self.lang['play_album'].title(), "id": "[FULLALBUM]"})
-                            if meta['zonetype'] == 'Spotify':
+                            if meta['zonetype'].startswith('Spotify'):
                                 tracks = list(map(lambda obj: {"name": str(obj['track_number']) + '. ' +  obj['name'], "id": 'spotify:track:' + obj['id']}, tracks))
-                                tracks.insert(0, {"name": self.lang['play_album'].title(), "id": 'spotify:album:' + album})
+                                albumId = meta['albumId'] if 'albumId' in meta else album
+                                tracks.insert(0, {"name": self.lang['play_album'].title(), "id": 'spotify:album:' + albumId})
                             track_names = list(map(lambda obj: obj['name'], tracks))
-                            print(*track_names, sep="\n")
+                            self.flexprint_list(track_names)
                         meta['type'] = result_type
                         meta['album'] = name
-                        meta['albumId'] = id # or maybe album
+                        meta['albumId'] = albumId
                         meta['label'] = self.lang['select_track'].title()
                         meta['listname'] = meta['artist'] + ' - ' + meta['album']
                         self.flexprint('on_itemclick before _open_list2, meta: ' + str(meta))
@@ -1063,17 +1080,17 @@ class Coverplayer:
                     #self.flexprint('coverplayer on_itemclick playlist tracks ===>  meta: ' + str(meta) + ', search: ' + self.search + ', playlist: ' + str(playlist))
                     if tracks is not None and len(tracks) > 0:
                         if isinstance(tracks[0], str) is True:
-                            print(*tracks, sep="\n")
+                            self.flexprint_list(tracks)
                         else:
                             tracks = self.filter_list_to_unique_id(tracks)
                             if meta['zonetype'] == 'Apple Music':
                                 tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
-                            if meta['zonetype'] == 'Spotify':
+                            if meta['zonetype'].startswith('Spotify'):
                                 tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, tracks))
                                 tracks = self.filter_list_to_unique_id(tracks)
                                 tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": 'spotify:playlist:' + playlist})
                             track_names = list(map(lambda obj: obj['name'], tracks))
-                            print(*track_names, sep="\n")
+                            self.flexprint_list(track_names)
                         meta['type'] = result_type
                         meta['playlist'] = name
                         meta['playlistId'] = id # or maybe playlist
@@ -1092,7 +1109,7 @@ class Coverplayer:
             if len(self.text) > 3:
                 zone = self.text[0].split(':')[1].strip()
                 zonetype = zone.split('-')[1].strip() if (self.zone is not None and len(self.zone.split('-'))==2) else ''
-                if (zonetype!='Apple Music' and zonetype!='Spotify'):
+                if (zonetype!='Apple Music' and not zonetype.startswith('Spotify')):
                     zonetype = 'Roon'
                 artist = self.text[1].split(':')[1].strip()
                 if '/' in artist:
@@ -1114,7 +1131,7 @@ class Coverplayer:
         else:
             self.hasRadioSearch = False
             zonetype = self.get_zonetype()
-            if (zonetype!='Spotify'):
+            if (zonetype.startswith('Spotify') is False):
                 self.hasRadioSearch = True
             self.flexprint('********* _open_keyb, type: ' + str(type) + ', zonetype: ' + str(zonetype) + ', hasRadioSearch: ' + str(self.hasRadioSearch))
             self.vkeyb.start(type, [], self.keyb_list, self.lang, self.hasRadioSearch, zonetype, self.sourcetype, self.alternative_layout, self.on_search, self.close_keyb)
@@ -1143,28 +1160,31 @@ class Coverplayer:
     
     def wakeup_load_image_select_zone_disable_tracklist_and_search(self, playmode, path, text):
         # wakeup, load_image, select zone button, disable tracklist and search button if zone is spotify or applemusic streaming and disabled or zone is inactive, 
-        paused = not playmode
-        icon_path = self.scriptpath + "icons/play.png"
-        self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
-        if self.display_auto_wakeup is True:
-            subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
-        self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
-        if len(text) > 0:
-            self.text = text
-            line_parts = text[0].split(':')
-            if len(line_parts) > 1:
-                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                    self.zone_btn[self.zone].config(bg = None)
-                self.zone = line_parts[1].strip()
-                if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
-                    self.zone_btn[self.zone].config(bg = self.button_highlight_color)
-                if self.in_menu_mode is True and self.tracklist_btn is not None:
-                    if self.text is not None and len(self.text) > 3:
-                        zone = self.text[0].split(':')[1].strip()
-                        self.set_tracklist_button(zone)
-                    else:
-                        self.switch_button_state(self.tracklist_btn, False)                                
-                self.set_search_button()
+        try:
+            paused = not playmode
+            icon_path = self.scriptpath + "icons/play.png"
+            self.flexprint('display_auto_wakeup: ' + str(self.display_auto_wakeup))
+            if self.display_auto_wakeup is True:
+                subprocess.run(["sh", "-c", "export DISPLAY=:0;xset dpms force on"], check=True) # wakeup display
+            self._load_image(self.label, self.debug, self.lang, self.flexprint, self.maxpx_y, paused, icon_path, self.fonts, self.faces, self.font_size, self.webserver_url_request_timeout, path, text)
+            if len(text) > 0:
+                self.text = text
+                line_parts = text[0].split(':')
+                if len(line_parts) > 1:
+                    if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                        self.zone_btn[self.zone].config(bg = None)
+                    self.zone = line_parts[1].strip()
+                    if self.in_menu_mode is True and self.zone is not None and self.zone in self.zone_btn:
+                        self.zone_btn[self.zone].config(bg = self.button_highlight_color)
+                    if self.in_menu_mode is True and self.tracklist_btn is not None:
+                        if self.text is not None and len(self.text) > 3:
+                            zone = self.text[0].split(':')[1].strip()
+                            self.set_tracklist_button(zone)
+                        else:
+                            self.switch_button_state(self.tracklist_btn, False)                                
+                    self.set_search_button()
+        except Exception as e:
+            self.flexprint("[red]wakeup error:[/red]", e)
     
     def update_playpos_next(self, func, check_playpos, playpos, is_radio):
         if check_playpos is not None and check_playpos != -1:
@@ -1198,11 +1218,17 @@ class Coverplayer:
     def set_shuffle_and_repeat(self, playlen):
         # shuffle and repeat button at the bottom left
         if self.in_menu_mode is True and self.shuffle_btn is not None and self.shuffle_btn.winfo_exists() and (self.playlen is None or playlen is None or self.playlen == -1 or playlen == -1):
-            icon = self.control_icons["shuffle_on"] if (self.is_radio is False and self.shuffle_on) else self.control_icons["shuffle_off"]
-            switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1
+            switch_enabled = self.is_radio is False and playlen is not None and playlen!=-1 and self.missing_zone is False and self.stopped_zone is False
             self.switch_small_button_state(self.shuffle_btn, self._toggle_shuffle, switch_enabled)
-            icon = self.control_icons["repeat_on"] if (self.is_radio is False and self.repeat_on) else self.control_icons["repeat_off"]
             self.switch_small_button_state(self.repeat_btn, self._toggle_repeat, switch_enabled)
+    
+    def set_play_control(self):
+        zone_type = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2 and (self.zone.endswith('-Apple Music') or self.zone.endswith('-Spotify') or self.zone.endswith('-SpotifyConnect'))) else 'Roon'
+        switch_enabled = self.zone is not None and (zone_type == 'Spotify' or zone_type == 'Apple Music' or (self.missing_zone is False and self.stopped_zone is False))
+
+        self.switch_playcontrol_button_state(self.backward_btn, lambda: self._control("backward"), switch_enabled)      
+        self.switch_playcontrol_button_state(self.play_btn, self._toggle_play, switch_enabled)
+        self.switch_playcontrol_button_state(self.forward_btn, lambda: self._control("forward"), switch_enabled)
     
     def _poll_queue(self):
         try:
@@ -1257,6 +1283,7 @@ class Coverplayer:
                         self.update_playpos_next(func, playpos, playpos, is_radio)
                         self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
                         self.set_shuffle_and_repeat(playlen)
+                        self.set_play_control()
                     
                         self.playlen = playlen
                         self.zone_callback = zone_callback
@@ -1311,6 +1338,7 @@ class Coverplayer:
 
                     self.set_playpos(playpos)
                     self.set_shuffle_and_repeat(playlen)
+                    self.set_play_control()
 
                     self.playlen = playlen
                     self.is_playing = is_playing
@@ -1327,6 +1355,10 @@ class Coverplayer:
                     self.missing_zone = self.zone not in self.buttons and text is not None and len(text) == 2 and text[1] == '[offline]'
                     self.stopped_zone = self.zone in self.buttons and text is not None and len(text) == 2 and text[1] == '[inactive]'
                     self.flexprint('[red]CoverPlayer setZones => first_load: ' + str(first_load) + ', missing_zone: ' + str(self.missing_zone) + ', stopped_zone: ' + str(self.stopped_zone) + ', zone: ' + str(self.zone) + ', buttons_backup: ' + str('|'.join(buttons_backup)) + ', buttons: ' + str('|'.join(self.buttons))  + ', text: ' + str(text) + '[/red]')
+                    if self.missing_zone or self.stopped_zone:
+                        self.playlen =-1
+                    self.set_shuffle_and_repeat(self.playlen)
+                    self.set_play_control()
                     if first_load or self.missing_zone or self.stopped_zone:
                         if len(text) == 2 and (text[1] == '[offline]' or text[1] == '[inactive]'):
                             text[1] = self.lang[text[1][1:-1]]

@@ -10,6 +10,8 @@ or: http://IP-ADDRESS/roonmatrix/now_playing.php (local network via ip address)
 or: http://NETWORKNAME.local/roonmatrix/now_playing.php (local network via bonjour network)
 '''
 
+debug = False
+
 import applescript # pip install of this package: https://pypi.python.org/packages/source/p/py-applescript/py-applescript-1.0.0.tar.gz
 import json
 import os
@@ -20,6 +22,16 @@ userHomePath = expanduser("~") # /Users/USERNAME
 phpScriptPath = os.getcwd().replace(userHomePath,'') # /Users/USERNAME/websites/roonmatrix
 userHomeDirSubfolderPathToCoversPHP = phpScriptPath.replace(userHomePath,'') + '/covers/'
 userHomeDirSubfolderPathToCoversAppleScript = userHomeDirSubfolderPathToCoversPHP[1:-1].replace('/',':')
+
+if debug is True:
+    print('\ndebug now_playing python script')
+    print('-------------------------------')
+    print('userHomePath: ' + str(userHomePath))
+    print('phpScriptPath: ' + str(phpScriptPath))
+    print('userHomeDirSubfolderPathToCoversPHP: ' + str(userHomeDirSubfolderPathToCoversPHP))
+    print('userHomeDirSubfolderPathToCoversAppleScript: ' + str(userHomeDirSubfolderPathToCoversAppleScript))
+    print('package applescript: ' + str(applescript))
+    print('method AppleScript: ' + str(applescript.AppleScript))
 
 tell_iTunes = applescript.AppleScript('''
 on is_running(appName)
@@ -59,25 +71,28 @@ on Playing()
                     set hasCover to false
                 end try
 
-                set home_path to (path to home folder)
-                set subfolder to "''' + userHomeDirSubfolderPathToCoversAppleScript + '''"
-                set fileName to ":coverAppleMusic" & ext
-                set filePathWithName to ((home_path & subfolder as text) & fileName)
+                if hasCover then
+                    set home_path to (path to home folder)
+                    set subfolder to "''' + userHomeDirSubfolderPathToCoversAppleScript + '''"
+                    set fileName to ":coverAppleMusic" & ext
+                    set filePathWithName to ((home_path & subfolder as text) & fileName)
+                end if
 
                 set pos_double to the player position
                 set total_double to the duration of the current track
                 set pos to round pos_double rounding down
                 set total to round total_double rounding down
+                set songId to id of the current track
 
-                set outFile to open for access file filePathWithName with write permission
-                set eof outFile to 0
-                write srcBytes to outFile
-                close access outFile                
-                
                 if hasCover then
-                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype & "%-%" & fileName
+                    set outFile to open for access file filePathWithName with write permission
+                    set eof outFile to 0
+                    write srcBytes to outFile
+                    close access outFile                
+                
+                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype & "%-%" & songId & "%-%" & fileName
                 else
-                    set result to "Apple Music%-%" & player state & "%-%" & songAlbum & "%-%" & songArtist & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype
+                    set result to "Apple Music%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffle enabled & "%-%" & song repeat & "%-%" & pos & "%-%" & total & "%-%" & sourcetype & "%-%" & songId
                 end if
             on error m number n
 				set result to "Apple Music%-%" & "status::not running"
@@ -106,11 +121,12 @@ on Playing()
                 set currentPosition to player position
                 set pos to round currentPosition rounding down
                 set total to round ((duration of current track) / 1000) rounding down
+                set songId to id of the current track
             
                 if hasCover then
-                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream%-%" & coverUrl
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream%-%" & songId & "%-%" & coverUrl
                 else
-                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream"
+                    set result to "Spotify%-%" & player state & "%-%" & songArtist & "%-%" & songAlbum & "%-%" & songTitle & "%-%" & shuffling & "%-%" & repeating & "%-%" & pos & "%-%" & total & "%-%stream%-% & songId"
                 end if
             on error m number n
 				set result to "Spotify%-%" & "status::not running"
@@ -129,16 +145,27 @@ end Playing
 userHomeDir = os.path.expanduser("~")
 DIR = userHomeDir + userHomeDirSubfolderPathToCoversPHP
 
+if debug is True:
+    print('userHomeDir: ' + str(userHomeDir))
+    print('DIR: ' + str(DIR))
+
 maxCoverFiles = 50
 coverfiles = [f for f in os.listdir(DIR) if f.startswith('coverAppleMusic_')]
 coverfiles.sort(key=lambda x: os.stat(os.path.join(DIR, x)).st_mtime, reverse=True)
 if (len(coverfiles) > maxCoverFiles):
     for filename in coverfiles[maxCoverFiles:]:
         os.remove(os.path.join(DIR, filename))	# remove covers but not a number of newest ones (maxCoverFiles)
+        if debug is True:
+            print('remove cover with filename: ' + str(filename))
 
 return_str = ''
 output_list = []
+if debug is True:
+    print('applescript call now...')
 output = tell_iTunes.call('Playing')
+
+if debug is True:
+    print('applescript called => output: ' + str(output))
 
 for line in output:
     output = line.split('%-%')
@@ -146,7 +173,7 @@ for line in output:
     status = output[1].encode('utf8')
     cover = ''
     if status.decode().startswith('status::'):
-        roonstr = '"zone": "{}", "status": "{}"'
+        rmstr = '"zone": "{}", "status": "{}"'
         tup = (zone_name,status.decode()[8:])
     else:   
         artist = output[2].encode('utf8')
@@ -156,19 +183,17 @@ for line in output:
         repeat = output[6].encode('utf8')
         position = output[7].encode('utf8')
         total = output[8].encode('utf8')
-        if zone_name.startswith('Apple Music'):
-            sourcetype = output[9].encode('utf8')
-        else:
-            sourcetype = 'stream'.encode('utf8')
+        sourcetype = output[9].encode('utf8')
+        songId = output[10]
         
-        if len(output) > 10:
+        if len(output) > 11 and output[11]!='':
             if zone_name.startswith('Spotify'):
-                if output[10].startswith('http') is False:
+                if output[11].startswith('http') is False:
                     cover = ''
                 else:
-                    cover = output[10].encode('utf8')
+                    cover = output[11].encode('utf8')
             else:
-                filename = output[10].replace(':','')
+                filename = output[11].replace(':','')
                 if os.path.exists(DIR + filename):
                     fnparts = filename.rsplit('.',1)
                     stringToHash = artist.decode() + '-' + album.decode() + '-' + track.decode()
@@ -179,12 +204,12 @@ for line in output:
                     cover = ('covers/' + newFilename).encode('utf8')
 
         if cover!='':
-            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}", "cover": "{}"'
-            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode(),cover.decode())
+            rmstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}", "id": "{}", "cover": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode(),songId,cover.decode())
         else:
-            roonstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}"'
-            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode())
+            rmstr = '"zone": "{}", "status": "{}", "artist": "{}", "album": "{}", "track": "{}", "shuffle": "{}", "repeat": "{}", "position": "{}", "total": "{}", "sourcetype": "{}", "id": "{}"'
+            tup = (zone_name,status.decode(),artist.decode(),album.decode(),track.decode(),shuffle.decode(),repeat.decode(),position.decode(),total.decode(),sourcetype.decode(),songId)
         
-    output_list.append('{' + roonstr.format(*tup) + '}')
+    output_list.append('{' + rmstr.format(*tup) + '}')
 return_str = ','.join(output_list)
 print('[' + return_str + ']')

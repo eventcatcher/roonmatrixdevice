@@ -32,7 +32,7 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system, environ, stat, remove, rename
+from os import path, system, environ, stat, remove, rename, getcwd
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -72,6 +72,7 @@ from luma.core.sprite_system import framerate_regulator
 from roonapi import RoonApi, RoonDiscovery
 from weatherbit.api import Api
 import feedparser
+from spotify_connect import SpotifyConnect
 
 debug = False   # log debug messages (memory and variable information)
 startlog = True # log start and config information
@@ -156,17 +157,15 @@ try:
         import tkinter as tk
         from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk
         from io import BytesIO
-        import spotipy
-        import applemusicpy    
-        from spotipy.oauth2 import SpotifyClientCredentials
+        import applemusicpy   
         from coverplayer import Coverplayer
         root = tk.Tk()
-        root.destroy()
+        root.destroy()	# TODO muss wieder rein
 except EnvironmentError as e:
-    print(f"[magenta][INFO] GUI not found (headless system): {e}[/magenta]")
+    flexprint(f"[magenta][INFO] GUI not found (headless system): {e}[/magenta]")
     display_cover = False
 except Exception as e:
-    print(f"[magenta][ERROR] Error on import of packages to display cover image: {e}[/magenta]")
+    flexprint(f"[magenta][ERROR] Error on import of packages to display cover image: {e}[/magenta]")
     display_cover = False
 
 if display_cover is True:
@@ -565,6 +564,7 @@ webserver_head_request_timeout = int(config['WEBSERVERS']['webserver_head_reques
 webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
 spotify_client_id = config['WEBSERVERS']['spotify_client_id'] if 'spotify_client_id' in config['WEBSERVERS'] else '' # spotify web api client id
 spotify_client_secret = config['WEBSERVERS']['spotify_client_secret'] if 'spotify_client_secret' in config['WEBSERVERS'] else '' # spotify web api client secret
+enable_spotify_connect = eval(config['WEBSERVERS']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
 applemusic_team_id = config['WEBSERVERS']['applemusic_team_id'] if 'applemusic_team_id' in config['WEBSERVERS'] else '' # applemusic web api team id
 applemusic_key_id = config['WEBSERVERS']['applemusic_key_id'] if 'applemusic_key_id' in config['WEBSERVERS'] else '' # applemusic web api key id
 applemusic_secret_key = config['WEBSERVERS']['applemusic_secret_key'] if 'applemusic_secret_key' in config['WEBSERVERS'] else '' # applemusic web api secret key
@@ -667,6 +667,7 @@ if startlog is True:
     flexprint('')
     flexprint('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
     flexprint('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
+    flexprint('[green4]show spotify connect: ' + str(enable_spotify_connect) + '[/green4]')
     flexprint('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
     flexprint('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
     flexprint('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
@@ -730,10 +731,27 @@ playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
 data_changed = False # switch to true if data has changed (playmode,shufflemode,repeatmode,cover,artist,album, or title)
 roon_zones = [] # list of actual roon zones
+spotify_auth_url = ''
+spotify_auth_redirect_url = ''
+spotify_connect_authorized = False
+active_spotify_connect_zone = None
+spotify_devices = []
 
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
+
+def spotify_connect_web_auth(url):
+    global spotify_auth_url
+    spotify_auth_url = url
+    data_changed = True
+
+spotify_connect = None
+if spotify_client_id!='' and spotify_client_secret!='':
+    try:
+        spotify_connect = SpotifyConnect(display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+    except Exception as e:
+        flexprint("spotify_connect error:", e)
 
 if display_cover is True:
     Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
@@ -832,6 +850,7 @@ async def rest_config():
                             {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
                             {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
                             {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']},
+                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['WEBSERVERS']['enable_spotify_connect']},
                             {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['WEBSERVERS']['applemusic_team_id']},
                             {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['WEBSERVERS']['applemusic_key_id']},
                             {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['WEBSERVERS']['applemusic_secret_key']}
@@ -917,7 +936,10 @@ async def rest_config():
                         {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
                         {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
                         {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                        {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
+                        {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                        {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']},
+                        {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['WEBSERVERS']['enable_spotify_connect']}
                     ]
                 },
                 {
@@ -1084,6 +1106,27 @@ async def rest_zone_control(params: ZoneControlParams):
         return True
 
     return False
+
+class SetSpotifyAuthRedirectUrlParams(BaseModel):
+    url: str
+
+@app.post("/spotify_auth_redirect_url/")
+async def rest_set_spotify_auth_redirect_url(params: SetSpotifyAuthRedirectUrlParams):
+    global spotify_auth_redirect_url, spotify_connect_authorized
+
+    spotify_auth_redirect_url = params.url
+   
+    if log is True: 
+        msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
+        flexprint(msg)
+
+    success = spotify_connect.auth_response(spotify_auth_redirect_url)
+    if success is True:
+        spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+    if log is True: 
+        flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
+    
+    return success
 
 class CustomMessageParams(BaseModel):
     message: str
@@ -1456,6 +1499,8 @@ def getInfoData():
     nowStr = str(datetime.now())
     lastIdleTimeStr = last_idle_time.strftime("%Y-%m-%d %H:%M:%S") if last_idle_time is not None else 'None'
     zoneControlLastUpdateTimeStr = zone_control_last_update_time.strftime("%Y-%m-%d %H:%M:%S") if zone_control_last_update_time is not None else 'None'
+    if enable_spotify_connect is True and spotify_connect is not None:
+        spotify_connect_auth_success = spotify_connect.get_spotify_connect_auth_state()
 
     return {
         "name": hostName,
@@ -1499,6 +1544,7 @@ def getInfoData():
         "webservers_zones": webservers_zones,
         "webserver_head_request_timeout": webserver_head_request_timeout,
         "webserver_url_request_timeout": webserver_url_request_timeout,
+        "enable_spotify_connect": enable_spotify_connect,
         "weather_show": weather_show,
         "location": location,
         "weather_update_interval": weather_update_interval,
@@ -1568,7 +1614,8 @@ def getInfoData():
         "shuffle_on": shuffle_on,
         "repeat_on": repeat_on,
         "track_id": track_id,
-        "clients": list(map(lambda obj: str(obj.client), clients))
+        "clients": list(map(lambda obj: str(obj.client), clients)),
+        "spotify_auth_url": '*' if spotify_connect_auth_success is True else spotify_auth_url
     }
 
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
@@ -1711,8 +1758,59 @@ def get_active_zones_from_webserver_onlinecheck(update):
             if log is True: flexprint('Webserver ' + name + ' is down')
     return active_zones
 
+def spotify_connect_enabled():
+    return enable_spotify_connect is True and spotify_connect is not None and spotify_connect_authorized is True
+
+def get_active_zone_from_spotify_connect_onlinecheck(update):
+    global spotify_devices
+    active_zone = None
+    # spotify_devices: [{'id': 'e4691c51cf9f3d352c82f7320c22d93c9b045732', 'is_active': True, 'is_private_session': False, 'is_restricted': False, 'name': 'Mac Studio', 'supports_volume': True, 'type': 'Computer', 'volume_percent': 100}]
+    # current spotify connect track: {'zone': 'Spotify-Connect', 'status': 'playing', 'artist': 'White Lies', 'album': 'In The Middle', 'track': 'In The Middle', 'shuffle': False, 'repeat': False, 'position': 66, 'total': 365, 'sourcetype': 'stream', 'id': 'spotify:track:2ppTMGPJmFGAB3AI59pGTc', 'cover': 'https://i.scdn.co/image/ab67616d0000b27311f4c9260cc97354d54e7211'}
+    try:
+        flexprint('get_active_zone_from_spotify_connect_onlinecheck, spotify_connect_enabled: ' + str(spotify_connect_enabled()) + ', update: ' + str(update))
+        if spotify_connect_enabled():
+            spotify_devices = spotify_connect.devices()
+            flexprint('spotify_devices: ' + str(spotify_devices))
+            if log is True:
+                for d in spotify_devices:
+                    flexprint(f"{d['name']} ({d['id']}) – {'aktiv' if d['is_active'] else 'inaktiv'}")
+
+        for idx,data in enumerate(spotify_devices):
+            if log is True: flexprint('spotify connect device: ' + str(data))
+            name = data['name']
+            online = data['is_active']
+            if update is True:
+                update_spotify_connect_channel(name, online)
+            if debug is True: flexprint('online check of spotify connect zone ' + name + ': ' + str(online))
+            if online is True:
+                active_zone = data
+                active_zone['sourcetype'] = 'spotify_connect'
+                break # only support for one active play context, so only one device can be active!
+            else:
+                if log is True: flexprint('spotify connect zone ' + name + ' has no active zone')
+
+        if active_zone is None and len(spotify_devices) > 0:
+            active_zone = spotify_devices[0] # fallback: paused (not running), but available
+            if log is True: flexprint('spotify connect zone ' + name + ' => fallback: take paused (not running) zone')
+            if active_zone is not None:
+                active_zone['sourcetype'] = 'spotify_connect'
+                name = active_zone['name']
+                online = active_zone['is_active']
+                if update is True:
+                    update_spotify_connect_channel(name, True)
+
+        flexprint('active spotify connect zone: ' + str(active_zone))
+        spotify_trackinfo = spotify_connect.current_or_last_played_track()
+        flexprint('current spotify connect track: ' + str(spotify_trackinfo))
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('[red]==> get_active_zone_from_spotify_connect_onlinecheck error: [/red]', str(e))
+            flexprint(traceback.format_exc())
+
+    return active_zone
+
 def is_audioinfo_available():
-    global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress
+    global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress, active_spotify_connect_zone
 
     time.sleep(1)
     available = False
@@ -1721,6 +1819,7 @@ def is_audioinfo_available():
     try:
         if check_audioinfo is True and webservers_show is True:
             active_zones = get_active_zones_from_webserver_onlinecheck(False)
+            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
             async_web_response = async_web_requests_with_timing(active_zones)
             async_results = async_web_response[0]
             req_time = async_web_response[1]          
@@ -1746,6 +1845,14 @@ def is_audioinfo_available():
                                 break
                         if available is True:
                             break
+
+        if check_audioinfo is True and spotify_connect_enabled() and active_spotify_connect_zone is not None:
+            name = active_spotify_connect_zone['name']
+            spotify_trackinfo = spotify_connect.current_or_last_played_track()   
+            playing = spotify_trackinfo is not None and "status" in spotify_trackinfo and (spotify_trackinfo['status'] == 'playing' or spotify_trackinfo['status'] == 'not running')
+            if debug is True: flexprint('playout check of spotify connect zone ' + name + ': ' + str(playing))
+            if playing is True:
+                available = True
 
         if check_audioinfo is True and available is False and roon_show is True:
             if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ' [/bright_magenta]')
@@ -1803,7 +1910,7 @@ def getPlaystateFromPlaymode(control_id):
         return False
 
 def set_play_mode(control_id, enable, send, do_async=True):
-    global data_changed
+    global data_changed, active_spotify_connect_zone
     if control_id is not None and control_id in channels.keys():
         playmode_last = playmode[control_id] if control_id in playmode else None
         if enable is True:
@@ -1816,6 +1923,17 @@ def set_play_mode(control_id, enable, send, do_async=True):
         if send is True:
             if channels[control_id]=='webserver':
                 send_webserver_zone_control(control_id, do_async, playmode[control_id])
+            elif channels[control_id]=="spotifyconnect":
+                if spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            if active_spotify_connect_zone['is_active'] is True:
+                                spotify_connect.play() if enable is True else spotify_connect.pause()
+                            else:
+                                spotify_connect.play(active_spotify_connect_zone['id']) if enable is True else spotify_connect.pause(active_spotify_connect_zone['id'])
+                    except Exception as e:
+                        flexprint('spotify_connect error (maybe offline)')
             else:
                 if roon_show == True and roon_servers:
                     roonapi.playback_control(control_id, playmode[control_id])
@@ -1827,7 +1945,7 @@ def getShufflestateFromPlaymode(control_id):
         return False
 
 def set_shuffle_mode(control_id, enable, send, do_async=True):
-    global data_changed
+    global data_changed, active_spotify_connect_zone
     shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
     if control_id is not None and control_id in channels.keys():
         if channels[control_id]=='webserver':
@@ -1837,6 +1955,14 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
                 shufflemode[control_id] = 'noshuffle'
             if send is True:
                 send_webserver_zone_control(control_id, do_async, shufflemode[control_id])
+        elif channels[control_id]=="spotifyconnect":
+            if spotify_connect_enabled():
+                try:
+                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                    if active_spotify_connect_zone is not None:
+                        spotify_connect.shuffle(shufflemode[control_id]=='shuffle', active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                except Exception as e:
+                    flexprint('spotify_connect error (maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -1858,7 +1984,7 @@ def getRepeatstateFromPlaymode(control_id):
         return False
 
 def set_repeat_mode(control_id, enable, send, do_async=True):
-    global data_changed
+    global data_changed, active_spotify_connect_zone
     repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
     if control_id is not None and control_id in channels.keys():
         if channels[control_id]=='webserver':
@@ -1868,6 +1994,14 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
                 repeatmode[control_id] = 'norepeat'
             if send is True:
                 send_webserver_zone_control(control_id, do_async, repeatmode[control_id])
+        elif channels[control_id]=="spotifyconnect":
+            if spotify_connect_enabled():
+                try:
+                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                    if active_spotify_connect_zone is not None:
+                        spotify_connect.repeat("context" if shufflemode[control_id]=='repeat' else "off", active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                except Exception as e:
+                    flexprint('spotify_connect error (maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -1883,17 +2017,35 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
         data_changed = True
 
 def play_previous(control_id, do_async=True):
+    global active_spotify_connect_zone
     if control_id is not None:
         if control_id in channels.keys() and channels[control_id]=='webserver':
             send_webserver_zone_control(control_id, do_async, "previous")
+        elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
+            if spotify_connect_enabled():
+                try:
+                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                    if active_spotify_connect_zone is not None:
+                        spotify_connect.previous(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                except Exception as e:
+                    flexprint('spotify_connect error (maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "previous")
 
 def play_next(control_id, do_async=True):
+    global active_spotify_connect_zone
     if control_id is not None:
         if control_id in channels.keys() and channels[control_id]=='webserver':
             send_webserver_zone_control(control_id, do_async, "next")
+        elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
+            if spotify_connect_enabled():
+                try:
+                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                    if active_spotify_connect_zone is not None:
+                        spotify_connect.next(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
+                except Exception as e:
+                    flexprint('spotify_connect error (maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "next")
@@ -1932,8 +2084,8 @@ def pressed_up(channel):
                 repeat_on = getRepeatstateFromPlayouts()
                 track_id = getTrackIdstateFromPlayouts()
                 if log is True and control_id in channels.keys():
-                    if channels[control_id]=='webserver':
-                        flexprint("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
+                    if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                        flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
                     else:
                         flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
         time.sleep(0.1)
@@ -1954,8 +2106,8 @@ def pressed_down(channel):
             refresh_output_data()
             if log is True: flexprint('close zone control setup')
             if control_id is not None and log is True and control_id in channels.keys():
-                if channels[control_id]=='webserver':
-                    flexprint("actual control zone (webserver): " + control_id)
+                if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                    flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
                 else:
                     flexprint("actual control zone (roon): " + channels[control_id])
         else:
@@ -1986,7 +2138,9 @@ def pressed_left(channel):
                 if idx < 0:
                     idx = keys_len - 1
                 control_id_update = keys[idx]
-                name = control_id_update.replace(' ','') if channels[control_id_update]=='webserver' else channels[control_id_update]
+                name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
+                if channels[control_id_update]=='webserver':
+                    name = name.replace(' ','')
 
                 with canvas(device) as draw:
                     text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
@@ -2017,7 +2171,9 @@ def pressed_right(channel):
                 if idx >= keys_len:
                     idx = 0
                 control_id_update = keys[idx]
-                name = control_id_update.replace(' ','') if channels[control_id_update]=='webserver' else channels[control_id_update]
+                name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
+                if channels[control_id_update]=='webserver':
+                    name = name.replace(' ','')
 
                 with canvas(device) as draw:
                     text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
@@ -2052,8 +2208,8 @@ def pressed_enter(channel):
                 repeat_on = getRepeatstateFromPlayouts()
                 track_id = getTrackIdstateFromPlayouts()
                 if log is True and control_id in channels.keys():
-                    if channels[control_id]=='webserver':
-                        flexprint("[bold magenta]actual control zone (webserver): " + control_id + '[/bold magenta]')
+                    if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                        flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
                     else:
                         flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
         else:
@@ -2063,7 +2219,30 @@ def pressed_enter(channel):
         GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
 
 def send_webserver_zone_control(control_id, do_async, code, search = '', detail = '', detail2 = ''):
-    if webservers_show == True and control_id is not None:
+    global active_spotify_connect_zone
+    
+    isSpotifyConnect = control_id.endswith('-SpotifyConnect')
+    
+    if spotify_connect_enabled() and isSpotifyConnect is True:    
+        if code=='playtrack' or code=='play-playlist-track':
+            meta = detail
+            if active_spotify_connect_zone is None:
+                active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+            if active_spotify_connect_zone is None:
+                return
+
+            if search.startswith('spotify:track'):
+                if 'albumId' in meta and meta['albumId'] is not None and meta['albumId'] != '':
+                    spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = 'spotify:album:' + meta['albumId'], offset = {"uri": search})
+                else:
+                    spotify_connect.play(device_id = active_spotify_connect_zone['id'], uris = [search])
+            else:
+                spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = search)
+
+    if webservers_show == True and control_id is not None and isSpotifyConnect is False:
+        if detail is not None and isinstance(detail, str) is False:
+            detail = '' # remove meta data (which is only for spotify connect)
+        
         url = ''
         name_parts = control_id.split('-')
 
@@ -2117,7 +2296,7 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
 
 def getPlaystateFromPlayouts():
     idle = False
-    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
         name_parts = control_id.split('-')
         serverName = name_parts[0]
         zoneName = name_parts[1]
@@ -2128,7 +2307,7 @@ def getPlaystateFromPlayouts():
                     idle = 'status' in item and item['status'] != 'playing'
                     playmode[control_id] = 'stop' if idle is True else 'play'
                     break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
         zoneName = channels[control_id]
         idle = zoneName in roon_playouts and 'status' in roon_playouts[zoneName] and roon_playouts[zoneName]['status'] == 'not running'
         playmode[control_id] = 'stop' if idle is True else 'play'
@@ -2136,7 +2315,7 @@ def getPlaystateFromPlayouts():
 
 def getShufflestateFromPlayouts():
     shuffle = False
-    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
         name_parts = control_id.split('-')
         serverName = name_parts[0]
         zoneName = name_parts[1]
@@ -2147,7 +2326,7 @@ def getShufflestateFromPlayouts():
                     shuffle = 'shuffle' in item and item['shuffle'] == 'true'
                     shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
                     break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
         zoneName = channels[control_id]
         shuffle = zoneName in roon_playouts and 'shuffle' in roon_playouts[zoneName] and roon_playouts[zoneName]['shuffle'] == True
         shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
@@ -2155,7 +2334,7 @@ def getShufflestateFromPlayouts():
 
 def getRepeatstateFromPlayouts():
     repeat = False
-    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
         name_parts = control_id.split('-')
         serverName = name_parts[0]
         zoneName = name_parts[1]
@@ -2166,15 +2345,16 @@ def getRepeatstateFromPlayouts():
                     repeat = 'repeat' in item and (item['repeat'] == 'true' or item['repeat'] == 'all' or item['repeat'] == 'one')
                     repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
                     break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
         zoneName = channels[control_id]
         repeat = zoneName in roon_playouts and 'repeat' in roon_playouts[zoneName] and roon_playouts[zoneName]['repeat'] == True
         repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
     return repeat
 
 def getTrackIdstateFromPlayouts():
+    track_id = ''
     repeat = False
-    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
         name_parts = control_id.split('-')
         serverName = name_parts[0]
         zoneName = name_parts[1]
@@ -2184,8 +2364,8 @@ def getTrackIdstateFromPlayouts():
                 if 'zone' in item and item['zone'] == zoneName:
                     track_id = item['id'] if 'id' in item else ''
                     break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver':
-        zoneName = channels[control_id]
+    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
+        # zoneName = channels[control_id]
         track_id = ''
     return track_id
 
@@ -2304,13 +2484,13 @@ def get_message(key):
 def zone_selection(selection):
     global control_id, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
     flexprint("[bold magenta]zone selection:[/bold magenta]", selection)
-    if selection in channels.keys() and channels[selection] == 'webserver':
+    if selection in channels.keys() and (channels[selection] == 'webserver' or channels[selection] == 'spotifyconnect'):
         control_id = selection
         control_zone = selection
     else:
         if selection in channels.values():
             for id, name in channels.items():
-                if channels[id] != 'webserver' and name == selection:
+                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == selection:
                     control_id = id
                     control_zone = name
                     break
@@ -2765,39 +2945,9 @@ def applemusic_search_playlist(playlist_name):
         flexprint('applemusic_search_playlist error: ' + str(e))
         return []
 
-def spotipy_init():
-    """
-    Initializes Spotipy with forced IPv4, custom session and optional access data.
-    If no access data is transferred, the environment variables are used.
-    """
-
-    if spotify_client_id=='' or spotify_client_secret=='':
-        return coverplayer_lang['spotify_no_credentials']
-
-    # Prepare session with SSL context
-    class IPv4OnlyAdapter(requests.adapters.HTTPAdapter):
-        def init_poolmanager(self, *args, **kwargs):
-            context = ssl.create_default_context()
-            kwargs["ssl_context"] = context
-            self.poolmanager = urllib3.poolmanager.PoolManager(*args, **kwargs)
-
-    session = requests.Session()
-    if force_ipv4_only is True:
-        session.mount("https://", IPv4OnlyAdapter())
-
-    # Initialize Spotipy with session
-    auth_manager = SpotifyClientCredentials()
-    try:
-        spotify = spotipy.Spotify(auth_manager=auth_manager, requests_session=session)
-    except Exception as e:
-        flexprint('Spotify auth error')
-        return coverplayer_lang['spotify_auth_error']
-
-    return spotify
-
 def spotify_search_artist(artist_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2809,7 +2959,7 @@ def spotify_search_artist(artist_name):
 
 def spotify_search_artist_album(artist_name, album_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2823,7 +2973,7 @@ def spotify_search_artist_album(artist_name, album_name):
 
 def spotify_search_artists_by_genre(genre_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2835,7 +2985,7 @@ def spotify_search_artists_by_genre(genre_name):
 
 def spotify_search_playlists_by_genre(genre_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2847,7 +2997,7 @@ def spotify_search_playlists_by_genre(genre_name):
 
 def spotify_get_album_by_track_uri(track_uri):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2858,7 +3008,7 @@ def spotify_get_album_by_track_uri(track_uri):
 
 def spotify_get_tracks_by_album_uri(album_uri):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2869,7 +3019,7 @@ def spotify_get_tracks_by_album_uri(album_uri):
 
 def spotify_get_artist_albums(artist_id):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2888,7 +3038,7 @@ def spotify_get_artist_albums(artist_id):
 
 def spotify_get_playlist_tracks(playlist_id):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2908,7 +3058,7 @@ def spotify_get_playlist_tracks(playlist_id):
 
 def spotify_get_album_tracks(album_id):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2921,7 +3071,7 @@ def spotify_get_album_tracks(album_id):
 
 def spotify_search_track(track_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2933,7 +3083,7 @@ def spotify_search_track(track_name):
 
 def spotify_search_playlist(playlist_name):
     try:
-        spotify = spotipy_init()
+        spotify = spotify_connect.auth()
         if isinstance(spotify, str):
             return spotify
 
@@ -2966,19 +3116,19 @@ def on_search(is_stream, value, zone, type):
     albums = None
     is_webserver = False
     zonetype = ''
-    if zone in channels.keys() and channels[zone] == 'webserver':
+    if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
         zonetype = zone.split('-')[1] 
         control_id = zone
         is_webserver = True
     else:
         if zone in channels.values():
             for id, name in channels.items():
-                if channels[id] != 'webserver' and name == zone:
+                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
                     control_id = id
                     break
     flexprint("roonmatrix => on_search:" + str(value) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id) + ', type:' + str(type))
     if is_webserver is True:
-        if zonetype == 'Spotify':
+        if zonetype.startswith('Spotify'):
             if type == 'artist':
                 artists = spotify_search_artist(value)
                 if isinstance(artists, str):
@@ -3249,17 +3399,17 @@ def on_itemclick(meta, search, itemname, zone):
     control_id = None
     is_webserver = False
     is_spotify = False
-    if zone in channels.keys() and channels[zone] == 'webserver':
-        is_spotify = zone.split('-')[1] == 'Spotify'
+    if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
+        is_spotify = zone.split('-')[1].startswith('Spotify')
         control_id = zone
         is_webserver = True
     else:
         if zone in channels.values():
             for id, name in channels.items():
-                if channels[id] != 'webserver' and name == zone:
+                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
                     control_id = id
                     break
-    flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + search + ', itemname: ' + itemname + ', zone: ' + zone + ', control_id: ' + control_id)
+    flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + str(search) + ', itemname: ' + str(itemname) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id))
     if is_webserver is True:
         if is_spotify is True:
             if meta['type'] == 'artists':
@@ -3277,6 +3427,7 @@ def on_itemclick(meta, search, itemname, zone):
                             return album
                         if 'album' not in album or 'uri' not in album['album']:
                             return coverplayer_lang['unknown_error']
+                        meta['albumId'] = album['album']['id']
                         album_uri = album['album']['uri']
                         album = spotify_get_tracks_by_album_uri(album_uri)
                         if isinstance(album, str):
@@ -3317,15 +3468,15 @@ def on_itemclick(meta, search, itemname, zone):
                 return ['tracks', search, itemname, tracknames]
             if meta['type'] == 'tracks':
                 if 'artist' in meta:
-                    send_webserver_zone_control(control_id, True, 'playtrack', itemname)
+                    send_webserver_zone_control(control_id, True, 'playtrack', itemname, meta)
                     return ['track', meta['artist'], itemname]
                 elif 'playlist' in meta:
                     if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                         itemname = itemname.replace('"', '\\"')
-                    send_webserver_zone_control(control_id, True, 'play-playlist-track', itemname)
+                    send_webserver_zone_control(control_id, True, 'play-playlist-track', itemname, meta)
                     return ['track', meta['playlist'], itemname]
                 else:
-                    send_webserver_zone_control(control_id, True, 'playtrack', 'spotify:track:' + itemname)
+                    send_webserver_zone_control(control_id, True, 'playtrack', 'spotify:track:' + itemname, meta)
                     return ['track', itemname]
         else:
             if meta['type'] == 'artists':
@@ -3619,18 +3770,26 @@ def get_force_mode(displaystr):
 
 def set_data_changed_and_web_playouts_raw(result, name):
     global data_changed, web_playouts_raw
+    if result.startswith('[') is False:
+        result = "[" + result + "]"
     playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
     if playout_changed is True:
         data_changed = True
-    web_playouts_raw[name] = result
+    if result is not None:
+        web_playouts_raw[name] = result
+    else:
+        del web_playouts_raw[name]
 
 def webserver_zone_not_running_coverplayer_updates(result, name, obj):
-    if log is True: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
+    if name == '-SpotifyConnect' and obj is None:
+        return
+    
+    if log is True and obj is not None: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
     set_data_changed_and_web_playouts_raw(result, name)
-    if display_cover is True and control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if display_cover is True and control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect') and obj is not None:
         name_parts = control_id.split('-')
         zone = name_parts[1]
-        if name == name_parts[0] and obj["zone"] == zone:
+        if (name.endswith('-SpotifyConnect') and obj is None) or (name == name_parts[0] and obj["zone"] == zone):
             cover_text_line_parts = []
             cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
             cover_text_line_parts.append(get_message('inactive'))
@@ -3721,7 +3880,7 @@ def remove_prepended_from_displaystr(displaystr):
 
 def get_name_zone_and_controlled_marker(name, obj, playprops):
     controlled = ''
-    if control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver':
+    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
         control_id_parts = control_id.split('-')
         name_part = control_id_parts[0]
         zone = control_id_parts[1]
@@ -3783,57 +3942,100 @@ def compare_filtered_zonedata_is_equal(old_raw, new_raw):
         equal = False
     return equal
 
+def get_spotify_connect_name_from_channels():
+    nameFound = None
+    for idx,k in enumerate(channels.keys()):
+        if channels[k] == 'spotifyconnect':
+            nameFound = k.split('-')[0]
+            break        
+    return nameFound
+
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
-    global web_playouts
+    global web_playouts, active_spotify_connect_zone
     if log is True: flexprint('get playing apple or spotify => start')
     breakToo = False
     force = get_force_mode(displaystr)
-    webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
-    active_zones = get_active_zones_from_webserver_onlinecheck(True)
-    async_web_response = async_web_requests_with_timing(active_zones)
-    #async_web_response = async_web_requests_with_timing(webservers_zones)
-    async_results = async_web_response[0]
-    req_time = async_web_response[1]          
+    if webservers_show == True:
+        webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
+        active_zones = get_active_zones_from_webserver_onlinecheck(True)
+        async_web_response = async_web_requests_with_timing(active_zones)
+        #async_web_response = async_web_requests_with_timing(webservers_zones)
+        async_results = async_web_response[0]
+        req_time = async_web_response[1]
     
-    for idx,data in enumerate(async_results,1):
-        name = data['name']
-        result = ''
+        for idx,data in enumerate(async_results,1):
+            name = data['name']
+            result = ''
         
-        if 'status' in data and data['status'] == 200:
-            result = str(data['text']).replace('\n','')
-            if result != '':
-                if result.startswith('[{') and result.endswith('}]'):
-                    resultJson = json.loads(result)
-                    for obj in resultJson:
-                        if "status" in obj and obj["status"] == 'not running':
-                            webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
-                        else:
-                            obj = prepend_cover_url(obj, data['url'])
-                            playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
-                            displaystr = add_separator(displaystr, playprops)
-                            props = get_name_zone_and_controlled_marker(name, obj, playprops)
+            if 'status' in data and data['status'] == 200:
+                result = str(data['text']).replace('\n','')
+                if result != '':
+                    if result.startswith('[{') and result.endswith('}]'):
+                        resultJson = json.loads(result)
+                        for obj in resultJson:
+                            if "status" in obj and obj["status"] == 'not running':
+                                webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
+                            else:
+                                obj = prepend_cover_url(obj, data['url'])
+                                playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
+                                displaystr = add_separator(displaystr, playprops)
+                                props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
-                            if playprops['playing'] is True:
-                                displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
+                                if playprops['playing'] is True:
+                                    displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                            has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
-                            if has_changed:
-                                flexprint('webserver ' + name + ' => has_changed: ' + str(has_changed))
-                                set_data_changed_and_web_playouts_raw(result, name)
+                                has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                                if has_changed:
+                                    flexprint('webserver ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
+                                    set_data_changed_and_web_playouts_raw(result, name)
 
-                                active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
-                                if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
-                                    if log is True: flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
-                                    displaystr = remove_prepended_from_displaystr(displaystr)
-                                    breakToo = True # flag to break outer for loop too
-                                    break
-                    web_playouts[name] = resultJson
-                    if breakToo is True:
-                        break
+                                    active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
+                                    if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
+                                        if log is True: flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                                        displaystr = remove_prepended_from_displaystr(displaystr)
+                                        breakToo = True # flag to break outer for loop too
+                                        break
+                        web_playouts[name] = resultJson
+                        if breakToo is True:
+                            break
+                    else:
+                        if log is True: flexprint('Webserver ' + name + ' is not available')
                 else:
-                    if log is True: flexprint('Webserver ' + name + ' is not available')
-            else:
-                if log is True: flexprint('Webserver ' + name + ' with empty result')
+                    if log is True: flexprint('Webserver ' + name + ' with empty result')
+
+    if spotify_connect_enabled():
+        # spotify_devices: [{'id': 'e4691c51cf9f3d352c82f7320c22d93c9b045732', 'is_active': True, 'is_private_session': False, 'is_restricted': False, 'name': 'Mac Studio', 'supports_volume': True, 'type': 'Computer', 'volume_percent': 100}]
+        # current spotify connect track: {'zone': 'SpotifyConnect', 'status': 'playing', 'artist': 'White Lies', 'album': 'In The Middle', 'track': 'In The Middle', 'shuffle': False, 'repeat': False, 'position': 66, 'total': 365, 'sourcetype': 'stream', 'id': 'spotify:track:2ppTMGPJmFGAB3AI59pGTc', 'cover': 'https://i.scdn.co/image/ab67616d0000b27311f4c9260cc97354d54e7211'}
+        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True) 
+        if active_spotify_connect_zone is None:
+            name = get_spotify_connect_name_from_channels()
+            if name is not None:
+                web_playouts[name] = [{"zone": "SpotifyConnect", "status": "not running"}]  
+                web_playouts_raw[name] = '[{"zone": "SpotifyConnect", "status": "not running"}]'    
+        else:
+            name = active_spotify_connect_zone['name']
+            obj = spotify_connect.current_or_last_played_track()
+            result = '[' + json.dumps(obj) + ']' 
+        
+            if obj is not None and "status" in obj:
+                playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
+                displaystr = add_separator(displaystr, playprops)
+                props = get_name_zone_and_controlled_marker(name, obj, playprops)
+
+                if playprops['playing'] is True:
+                    displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
+
+                has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                if has_changed:
+                    flexprint('spotify connect zone ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
+                    set_data_changed_and_web_playouts_raw(result, name)
+
+                    active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='spotifyconnect' and name == props['name'] and obj["zone"] == props['zone'])
+                    if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
+                        if log is True: flexprint('web zone update (spotify connect) => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                        displaystr = remove_prepended_from_displaystr(displaystr)
+                flexprint('save web_playouts for ' + str(name) + ', obj: ' + str(obj))
+                web_playouts[name] = [obj]
 
     if log is True:
         flexprint('get playing apple or spotify => end')
@@ -3848,7 +4050,9 @@ def set_control_zone(waiting = True):
     if control_id_update is None:
         channel_name = '-'
     else:
-        channel_name = control_id_update.replace(' ','') if (control_id_update in channels.keys() and channels[control_id_update]=='webserver') else channels[control_id_update]
+        channel_name = control_id_update if (control_id_update in channels.keys() and (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect')) else channels[control_id_update]
+        if channels[control_id_update]=='webserver':
+            channel_name = channel_name.replace(' ','')
 
     if debug is True: flexprint('set_control_zone message')
     if display_cover is False:
@@ -4001,7 +4205,7 @@ def convert_special_chars(str):
     return unidecode(str.translate(translate_map)).encode("ascii", errors="ignore").decode()
 
 def set_default_zone():
-    global control_id, channels, playmode, shufflemode, repeatmode
+    global control_id, channels, playmode, shufflemode, repeatmode, active_spotify_connect_zone
     channels = {}
     playmode = {}
     shufflemode = {}
@@ -4014,6 +4218,12 @@ def set_default_zone():
             online = is_url_active(url,webserver_head_request_timeout)
             update_webserver_channels(name, online)
 
+    if spotify_connect_enabled():
+        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+        if active_spotify_connect_zone is not None:
+            name = active_spotify_connect_zone['name']
+            update_spotify_connect_channel(name, True)
+
     if roon_show == True and roon_servers:
         update_roon_channels()
 
@@ -4022,8 +4232,8 @@ def set_default_zone():
             flexprint("actual control zone: -")
         else:
             if control_id in channels.keys():
-                if channels[control_id]=='webserver':
-                    flexprint("actual control zone (webserver): " + control_id)
+                if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                    flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
                 else:
                     flexprint("actual control zone (roon): " + channels[control_id])
 
@@ -4232,7 +4442,7 @@ def update_roon_channels():
             repeatmode[k] = 'norepeat'
 
     for key in ch_keys:
-        if not key in out_keys and not channels[key]=='webserver':
+        if not key in out_keys and not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
             if log is True: flexprint('del key: ' + key + ', name: ' + channels[key])
             del channels[key]
             del playmode[key]
@@ -4284,10 +4494,57 @@ def update_webserver_channels(name, online):
 
     if debug is True: flexprint('update_webserver_channels => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
 
+def remove_spotify_connect_zone():
+    keys = list(channels.keys())
+    keys_len = len(keys)
+    if keys_len > 0:
+        for key in keys:
+            if channels[key]=='spotifyconnect':
+                del channels[key]
+                #del playmode[key]
+                #del shufflemode[key]
+                #del repeatmode[key]
+
+def update_spotify_connect_channel(name, online):
+    global control_id, channels, playmode, shufflemode, repeatmode
+
+    if debug is True:
+        flexprint('update_spotify_connect_channel => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+        flexprint(name + ' online:' + str(online))
+    keys = list(channels.keys())
+                    
+    key = name + '-SpotifyConnect'
+    if debug is True: flexprint('check player: ' + key)
+    if online is True:
+        if not key in keys:
+            if debug is True: flexprint('add player ' + key)
+            remove_spotify_connect_zone()
+            channels[key] = 'spotifyconnect'
+            playmode[key] = 'stop'
+            shufflemode[key] = 'noshuffle'
+            repeatmode[key] = 'norepeat'
+    else:
+        if key in keys:
+            if debug is True: flexprint('del key: ' + key)
+            del channels[key]
+            del playmode[key]
+            del shufflemode[key]
+            del repeatmode[key]
+            if control_id==key and zone_autoswitch is True:
+                control_id = None
+
+    get_new_control_id_by_webserver_control_zone()
+    get_new_control_id_by_roon_control_zone()
+    get_new_control_id_by_roon_zone_playing()
+    get_new_control_id_by_webserver_zone_online()
+    get_new_control_id_by_roon_zone_online()
+
+    if debug is True: flexprint('update_spotify_connect_channel => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+
 def get_new_control_id_by_webserver_control_zone():
     global control_id, control_zone
 
-    if control_zone is not None and webservers_show == True and control_zone in channels.keys() and channels[control_zone]=='webserver':
+    if control_zone is not None and webservers_show == True and control_zone in channels.keys() and (channels[control_zone]=='webserver' or channels[control_zone]=='spotifyconnect'):
         if zone_autoswitch is True:
             control_id = control_zone 
             if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
@@ -4307,7 +4564,7 @@ def get_new_control_id_by_webserver_zone_online():
         keys_len = len(keys)
         if keys_len > 0:
             for key in keys:
-                if channels[key]=='webserver':
+                if channels[key]=='webserver' or channels[key]=='spotifyconnect':
                     if zone_autoswitch is True:
                         control_id = key
                         if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
@@ -4327,7 +4584,7 @@ def get_new_control_id_by_roon_control_zone():
         keys_len = len(keys)
         if keys_len > 0:
             for key in keys:
-                if not channels[key]=='webserver' and channels[key]==control_zone:
+                if not channels[key]=='webserver' and not channels[key]=='spotifyconnect'  and channels[key]==control_zone:
                     if zone_autoswitch is True:
                         control_id = key
                         if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
@@ -4381,8 +4638,18 @@ def get_zone_names():
         if name == 'webserver':
             zones_online.append(id)
             zones_playing.append(id)
+        if name == 'spotifyconnect':
+            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+            if active_spotify_connect_zone is not None:
+                sc_name = active_spotify_connect_zone['name']
+                zones_online.append(sc_name + '-SpotifyConnect')
+                if active_spotify_connect_zone['is_active'] is True:
+                    zones_playing.append(sc_name + '-SpotifyConnect')
+        
     zones_online.sort()
     zones_playing.sort()
+    flexprint('zones_online: ' + str(zones_online))
+    flexprint('zones_playing: ' + str(zones_playing))
     return [zones_online, zones_playing]
 
 def get_new_control_id_by_roon_zone_online():
@@ -4393,7 +4660,7 @@ def get_new_control_id_by_roon_zone_online():
         keys_len = len(keys)
         if keys_len > 0:
             for key in keys:
-                if not channels[key]=='webserver':
+                if not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
                     if zone_autoswitch is True:
                         control_id = key 
                         if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
@@ -4451,6 +4718,12 @@ def is_active_web_zone(name):
             return True
     return False
 
+def is_active_spotify_connect_zone(name):
+    for id, name in channels.items():
+        if name == 'spotifyconnect' and id == name:
+            return True
+    return False
+
 def reconnect_roon_api_if_zone_is_stopped(roon_zones):
     global roonapi
     stopped_zone_found = False
@@ -4470,6 +4743,27 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
 def build_output():
     global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
+
+    if display_cover is True:
+        upcoming_control_zone = None # the actual selected roon zone which is coming online again
+        zonestatus_list = get_zone_names()
+        zones_online = zonestatus_list[0]
+        zones_playing = zonestatus_list[1]
+        if last_zones_online != zones_online or last_zones_playing != zones_playing:
+            missing_control_zone = control_zone not in zones_online
+            stopped_control_zone = control_zone not in zones_playing
+            if control_zone not in last_zones_online and control_zone in zones_online:
+                upcoming_control_zone = control_zone # zone is online again
+            last_zones_online = zones_online
+            last_zones_playing = zones_playing
+            flexprint('[bold red]Roonmatrix => Coverplayer.setZones (roon build_output) => zones online: ' + str(zones_online) + ', control_zone: ' + str(control_zone) + ', control_id: ' + str(control_id) + ', missing_control_zone: ' + str(missing_control_zone) + ', stopped_control_zone: ' + str(stopped_control_zone) + ', upcoming_control_zone: ' + str(upcoming_control_zone) + '[/bold red]')
+            if stopped_control_zone or missing_control_zone:
+                cover_text_line_parts = []
+                cover_text_line_parts.append(get_message('Zone') + ': ' + control_zone)
+                cover_text_line_parts.append('[offline]' if missing_control_zone else '[inactive]')
+            else:
+                cover_text_line_parts = None
+            Coverplayer.setZones(zones_online, cover_text_line_parts, zone_selection)    
 
     buildstr = ''
     buildlines = []
@@ -4495,27 +4789,6 @@ def build_output():
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
                 update_roon_channels()
                 roon_zones = reconnect_roon_api_if_zone_is_stopped(list(roonapi.zones.values()))
-
-                if display_cover is True:
-                    upcoming_control_zone = None # the actual selected roon zone which is coming online again
-                    zonestatus_list = get_zone_names()
-                    zones_online = zonestatus_list[0]
-                    zones_playing = zonestatus_list[1]
-                    if last_zones_online != zones_online or last_zones_playing != zones_playing:
-                        missing_control_zone = control_zone not in zones_online
-                        stopped_control_zone = control_zone not in zones_playing
-                        if control_zone not in last_zones_online and control_zone in zones_online:
-                            upcoming_control_zone = control_zone # zone is online again
-                        last_zones_online = zones_online
-                        last_zones_playing = zones_playing
-                        flexprint('[bold red]Roonmatrix => Coverplayer.setZones (roon build_output) => zones online: ' + str(zones_online) + ', control_zone: ' + str(control_zone) + ', control_id: ' + str(control_id) + ', missing_control_zone: ' + str(missing_control_zone) + ', stopped_control_zone: ' + str(stopped_control_zone) + ', upcoming_control_zone: ' + str(upcoming_control_zone) + '[/bold red]')
-                        if stopped_control_zone or missing_control_zone:
-                            cover_text_line_parts = []
-                            cover_text_line_parts.append(get_message('Zone') + ': ' + control_zone)
-                            cover_text_line_parts.append('[offline]' if missing_control_zone else '[inactive]')
-                        else:
-                            cover_text_line_parts = None
-                        Coverplayer.setZones(zones_online, cover_text_line_parts, zone_selection)    
 
                 for zone in roon_zones:
                     state = "Unknown"
@@ -4665,7 +4938,7 @@ def build_output():
                             else:
                                 buildlines = vertical_longtext_split_and_append('=> ' + convert_special_chars(trackFiltered).replace('"',''),buildlines)
 
-        if webservers_show == True:
+        if webservers_show is True or spotify_connect_enabled() is True:
             if vertical_output == True:
                 buildlines = get_playing_apple_or_spotify(webservers_zones,buildlines)
             else:
@@ -4812,8 +5085,11 @@ if roon_show == True:
 if weather_show == True:
     get_weather(weather_api,location)
 
-if force_webserver_update is True:
+if webservers_show is True and force_webserver_update is True:
     check_webserver_for_playouts()
+
+if enable_spotify_connect is True and spotify_connect is not None:
+    spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
 
 set_default_zone()
 clear_display('initialization done')
@@ -4821,6 +5097,10 @@ initialization_done = True
 if log is True:
     flexprint('main initialization done')
     flexprint('')
+
+if enable_spotify_connect is True and spotify_connect is not None:
+    if spotify_connect_authorized is True:
+        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
 
 try:
     with ThreadPoolExecutor(max_workers=4) as executor:
