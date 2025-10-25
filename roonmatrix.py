@@ -3395,6 +3395,7 @@ def on_search(is_stream, value, zone, type):
     return [meta, []]
 
 def on_itemclick(meta, search, itemname, zone):
+    global control_id, active_spotify_connect_zone
     is_stream = meta['stream'] if 'stream' in meta else False # TODO: get from props
     control_id = None
     is_webserver = False
@@ -3412,6 +3413,22 @@ def on_itemclick(meta, search, itemname, zone):
     flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + str(search) + ', itemname: ' + str(itemname) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id))
     if is_webserver is True:
         if is_spotify is True:
+            if meta['type'] == 'spotify-devicelist':
+                if 'spotify_devices' in meta:
+                    for idx,data in enumerate(meta['spotify_devices']):
+                        name = data['name']
+                        if search == name:
+                            data['sourcetype'] = 'spotify_connect'
+                            active_spotify_connect_zone = data
+                            control_id = name + '-SpotifyConnect'
+                            update_spotify_connect_channel(name, data['is_active'] is True)
+                            spotify_connect.transfer_playback(device_id=active_spotify_connect_zone['id'], force_play=True)
+                            break                    
+                    return ['selected-spotify-device', search, itemname]
+                else:
+                    spotify_devices = spotify_connect.devices()
+                    meta['spotify_devices'] = spotify_devices
+                    return ['spotify-devicelist', itemname, spotify_devices]            
             if meta['type'] == 'artists':
                 albums = spotify_get_artist_albums(itemname)
                 if isinstance(albums, str):

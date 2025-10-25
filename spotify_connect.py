@@ -177,6 +177,16 @@ class SpotifyConnect:
         else:
             self.spotify.start_playback(device_id=device_id)
 
+    def transfer_playback(self, device_id=None, force_play = False):
+        if self.spotify is None:
+            return
+        self.flexprint('SpotifyConnect => transfer_playback with device_id: ' + str(device_id))
+        if device_id is not None:
+            try:
+                self.spotify.transfer_playback(device_id = device_id, force_play = force_play)
+            except Exception as e:
+                self.flexprint("Spotify Connect transfer_playback error: " + str(e))
+    
     def pause(self, device_id=None):
         if self.spotify is None:
             return

@@ -431,6 +431,7 @@ class Coverplayer:
         self.text = []
         self.zone = None
         self.zone_off = True
+        self.spotify_devicelist = []
         self.missing_zone = False
         self.stopped_zone = False
         self.zone_btn = {}
@@ -656,7 +657,8 @@ class Coverplayer:
         # divide columns for upper buttons (consider max_per_row)
         for col in range(max_per_row):
             zone_frame.grid_columnconfigure(col, weight = 1)
-    
+
+        # zone buttons (top)
         wraplength = int(self.maxpx_x / 3) - 80
         for idx, label in enumerate(self.buttons):
             row = idx // max_per_row
@@ -835,22 +837,25 @@ class Coverplayer:
             self.flexprint('[bold red]CoverPlayer: set_repeatmode: '+ str(mode) + '[/bold red]')
 
     def _on_button_click(self, value):
-        if self.zone_callback:
-            self.zone = value
-            self.zone_callback(value)
+        if value == self.zone and value.endswith('-SpotifyConnect'):
+            self._open_keyb('spotify-devicelist')
+        else:
+            if self.zone_callback:
+                self.zone = value
+                self.zone_callback(value)
 
-            if self.in_menu_mode is True and self.tracklist_btn is not None:
-                if self.text is not None and len(self.text) > 3:
-                    zone = self.text[0].split(':')[1].strip()
-                    icon_enabled = self.zone is not None and zone == self.zone
-                    self.switch_button_state(self.tracklist_btn, icon_enabled)
-                else:
-                    self.switch_button_state(self.tracklist_btn, False)
-            if self.in_menu_mode is True and self.keyb_btn is not None:
-                icon_enabled = self.zone is not None
-                self.switch_button_state(self.keyb_btn, icon_enabled)
+                if self.in_menu_mode is True and self.tracklist_btn is not None:
+                    if self.text is not None and len(self.text) > 3:
+                        zone = self.text[0].split(':')[1].strip()
+                        icon_enabled = self.zone is not None and zone == self.zone
+                        self.switch_button_state(self.tracklist_btn, icon_enabled)
+                    else:
+                        self.switch_button_state(self.tracklist_btn, False)
+                if self.in_menu_mode is True and self.keyb_btn is not None:
+                    icon_enabled = self.zone is not None
+                    self.switch_button_state(self.keyb_btn, icon_enabled)
 
-        self._hide_overlay()
+            self._hide_overlay()
 
     def _hide_overlay(self):
         self._cancel_overlay_timer()
@@ -1002,6 +1007,11 @@ class Coverplayer:
             self.flexprint('coverplayer ==> itemclick_callback, data: ' + str(data))
             if data is not None and len(data) > 0:
                 result_type = data[0]
+                if result_type == 'spotify-devicelist':
+                    self.search = data[1]
+                    self.spotify_devicelist = data[2]
+                    devicelist = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "is_active": obj['is_active']}, self.spotify_devicelist))
+                    self._open_list(meta, devicelist)
                 if result_type == 'artist':
                     self.search = data[1]
                     meta['type'] = 'artistalbums'
@@ -1128,6 +1138,13 @@ class Coverplayer:
                     self.flexprint('tracklist clicked => meta: ' + str(meta))
                     self.search = artist
                     self.on_itemclick(meta, album, self.track_id)
+        elif type=='spotify-devicelist':
+            is_stream = self.sourcetype == 'stream'
+            zone_name = self.zone.split('-')[0]
+            meta = {"type": 'spotify-devicelist', 'label': self.lang['select_spotify-devicelist'], 'listname': zone_name}
+            self.flexprint('coverplayer _open_keyb spotify-devicelist clicked => meta: ' + str(meta))
+            self.search = zone_name
+            self.on_itemclick(meta, zone_name, zone_name)
         else:
             self.hasRadioSearch = False
             zonetype = self.get_zonetype()
