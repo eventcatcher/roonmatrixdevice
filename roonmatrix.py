@@ -3568,7 +3568,7 @@ def on_itemclick(meta, search, itemname, zone):
                     radios = [e for e in meta['radios'] if e['id'] == itemname]
                     if len(radios) > 0:
                         radio = radios[0]
-                        send_webserver_zone_control(control_id, True, 'applemusic-play-url', radio['url'], 0)
+                        send_webserver_zone_control(control_id, True, 'applemusic-play-url', radio['url'], '0')
                 return ['radio', radio]
             if meta['type'] == 'playlists':
                 flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
@@ -3593,7 +3593,7 @@ def on_itemclick(meta, search, itemname, zone):
                     album = album.replace('"', '\\"')
                     if itemname == '[FULLALBUM]':
                         if is_stream is True:
-                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', meta['tracks'][0]['url'], 2)
+                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', meta['tracks'][0]['url'], '2')
                         else:
                             send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
                     else:
@@ -3603,7 +3603,7 @@ def on_itemclick(meta, search, itemname, zone):
                             tracks = [e for e in meta['tracks'] if e['id'] == itemname]
                             if len(tracks) > 0:
                                 track = tracks[0]
-                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], 2)
+                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], '2')
                         else:
                             send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, itemname)
                     return ['track', meta['artist'], meta['album'], itemname]
@@ -3616,7 +3616,7 @@ def on_itemclick(meta, search, itemname, zone):
                             items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
                             if len(items) > 0:
                                 playlist = items[0]
-                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', playlist['url'], 3) # play whole playlist (autoplay works)
+                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', playlist['url'], '3') # play whole playlist (autoplay works)
                         else:
                             send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist)
                     else:
@@ -3631,7 +3631,7 @@ def on_itemclick(meta, search, itemname, zone):
                                     track = tracks[0]
                                     track_url = track['url'] # album link with track selection (autostart of play is working)
                                     #track_url = playlist_url + '?i=' + track['id'] # playlist link with song item anchor (open page but without selection in app - not possible to autostart of play)
-                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', track_url, 3)
+                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', track_url, '3')
                         else:
                             send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist, itemname)
                     return ['track', meta['playlist'], itemname]
@@ -3642,7 +3642,7 @@ def on_itemclick(meta, search, itemname, zone):
                         tracks = [e for e in meta['tracks'] if e['id'] == itemname]
                         if len(tracks) > 0:
                             track = tracks[0]
-                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], 2)
+                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], '2')
                     else:    
                         if len(itemname.split('|')) == 2:
                             itemparts = itemname.split('|')
