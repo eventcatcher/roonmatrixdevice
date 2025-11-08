@@ -3,7 +3,7 @@
 #
 # CoverPlayer Class - display roon, spotify and apple music playout informations and cover art on 720x720px Pimoroni HyperPixel Square 4.0 LCD matrix display
 # Roonmatrix extension class
-# version 1.0.0, date: 21.06.2025
+# version 1.2.0, date: 08.11.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 #

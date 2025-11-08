@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.1.0, date: 11.07.2025
+# version 1.2.0, date: 08.11.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.1.0, date: 11.07.2025'
+scriptVersion = '1.2.0, date: 08.11.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta, timezone
@@ -761,6 +761,8 @@ if display_cover is True:
     
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
+            environ['DEVICE_NAME'] = hostName
+            environ['BLUETOOTH_DEVICE_NAME'] = hostName
             environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
             environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
         except EnvironmentError as e:
@@ -1230,12 +1232,21 @@ def setHostname(newhostname):
         with open('/etc/hostname', 'r') as file:
             data = file.readlines()
         data[0] = newhostname
-
         with open(temp_path, 'w') as file:
             file.writelines( data )
 
         subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hostname"], check=True)
         subprocess.run(["sudo", "/usr/bin/hostnamectl", "set-hostname", newhostname], check=True)
+
+        with open('/etc/raspotify/conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "LIBRESPOT_NAME=" in data[idx]:
+                data[idx] = 'LIBRESPOT_NAME="' + newhostname + '"' + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
     except Exception as e:
         flexprint('[red]setHostname error: ' + str(e) + '[/red]')
 

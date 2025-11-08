@@ -1,3 +1,18 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# SpotifyConnect Class - Roonmatrix extension to support Spotify Connect
+# Roonmatrix extension class
+# version 1.2.0, date: 08.11.2025
+#
+# control and play music via Spotify Connect
+#
+# © Stephan Wilhelm, Bielefeld, Germany, coded @ 2025
+#
+# copy to /home/coverplayer/FTP
+#
+# logs saved to /home/coverplayer/FTP/logs
+
 import requests
 import ssl
 from rich import print

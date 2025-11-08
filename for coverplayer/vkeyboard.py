@@ -3,9 +3,10 @@
 #
 # VirtualKeyboard Class - display virtual keyboard
 # Roonmatrix extension class
-# version 1.0.0, date: 18.07.2025
+# version 1.2.0, date: 08.11.2025
 #
 # © Abhineet Kelley, coded @ 2022
+# © Stephan Wilhelm, Bielefeld, Germany, based on code of Abhineet Kelley, coded @ 2025
 #
 # copy to /home/coverplayer/FTP
 #

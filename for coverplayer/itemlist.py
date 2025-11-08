@@ -81,6 +81,18 @@ class TouchTreeview(ttk.Treeview):
             self.selection_remove(self.selection())
             return "break"
 
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+#
+# ItemList Class - display touchable result list
+# Roonmatrix extension class
+# version 1.2.0, date: 08.11.2025
+#
+# © Stephan Wilhelm, Bielefeld, Germany, coded @ 2025
+#
+# copy to /home/coverplayer/FTP
+#
+
 class ItemList:
     def __init__(self,log,maxpx_x,maxpx_y):
         self.log = log			# log infos on or off
