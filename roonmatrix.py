@@ -74,10 +74,11 @@ from weatherbit.api import Api
 import feedparser
 from spotify_connect import SpotifyConnect
 
-debug = False   # log debug messages (memory and variable information)
 startlog = True # log start and config information
-log = True      # log infos on or off
 errorlog = True # log errors
+log = True      # log infos on or off
+debug = False   # log debug messages (memory and variable information)
+
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 base_translations_path = '../FTP/translations/'
@@ -195,7 +196,8 @@ async def head_url(session, reqobj):
                 'text': text
             }
     except ClientConnectorError as e:
-        flexprint('aiohttp.ClientConnectorError', str(e))
+        if errorlog is True:
+            flexprint('aiohttp.ClientConnectorError', str(e))
         return {
             'url': url,
             'name': name,
@@ -234,7 +236,8 @@ async def fetch_url(session, reqobj):
                     'text': text
                 }
     except ClientConnectorError as e:
-        flexprint('aiohttp.ClientConnectorError', str(e))
+        if errorlog is True:
+            flexprint('aiohttp.ClientConnectorError', str(e))
         return {
             'url': url,
             'name': name,
@@ -309,9 +312,10 @@ def async_web_requests_with_timing(requestlist):
                         err = 'timeout'
                     if err == '' and len(async_results) == 0:
                         err = 'empty result'
-                    flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
+                    if errorlog is True:
+                        flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
         else:
-            if log is True: flexprint('[red]async_web_requests: lost response[/red]')
+            flexprint('[red]async_web_requests: lost response[/red]')
             async_results = []
         if err == '':
             break
@@ -341,9 +345,10 @@ def sync_web_requests_with_timing(requestlist):
                         err = 'timeout'
                     if err == '' and len(sync_results) == 0:
                         err = 'empty result'
-                    flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
+                    if errorlog is True:
+                        flexprint('[red]Webserver ' + data['name']  + ' with error: ' + err + '[/red]')      
         else:
-            if log is True: flexprint('[red]sync_web_requests: lost response[/red]')
+            flexprint('[red]sync_web_requests: lost response[/red]')
             sync_results = []
         if err == '':
             break
@@ -1083,12 +1088,12 @@ async def rest_zone_control(params: ZoneControlParams):
 
     cmd = params.cmd
     enable = params.enable
-    if log is True: 
-        msg = '[bold magenta]POST zone_control => control_id: ' + params.control_id + ', cmd: ' + cmd
-        if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
-            msg += ', enable:' + str(enable)
-        msg += '[/bold magenta]'
-        flexprint(msg)
+
+    msg = '[bold magenta]POST zone_control => control_id: ' + params.control_id + ', cmd: ' + cmd
+    if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
+        msg += ', enable:' + str(enable)
+    msg += '[/bold magenta]'
+    flexprint(msg)
 
     if cmd=='previous':
         play_previous(params.control_id, False)
@@ -1120,15 +1125,14 @@ async def rest_set_spotify_auth_redirect_url(params: SetSpotifyAuthRedirectUrlPa
 
     spotify_auth_redirect_url = params.url
    
-    if log is True: 
-        msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
-        flexprint(msg)
+    msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
+    flexprint(msg)
 
     success = spotify_connect.auth_response(spotify_auth_redirect_url)
     if success is True:
         spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
-    if log is True: 
-        flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
+
+    flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
     
     return success
 
@@ -1142,7 +1146,7 @@ async def rest_custom_message(params: CustomMessageParams):
 
     custom_message = params.message
     custom_message_option = params.option
-    if log is True: flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
+    flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
 
     if custom_message != ''  and custom_message_option != 'playout':
         force_custom_message()
@@ -1159,7 +1163,7 @@ async def rest_live_control(params: LiveControlParams):
 
     livecontrol_control = params.control
     livecontrol_value = params.value
-    if log is True: flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
+    flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
 
     if livecontrol_control != '' and livecontrol_value != '':
         if livecontrol_control == 'led_scroll_delay':
@@ -1204,8 +1208,9 @@ async def websocket_endpoint(websocket: WebSocket):
     except WebSocketDisconnect:
         flexprint(f"websocket client disconnected: {websocket.client}")
     except Exception as e:
-        flexprint(f"websocket error: {e}")
-        flexprint(str(data))
+        if errorlog is True:
+            flexprint(f"websocket error: {e}")
+            flexprint(str(data))
     finally:
         clients.discard(websocket)
 
@@ -1347,7 +1352,7 @@ def output():
         return
 
     if (vertical_output == False and displaystr is not None and displaystr != '') or (vertical_output == True and len(vert_strlines) > 0):
-        if log is True: flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
+        flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
 
         if vertical_output is True:
             delaySec = led_vertical_scroll_delay/1000
@@ -1355,7 +1360,7 @@ def output():
         else:
             delaySec = led_scroll_delay/1000
             show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
-        if log is True: flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
+        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
 
     output_in_progress = False
 
@@ -1431,7 +1436,7 @@ def roon_discover():
             discover = RoonDiscovery(None)
             roon_servers = discover.all()
 
-            if log is True: flexprint("roon_discover => Shutdown discovery")
+            flexprint("roon_discover => Shutdown discovery")
             discover.stop()
 
             flexprint("roon_discover => Found the following servers")
@@ -1462,7 +1467,7 @@ def roon_discover():
                         f.write(str(token))
                         f.close()
 
-                    if log is True: flexprint("roon_discover => Shutdown api")
+                    flexprint("roon_discover => Shutdown api")
                     api.stop()
 
             flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
@@ -1491,11 +1496,11 @@ def get_roon_api():
                 data = [core_ip, int(core_port)]
                 if len(roon_servers) == 0:
                     roon_servers = [data]
-                if log is True: 
-                    flexprint("roon api connected => (host, core_name, core_id)")
-                    flexprint(roonapi.host)
-                    flexprint(roonapi.core_name)
-                    flexprint(roonapi.core_id)
+
+                flexprint("roon api connected => (host, core_name, core_id)")
+                flexprint(roonapi.host)
+                flexprint(roonapi.core_name)
+                flexprint(roonapi.core_id)
                 
                 # This is what we need to reconnect
                 core_id = roonapi.core_id
@@ -1779,7 +1784,7 @@ def get_active_zones_from_webserver_onlinecheck(update):
         if online is True:
             active_zones.append(data)
         else:
-            if log is True: flexprint('Webserver ' + name + ' is down')
+            flexprint('Webserver ' + name + ' is down')
     return active_zones
 
 def spotify_connect_enabled():
@@ -1795,12 +1800,12 @@ def get_active_zone_from_spotify_connect_onlinecheck(update):
         if spotify_connect_enabled():
             spotify_devices = spotify_connect.devices()
             flexprint('spotify_devices: ' + str(spotify_devices))
-            if log is True:
-                for d in spotify_devices:
-                    flexprint(f"{d['name']} ({d['id']}) – {'aktiv' if d['is_active'] else 'inaktiv'}")
+
+            for d in spotify_devices:
+                flexprint(f"{d['name']} ({d['id']}) – {'aktiv' if d['is_active'] else 'inaktiv'}")
 
         for idx,data in enumerate(spotify_devices):
-            if log is True: flexprint('spotify connect device: ' + str(data))
+            flexprint('spotify connect device: ' + str(data))
             name = data['name']
             online = data['is_active']
             if update is True:
@@ -1811,11 +1816,11 @@ def get_active_zone_from_spotify_connect_onlinecheck(update):
                 active_zone['sourcetype'] = 'spotify_connect'
                 break # only support for one active play context, so only one device can be active!
             else:
-                if log is True: flexprint('spotify connect zone ' + name + ' has no active zone')
+                flexprint('spotify connect zone ' + name + ' has no active zone')
 
         if active_zone is None and len(spotify_devices) > 0:
             active_zone = spotify_devices[0] # fallback: paused (not running), but available
-            if log is True: flexprint('spotify connect zone ' + name + ' => fallback: take paused (not running) zone')
+            flexprint('spotify connect zone ' + name + ' => fallback: take paused (not running) zone')
             if active_zone is not None:
                 active_zone['sourcetype'] = 'spotify_connect'
                 name = active_zone['name']
@@ -1853,7 +1858,7 @@ def is_audioinfo_available():
                 url = data['url']
                 try:
                     if 'error' in data :
-                        if log is True: flexprint('Webserver error: ' + data['error'])
+                        if errorlog is True: flexprint('Webserver error: ' + data['error'])
                     if 'status' in data and data['status'] == 200:
                         result = str(data['text']).replace('\n','')
                 except Exception as e:
@@ -1905,7 +1910,7 @@ def is_audioinfo_available():
         fetch_output_time = None
         fetch_output_in_progress = False
 
-    if log is True: flexprint('is_audioinfo_available: ' + str(available))
+    flexprint('is_audioinfo_available: ' + str(available))
     audioinfo_available = available
 
 def refresh_output_data(force = False):
@@ -1913,7 +1918,7 @@ def refresh_output_data(force = False):
 
     fetch_new = fetch_output_time is None or (fetch_output_time + timedelta(0,60)) < datetime.now()
     if fetch_new is True or force is True:
-        if log is True: flexprint('fetched output data too old (' + (fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None') + ') => refresh')
+        flexprint('fetched output data too old (' + (fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None') + ') => refresh')
         fetch_output_time = None
         fetch_output_done = False
         fetch_output_in_progress = False
@@ -1957,7 +1962,8 @@ def set_play_mode(control_id, enable, send, do_async=True):
                             else:
                                 spotify_connect.play(active_spotify_connect_zone['id']) if enable is True else spotify_connect.pause(active_spotify_connect_zone['id'])
                     except Exception as e:
-                        flexprint('spotify_connect error (maybe offline)')
+                        if errorlog is True:
+                            flexprint('spotify_connect error (maybe offline)')
             else:
                 if roon_show == True and roon_servers:
                     roonapi.playback_control(control_id, playmode[control_id])
@@ -1986,7 +1992,8 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
                     if active_spotify_connect_zone is not None:
                         spotify_connect.shuffle(shufflemode[control_id]=='shuffle', active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
-                    flexprint('spotify_connect error (maybe offline)')
+                    if errorlog is True:
+                        flexprint('spotify_connect error (maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -2025,7 +2032,8 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
                     if active_spotify_connect_zone is not None:
                         spotify_connect.repeat("context" if shufflemode[control_id]=='repeat' else "off", active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
-                    flexprint('spotify_connect error (maybe offline)')
+                    if errorlog is True:
+                        flexprint('spotify_connect error (maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -2052,7 +2060,8 @@ def play_previous(control_id, do_async=True):
                     if active_spotify_connect_zone is not None:
                         spotify_connect.previous(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
-                    flexprint('spotify_connect error (maybe offline)')                    
+                    if errorlog is True:
+                        flexprint('spotify_connect error (maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "previous")
@@ -2069,7 +2078,8 @@ def play_next(control_id, do_async=True):
                     if active_spotify_connect_zone is not None:
                         spotify_connect.next(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
                 except Exception as e:
-                    flexprint('spotify_connect error (maybe offline)')                    
+                    if errorlog is True:
+                        flexprint('spotify_connect error (maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "next")
@@ -2088,7 +2098,7 @@ def pressed_up(channel):
             control_id_update = control_id
             zone_control_last_update_time = datetime.now()
             do_set_zone_control = True
-            if log is True: flexprint('enter zone control setup')
+            flexprint('enter zone control setup')
             if clock_in_progress is True or displaystr=='':
                 set_control_zone(False)
         else:
@@ -2097,7 +2107,7 @@ def pressed_up(channel):
             control_zone = control_id
             clear_display('pressed_up')
             refresh_output_data(True)
-            if log is True: flexprint('close zone control setup')
+            flexprint('close zone control setup')
             is_playing_last = None
             shuffle_on_last = None
             repeat_on_last = None
@@ -2128,7 +2138,7 @@ def pressed_down(channel):
             do_set_zone_control = False
             clear_display('pressed_down')
             refresh_output_data()
-            if log is True: flexprint('close zone control setup')
+            flexprint('close zone control setup')
             if control_id is not None and log is True and control_id in channels.keys():
                 if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
                     flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
@@ -2221,7 +2231,7 @@ def pressed_enter(channel):
             control_zone = control_id
             clear_display('pressed_enter')
             refresh_output_data(True)
-            if log is True: flexprint('close zone control setup')
+            flexprint('close zone control setup')
             is_playing_last = None
             shuffle_on_last = None
             repeat_on_last = None
@@ -2291,7 +2301,8 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
                     result = results[0]['text']
                     if is_json_str(result) is False:
                         if isinstance(result, str) is True:
-                            flexprint('send_webserver_zone_control => error: ' + str(result))
+                            if errorlog is True:
+                                flexprint('send_webserver_zone_control => error: ' + str(result))
                         else:
                             result = '[]'
                         return result
@@ -2302,10 +2313,12 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
                     return result
                 else:
                     if 'error' in results[0]:
-                        flexprint('send_webserver_zone_control => error: ' + str(results[0]['error']))
+                        if errorlog is True:
+                            flexprint('send_webserver_zone_control => error: ' + str(results[0]['error']))
                         return results[0]['error']
                     else:
-                        flexprint('send_webserver_zone_control => async response is empty!')
+                        if errorlog is True:
+                            flexprint('send_webserver_zone_control => async response is empty!')
                         return '[]'
             except HTTPError as e:
                 if errorlog is True:
@@ -2474,7 +2487,7 @@ def get_weather(weather_api, location):
             weatherstr = convert_special_chars(weatherstr)
             weatherlines = lines
 
-            if log is True: flexprint('weather update ' + str(weather_fetch_count) + ' @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            flexprint('weather update ' + str(weather_fetch_count) + ' @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
         except Exception as e:            
             if errorlog is True: 
                 flexprint('[red]==> weather message ERROR: [/red]', str(e))
@@ -2727,7 +2740,8 @@ def applemusic_search_artist(artist_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         artists = results['results']['artists']['data']
@@ -2735,7 +2749,8 @@ def applemusic_search_artist(artist_name):
 
         return artists
     except Exception as e:
-        flexprint('applemusic_search_artist error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_search_artist error: ' + str(e))
         return []
 
 def applemusic_genres():
@@ -2750,7 +2765,8 @@ def applemusic_genres():
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         genres = results['data']
@@ -2758,7 +2774,8 @@ def applemusic_genres():
         
         return genres
     except Exception as e:
-        flexprint('applemusic_genres error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_genres error: ' + str(e))
         return []
 
 def applemusic_station(stations_name):
@@ -2773,7 +2790,8 @@ def applemusic_station(stations_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         stations = results['results']['stations']['data']
@@ -2781,7 +2799,8 @@ def applemusic_station(stations_name):
        
         return stations
     except Exception as e:
-        flexprint('applemusic_station error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_station error: ' + str(e))
         return []
 
 def applemusic_get_albums_by_artist_name(artist_name):
@@ -2796,7 +2815,8 @@ def applemusic_get_albums_by_artist_name(artist_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         albums = results['results']['albums']['data'] if ('albums' in results['results'] and 'data' in results['results']['albums']) else []
@@ -2806,7 +2826,8 @@ def applemusic_get_albums_by_artist_name(artist_name):
 
         return albums
     except Exception as e:
-        flexprint('applemusic_get_albums_by_artist_name error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_albums_by_artist_name error: ' + str(e))
         return []
 
 def applemusic_get_albums_by_albumname(album_name):
@@ -2821,7 +2842,8 @@ def applemusic_get_albums_by_albumname(album_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         albums = results['results']['albums']['data'] if ('albums' in results['results'] and 'data' in results['results']['albums']) else []
@@ -2831,7 +2853,8 @@ def applemusic_get_albums_by_albumname(album_name):
 
         return albums
     except Exception as e:
-        flexprint('applemusic_get_albums_by_albumname error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_albums_by_albumname error: ' + str(e))
         return []
 
 def applemusic_get_artist_relationship(artist_id,relationship):
@@ -2846,7 +2869,8 @@ def applemusic_get_artist_relationship(artist_id,relationship):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
         
         items = results['data']
@@ -2856,7 +2880,8 @@ def applemusic_get_artist_relationship(artist_id,relationship):
 
         return items
     except Exception as e:
-        flexprint('applemusic_get_artist_relationship error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_artist_relationship error: ' + str(e))
         return []
 
 def applemusic_get_playlist_relationship(playlist_id, relationship):    
@@ -2871,7 +2896,8 @@ def applemusic_get_playlist_relationship(playlist_id, relationship):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         tracks = results['data']
@@ -2882,7 +2908,8 @@ def applemusic_get_playlist_relationship(playlist_id, relationship):
 
         return tracks
     except Exception as e:
-        flexprint('applemusic_get_playlist_tracks error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_playlist_tracks error: ' + str(e))
         return []
 
 def applemusic_get_playlist_tracks(playlist_id):
@@ -2897,7 +2924,8 @@ def applemusic_get_playlist_tracks(playlist_id):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         tracks = results['data'][0]['relationships']['tracks']['data']
@@ -2908,7 +2936,8 @@ def applemusic_get_playlist_tracks(playlist_id):
 
         return tracks
     except Exception as e:
-        flexprint('applemusic_get_playlist_tracks error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_playlist_tracks error: ' + str(e))
         return []
 
 def applemusic_get_album_tracks(album_id):
@@ -2923,7 +2952,8 @@ def applemusic_get_album_tracks(album_id):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         tracks = results['data'][0]['relationships']['tracks']['data']
@@ -2931,7 +2961,8 @@ def applemusic_get_album_tracks(album_id):
 
         return tracks
     except Exception as e:
-        flexprint('applemusic_get_album_tracks error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_get_album_tracks error: ' + str(e))
         return []
 
 def applemusic_search_track(track_name):
@@ -2946,7 +2977,8 @@ def applemusic_search_track(track_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         tracks = results['results']['songs']['data']
@@ -2954,7 +2986,8 @@ def applemusic_search_track(track_name):
 
         return tracks
     except Exception as e:
-        flexprint('applemusic_search_track error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_search_track error: ' + str(e))
         return []
 
 def applemusic_search_playlist(playlist_name):
@@ -2969,7 +3002,8 @@ def applemusic_search_playlist(playlist_name):
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
         if results is None:
-            flexprint('applemusic request error: timeout')
+            if errorlog is True:
+                flexprint('applemusic request error: timeout')
             return []
 
         playlists = results['results']['playlists']['data']
@@ -2977,7 +3011,8 @@ def applemusic_search_playlist(playlist_name):
 
         return playlists
     except Exception as e:
-        flexprint('applemusic_search_playlist error: ' + str(e))
+        if errorlog is True:
+            flexprint('applemusic_search_playlist error: ' + str(e))
         return []
 
 def spotify_search_artist(artist_name):
@@ -3424,7 +3459,8 @@ def on_search(is_stream, value, zone, type):
                 try:
                     roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
                 except Exception as e:
-                    flexprint('roonapi.play_media error: ' + str(e))
+                    if errorlog is True:
+                        flexprint('roonapi.play_media error: ' + str(e))
                 return [meta, radios]
     meta = {"stream": is_stream, "zonetype": zonetype, "type": 'search', 'search': value.title()}
     return [meta, []]
@@ -3738,27 +3774,31 @@ def on_itemclick(meta, search, itemname, zone):
                     try:
                         roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)                        
                     except Exception as e:
-                        flexprint('roonapi.play_media error: ' + str(e))
+                        if errorlog is True:
+                            flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', meta['artist'], meta['album'], itemname]
                 elif 'playlist' in meta:
                     flexprint('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
                     try:
                         roonapi.play_media(output_id, ["Playlists", meta['playlist'], itemname], None, False)                        
                     except Exception as e:
-                        flexprint('roonapi.play_media error: ' + str(e))
+                        if errorlog is True:
+                            flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', meta['playlist'], itemname]
                 else:
                     flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
                     try:
                         roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
                     except Exception as e:
-                        flexprint('roonapi.play_media error: ' + str(e))
+                        if errorlog is True:
+                            flexprint('roonapi.play_media error: ' + str(e))
                     return ['track', itemname]
             if meta['type'] == 'radios':
                 try:
                     roonapi.play_media(output_id, ["My Live Radio", itemname], None, False)
                 except Exception as e:
-                    flexprint('roonapi.play_media error: ' + str(e))
+                    if errorlog is True:
+                        flexprint('roonapi.play_media error: ' + str(e))
                 return ['radio', itemname]
     return
 
@@ -3943,7 +3983,7 @@ def get_name_zone_and_controlled_marker(name, obj, playprops):
     return {'name':None, 'zone':None, 'controlled':controlled}
 
 def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,result):
-    if log is True: flexprint('get webserver results and fast updating of coverplayer and app => start, name: ' + name + ', url: ' + url)
+    flexprint('get webserver results and fast updating of coverplayer and app => start, name: ' + name + ', url: ' + url)
     
     result = str(result).replace('\n','')
     if result.startswith('[{') and result.endswith('}]'):
@@ -3961,11 +4001,10 @@ def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,resu
 
         web_playouts[name] = resultJson
     else:
-        if log is True: flexprint('Webserver ' + name + ' is not available')
+        flexprint('Webserver ' + name + ' is not available')
 
-    if log is True:
-        flexprint('get webserver results and fast updating of coverplayer and app => end')
-        flexprint('')
+    flexprint('get webserver results and fast updating of coverplayer and app => end')
+    flexprint('')
 
 def compare_filtered_zonedata_is_equal(old_raw, new_raw):
     old = json.loads(old_raw)
@@ -4004,7 +4043,7 @@ def get_spotify_connect_name_from_channels():
 
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
     global web_playouts, active_spotify_connect_zone
-    if log is True: flexprint('get playing apple or spotify => start')
+    flexprint('get playing apple or spotify => start')
     breakToo = False
     force = get_force_mode(displaystr)
     if webservers_show == True:
@@ -4043,7 +4082,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
 
                                     active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
                                     if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
-                                        if log is True: flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                                        flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
                                         displaystr = remove_prepended_from_displaystr(displaystr)
                                         breakToo = True # flag to break outer for loop too
                                         break
@@ -4051,9 +4090,9 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                         if breakToo is True:
                             break
                     else:
-                        if log is True: flexprint('Webserver ' + name + ' is not available')
+                        flexprint('Webserver ' + name + ' is not available')
                 else:
-                    if log is True: flexprint('Webserver ' + name + ' with empty result')
+                    flexprint('Webserver ' + name + ' with empty result')
 
     if spotify_connect_enabled():
         # spotify_devices: [{'id': 'e4691c51cf9f3d352c82f7320c22d93c9b045732', 'is_active': True, 'is_private_session': False, 'is_restricted': False, 'name': 'Mac Studio', 'supports_volume': True, 'type': 'Computer', 'volume_percent': 100}]
@@ -4084,21 +4123,20 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
 
                     active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='spotifyconnect' and name == props['name'] and obj["zone"] == props['zone'])
                     if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
-                        if log is True: flexprint('web zone update (spotify connect) => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                        flexprint('web zone update (spotify connect) => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
                         displaystr = remove_prepended_from_displaystr(displaystr)
                 flexprint('save web_playouts for ' + str(name) + ', obj: ' + str(obj))
                 web_playouts[name] = [obj]
 
-    if log is True:
-        flexprint('get playing apple or spotify => end')
-        flexprint('')
+    flexprint('get playing apple or spotify => end')
+    flexprint('')
     return displaystr
 
 def set_control_zone(waiting = True):
     clear_display('set_control_zone')
     time.sleep(1)
 
-    if log is True: flexprint('control_id_update: ' + str(control_id_update))
+    flexprint('control_id_update: ' + str(control_id_update))
     if control_id_update is None:
         channel_name = '-'
     else:
@@ -4122,7 +4160,7 @@ def set_fetch_time_before_clock_ends():
     time_start = datetime.now()
     estimated_end = time_start + timedelta(0,clock_max_show_time * 60)
     fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
-    if log is True: flexprint('show_clock => estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
+    flexprint('show_clock => estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
 
 def show_clock():
     global last_idle_time, check_audioinfo, audioinfo_available
@@ -4279,15 +4317,14 @@ def set_default_zone():
     if roon_show == True and roon_servers:
         update_roon_channels()
 
-    if log is True:
-        if control_id is None:
-            flexprint("actual control zone: -")
-        else:
-            if control_id in channels.keys():
-                if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
-                    flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
-                else:
-                    flexprint("actual control zone (roon): " + channels[control_id])
+    if control_id is None:
+        flexprint("actual control zone: -")
+    else:
+        if control_id in channels.keys():
+            if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
+            else:
+                flexprint("actual control zone (roon): " + channels[control_id])
 
 def roon_state_callback(event, changed_ids):
     global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
@@ -4409,7 +4446,7 @@ def roon_state_callback(event, changed_ids):
                     if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
                         allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
                         if allowed is True:
-                            if log is True: flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
+                            flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
                             interrupt_message = True
                             time.sleep(1)
                             if do_set_zone_control is False:
@@ -4435,9 +4472,9 @@ def check_webserver_for_playouts():
                 displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
             allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
 
-            if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
+            flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
             if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
-                if log is True: flexprint('webserver playout detected => interrupt message')
+                flexprint('webserver playout detected => interrupt message')
                 interrupt_message = True
                 time.sleep(1)
                 if do_set_zone_control is False:
@@ -4466,7 +4503,7 @@ def force_custom_message():
     if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
         displaystr = convert_special_chars(custom_message)
 
-        if log is True: flexprint('custom message with force option detected => interrupt message')
+        flexprint('custom message with force option detected => interrupt message')
         interrupt_message = True
         time.sleep(1)
         if do_set_zone_control is False:
@@ -4492,7 +4529,7 @@ def update_roon_channels():
     for (k, v) in outputs.items():
         if debug is True: flexprint('check output: ' + v["display_name"])
         if not k in ch_keys:
-            if log is True: flexprint('add ' + v["display_name"])
+            flexprint('add ' + v["display_name"])
             channels[k] = v["display_name"]
             playmode[k] = 'stop'
             shufflemode[k] = 'noshuffle'
@@ -4500,7 +4537,7 @@ def update_roon_channels():
 
     for key in ch_keys:
         if not key in out_keys and not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
-            if log is True: flexprint('del key: ' + key + ', name: ' + channels[key])
+            flexprint('del key: ' + key + ', name: ' + channels[key])
             del channels[key]
             del playmode[key]
             del repeatmode[key]
@@ -4604,14 +4641,15 @@ def get_new_control_id_by_webserver_control_zone():
     if control_zone is not None and webservers_show == True and control_zone in channels.keys() and (channels[control_zone]=='webserver' or channels[control_zone]=='spotifyconnect'):
         if zone_autoswitch is True:
             control_id = control_zone 
-            if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+            flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
             control_zone = None
         else:
             if control_id is None:
                 control_id = control_zone 
-                if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+                flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
             else:
-                if log is True: flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
+                if debug is True:
+                    flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
 
 def get_new_control_id_by_webserver_zone_online():
     global control_id
@@ -4624,13 +4662,13 @@ def get_new_control_id_by_webserver_zone_online():
                 if channels[key]=='webserver' or channels[key]=='spotifyconnect':
                     if zone_autoswitch is True:
                         control_id = key
-                        if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                        flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
                     else:
                         if control_id is None and key==control_zone:
                             control_id = key
-                            if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                            flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
                         else: 
-                            if log is True: flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
+                            flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
                     break
 
 def get_new_control_id_by_roon_control_zone():
@@ -4644,14 +4682,14 @@ def get_new_control_id_by_roon_control_zone():
                 if not channels[key]=='webserver' and not channels[key]=='spotifyconnect'  and channels[key]==control_zone:
                     if zone_autoswitch is True:
                         control_id = key
-                        if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                        flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
                         control_zone = None
                     else:
                         if control_id is None:
                             control_id = key
-                            if log is True: flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                            flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
                         else:
-                            if log is True: flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
+                            flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
                     break
 
 def get_new_control_id_by_roon_zone_playing():
@@ -4664,18 +4702,18 @@ def get_new_control_id_by_roon_zone_playing():
             if zone["state"] is not None:
                 state = zone["state"]
             if state == "playing" and zone["display_name"] in names:
-                if log is True: flexprint('zone: ' + str(zone))
+                flexprint('zone: ' + str(zone))
                 for id, name in channels.items():
                     if name == zone["display_name"]:
                         if zone_autoswitch is True:
                             control_id = id
-                            if log is True: flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                            flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
                         else:
                             if control_id is None and name==control_zone:
                                 control_id = id
-                                if log is True: flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                                flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
                             else:
-                                if log is True: flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
+                                flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
                         return
 
 def get_zone_names():
@@ -4720,13 +4758,13 @@ def get_new_control_id_by_roon_zone_online():
                 if not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
                     if zone_autoswitch is True:
                         control_id = key 
-                        if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                        flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
                     else:
                         if control_id is None and channels[key]==control_zone:
                             control_id = key
-                            if log is True: flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                            flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
                         else:
-                            if log is True: flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
+                            flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
                     break
 
 def get_zone_control_shortname(str):
@@ -4748,7 +4786,7 @@ def remove_completed_threads():
     if do_set_zone_control is False:
         try:
             for job in as_completed(jobs):
-                if log is True: flexprint('delete job ' + str(jobs[job]))
+                flexprint('delete job ' + str(jobs[job]))
                 del jobs[job]
                 if debug is True:
                     get_ram_info()
@@ -4828,9 +4866,9 @@ def build_output():
     build_start = datetime.now()
     fetch_output_done = False
     fetch_output_time = build_start + timedelta(0,3600) # set fetch_output_time 1h into the future to prevent build_output call again and again before output is called
-    if log is True:
-        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output start')
-        flexprint('')
+
+    flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output start')
+    flexprint('')
 
     try:
         if roon_show == True:
@@ -4928,7 +4966,7 @@ def build_output():
                             data_changed = True
                         continue
                     else:
-                        if log is True: flexprint('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
+                        flexprint('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
                         if control_id is not None and control_id in channels.keys() and zone["display_name"] == channels[control_id]:
                             zone_name = '[*] '
                         else:
@@ -5061,9 +5099,9 @@ def build_output():
             flexprint(traceback.format_exc())
 
     build_seconds = ceil((datetime.now() - build_start).total_seconds())
-    if log is True:
-        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
-        flexprint('')
+
+    flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
+    flexprint('')
 
     if vertical_output == True and len(buildlines) == 0:
         prepared_displaystr = ''
@@ -5112,10 +5150,10 @@ if display_cover is False:
 while True:
     if is_url_active(internet_connection_url,internet_connection_timeout) is True:
         # Do somthing
-        if log is True: flexprint("The internet connection is active")
+        flexprint("The internet connection is active")
         break
     else:
-        if log is True: flexprint("The internet connection is down")
+        flexprint("The internet connection is down")
         pass
 
 flexprint('argparse now...')
@@ -5156,9 +5194,9 @@ if enable_spotify_connect is True and spotify_connect is not None:
 set_default_zone()
 clear_display('initialization done')
 initialization_done = True
-if log is True:
-    flexprint('main initialization done')
-    flexprint('')
+
+flexprint('main initialization done')
+flexprint('')
 
 if enable_spotify_connect is True and spotify_connect is not None:
     if spotify_connect_authorized is True:
@@ -5174,11 +5212,11 @@ try:
             if do_set_zone_control is True:
                 # quit zone control mode after timeout
                 if (datetime.now() - zone_control_last_update_time).total_seconds() > zone_control_timeout:
-                    if log is True: flexprint('zone control timeout')
+                    flexprint('zone control timeout')
                     clear_display('zone control timeout')
                     do_set_zone_control = False
                     refresh_output_data()
-                    if log is True: flexprint('zone control timeout end')
+                    flexprint('zone control timeout end')
 
             if clock_in_progress == False and fetch_output_in_progress == False and (fetch_output_time is None or datetime.now() > fetch_output_time):
                 # build output string at fetch_output_time
@@ -5202,7 +5240,7 @@ try:
                     fetch_output_time = get_next_fetch_output_time(vert_strlines, font=proportional(CP437_FONT), scroll_delay=delaySec)
                 else:
                     fetch_output_time = get_next_fetch_output_time(displaystr, font=proportional(CP437_FONT), scroll_delay=delaySec)
-                if log is True: flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout round ' + str(playcount) + ', estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout round ' + str(playcount) + ', estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
                 fetch_output_in_progress = False
                 remove_completed_threads()
                 job = executor.submit(output)
@@ -5215,7 +5253,7 @@ try:
                 displaystr = ''
                 vert_strlines = []
                 fetch_output_time = datetime.now() + timedelta(0,15)
-                if log is True: flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => nothing to play, estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => nothing to play, estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
                 fetch_output_in_progress = False
 
             above_maxtime = last_idle_time is not None and ((datetime.now() - last_idle_time).total_seconds() / 60.0) > clock_max_idle_time
@@ -5226,7 +5264,7 @@ try:
                 # show clock
                 clock_in_progress = True
                 if (music_required is False or fetch_output_in_progress == False) and output_in_progress == False:
-                    if log is True: flexprint('clock mode start')
+                    flexprint('clock mode start')
                     check_audioinfo = True
                     prepared_displaystr = ''
                     prepared_vert_strlines = []
@@ -5251,7 +5289,7 @@ try:
                         tick()
                     clock_in_progress = False
                     remove_completed_threads()
-                    if log is True: flexprint('clock mode end')
+                    flexprint('clock mode end')
             time.sleep(1)
             tick()
 except Exception as e:
