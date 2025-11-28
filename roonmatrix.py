@@ -736,6 +736,8 @@ spotify_auth_redirect_url = ''
 spotify_connect_authorized = False
 active_spotify_connect_zone = None
 spotify_devices = []
+webcheck_timer = None
+weather_timer = None
 
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
@@ -1410,46 +1412,94 @@ def roon_discover():
     if roonapi is not None:
         return
 
-    if path.exists(idfile):
-        with open(idfile, "r") as f:
-            core_id = f.read()
-            f.close()
-    else:
-        core_id = None
+    try:
+        if path.exists(idfile):
+            with open(idfile, "r") as f:
+                core_id = f.read()
+                f.close()
+        else:
+            core_id = None
 
-    if path.exists(tokenfile):
-        with open(tokenfile, "r") as f:
-            token = f.read()
-            f.close()
-    else:
-        token = None
+        if path.exists(tokenfile):
+            with open(tokenfile, "r") as f:
+                token = f.read()
+                f.close()
+        else:
+            token = None
 
-    if core_id is None or token is None or core_ip == '' or core_port == '':
-        discover = RoonDiscovery(None)
-        roon_servers = discover.all()
+        if core_id is None or token is None or core_ip == '' or core_port == '':
+            discover = RoonDiscovery(None)
+            roon_servers = discover.all()
 
-        if log is True: flexprint("roon_discover => Shutdown discovery")
-        discover.stop()
+            if log is True: flexprint("roon_discover => Shutdown discovery")
+            discover.stop()
 
-        flexprint("roon_discover => Found the following servers")
-        flexprint(roon_servers)
-        if len(roon_servers) > 0:
-            core_ip = roon_servers[0][0]
-            core_port = roon_servers[0][1]
+            flexprint("roon_discover => Found the following servers")
+            flexprint(roon_servers)
+            if len(roon_servers) > 0:
+                core_ip = roon_servers[0][0]
+                core_port = roon_servers[0][1]
             
-            api = RoonApi(appinfo, None, core_ip, core_port, False)
+                api = RoonApi(appinfo, None, core_ip, core_port, False)
             
-            if api is not None:
-                config['ROON']['core_ip'] = core_ip # set roon server ip
-                config['ROON']['core_port'] = str(core_port) # set roon server port
-                del config['SYSTEM']['password']
-                with open(configFile, 'w') as fileRes:
-                    config.write(fileRes)
-                config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+                if api is not None:
+                    config['ROON']['core_ip'] = core_ip # set roon server ip
+                    config['ROON']['core_port'] = str(core_port) # set roon server port
+                    del config['SYSTEM']['password']
+                    with open(configFile, 'w') as fileRes:
+                        config.write(fileRes)
+                    config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
             
+                    # This is what we need to reconnect
+                    core_id = api.core_id
+                    token = api.token
+
+                    with open(idfile, "w") as f:
+                        f.write(str(core_id))
+                        f.close()
+
+                    with open(tokenfile, "w") as f:
+                        f.write(str(token))
+                        f.close()
+
+                    if log is True: flexprint("roon_discover => Shutdown api")
+                    api.stop()
+
+            flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
+            time.sleep(discovery_delay)
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('[red]==> roon_discover error: [/red]', str(e))
+            flexprint(traceback.format_exc())
+
+def get_roon_api():
+    global roonapi, roon_servers
+
+    try:
+        if path.exists(tokenfile):
+            with open(tokenfile, "r") as f:
+                token = f.read()
+                f.close()
+        else:
+            token = None
+
+        if core_ip !='' and core_port != '' and token is not None:
+            flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port))
+            roonapi = RoonApi(appinfo, token, core_ip, int(core_port), True)
+            time.sleep(1)
+            if roonapi is not None:
+                data = [core_ip, int(core_port)]
+                if len(roon_servers) == 0:
+                    roon_servers = [data]
+                if log is True: 
+                    flexprint("roon api connected => (host, core_name, core_id)")
+                    flexprint(roonapi.host)
+                    flexprint(roonapi.core_name)
+                    flexprint(roonapi.core_id)
+                
                 # This is what we need to reconnect
-                core_id = api.core_id
-                token = api.token
+                core_id = roonapi.core_id
+                token = roonapi.token
 
                 with open(idfile, "w") as f:
                     f.write(str(core_id))
@@ -1458,51 +1508,14 @@ def roon_discover():
                 with open(tokenfile, "w") as f:
                     f.write(str(token))
                     f.close()
-
-                if log is True: flexprint("roon_discover => Shutdown api")
-                api.stop()
-
-        flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
-        time.sleep(discovery_delay)
-
-def get_roon_api():
-    global roonapi, roon_servers
-
-    if path.exists(tokenfile):
-        with open(tokenfile, "r") as f:
-            token = f.read()
-            f.close()
-    else:
-        token = None
-
-    if core_ip !='' and core_port != '' and token is not None:
-        roonapi = RoonApi(appinfo, token, core_ip, int(core_port), True)
-        time.sleep(1)
-        if roonapi is not None:
-            data = [core_ip, int(core_port)]
-            if len(roon_servers) == 0:
-                roon_servers = [data]
-            if log is True: 
-                flexprint("roon api connected => (host, core_name, core_id)")
-                flexprint(roonapi.host)
-                flexprint(roonapi.core_name)
-                flexprint(roonapi.core_id)
                 
-            # This is what we need to reconnect
-            core_id = roonapi.core_id
-            token = roonapi.token
-
-            with open(idfile, "w") as f:
-                f.write(str(core_id))
-                f.close()
-
-            with open(tokenfile, "w") as f:
-                f.write(str(token))
-                f.close()
-                
-            set_default_zone()
-            if force_roon_update is True:
-                roonapi.register_state_callback(roon_state_callback)
+                set_default_zone()
+                if force_roon_update is True:
+                    roonapi.register_state_callback(roon_state_callback)
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('[red]==> get_roon_api error: [/red]', str(e))
+            flexprint(traceback.format_exc())
 
 def getInfoData():
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -2385,7 +2398,7 @@ def degToCompass(num):
     return convert_special_chars(deg_to_compass[(val % 16)])
 
 def get_weather(weather_api, location):
-    global weatherstr, weatherlines, weather_fetch_count
+    global weatherstr, weatherlines, weather_fetch_count, weather_timer
 
     weatherstr = ''
     lines = []
@@ -2395,74 +2408,85 @@ def get_weather(weather_api, location):
     except Exception as e:
         if errorlog is True: flexprint('[red]weather error: [/red]' + str(e))
     else:
-        temperature = weather_data[0]['temp'] # Temperature
-        description = weather_data[0]['weather']['description'] # Text weather description.
-        feel_temperature = weather_data[0]['app_temp'] # Apparent/Feels Like temperature
-        humidity = weather_data[0]['rh'] # Relative humidity (%)
-        pressure = weather_data[0]['pres'] # Pressure (mb)
-        wind_spd = int(weather_data[0]['wind_spd']*3600/1000) # Wind speed (Default m/s)
-        wind_dir = weather_data[0]['wind_dir'] # Wind direction (degrees)
-        clouds = weather_data[0]['clouds'] # cloud coverage (%)
-        uv = round(weather_data[0]['uv']) # UV Index (0-11+)
-        snow = weather_data[0]['snow'] # Snowfall (default mm/hr)
-        precip = weather_data[0]['precip'] # Liquid equivalent precipitation rate (default mm/hr)
-        sunrise = datetime.strptime(datetime.now().strftime("%Y-%m-%d") + ' ' + weather_data[0]['sunrise'].strftime("%H:%M") + ':00', '%Y-%m-%d %H:%M:%S').replace(tzinfo=from_zone)
-        sunrise = sunrise.astimezone(to_zone).strftime("%H:%M") # Sunrise time UTC (HH:MM) conversion to local time
-        sunset = datetime.strptime(datetime.now().strftime("%Y-%m-%d") + ' ' + weather_data[0]['sunset'].strftime("%H:%M") + ':00', '%Y-%m-%d %H:%M:%S').replace(tzinfo=from_zone)
-        sunset = sunset.astimezone(to_zone).strftime("%H:%M") # Sunset time UTC (HH:MM) conversion to local time
+        try:
+            temperature = weather_data[0]['temp'] # Temperature
+            description = weather_data[0]['weather']['description'] # Text weather description.
+            feel_temperature = weather_data[0]['app_temp'] # Apparent/Feels Like temperature
+            humidity = weather_data[0]['rh'] # Relative humidity (%)
+            pressure = weather_data[0]['pres'] # Pressure (mb)
+            wind_spd = int(weather_data[0]['wind_spd']*3600/1000) # Wind speed (Default m/s)
+            wind_dir = weather_data[0]['wind_dir'] # Wind direction (degrees)
+            clouds = weather_data[0]['clouds'] # cloud coverage (%)
+            uv = round(weather_data[0]['uv']) # UV Index (0-11+)
+            snow = weather_data[0]['snow'] # Snowfall (default mm/hr)
+            precip = weather_data[0]['precip'] # Liquid equivalent precipitation rate (default mm/hr)
+            sunrise = datetime.strptime(datetime.now().strftime("%Y-%m-%d") + ' ' + weather_data[0]['sunrise'].strftime("%H:%M") + ':00', '%Y-%m-%d %H:%M:%S').replace(tzinfo=from_zone)
+            sunrise = sunrise.astimezone(to_zone).strftime("%H:%M") # Sunrise time UTC (HH:MM) conversion to local time
+            sunset = datetime.strptime(datetime.now().strftime("%Y-%m-%d") + ' ' + weather_data[0]['sunset'].strftime("%H:%M") + ':00', '%Y-%m-%d %H:%M:%S').replace(tzinfo=from_zone)
+            sunset = sunset.astimezone(to_zone).strftime("%H:%M") # Sunset time UTC (HH:MM) conversion to local time
 
-        weatherstr = get_weather_property('Weather') + ' ' + location + ': ' + str(temperature) + ' ' + get_weather_property('degree')
-        lines = vertical_longtext_split_and_append(get_weather_property('Weather') + ' ' + convert_special_chars(location),lines)
-        lines.append(str(temperature) + ' ' + get_weather_property('degree'))
+            weatherstr = get_weather_property('Weather') + ' ' + location + ': ' + str(temperature) + ' ' + get_weather_property('degree')
+            lines = vertical_longtext_split_and_append(get_weather_property('Weather') + ' ' + convert_special_chars(location),lines)
+            lines.append(str(temperature) + ' ' + get_weather_property('degree'))
 
-        if with_feel_temperature is True:
-            weatherstr += ', ' + get_weather_property('Feel Temperature') + ' ' + str(feel_temperature) + ' ' + get_weather_property('degree')
-            lines = vertical_longtext_split_and_append(get_weather_property('Feel Temperature') + ' ' + str(feel_temperature) + ' ' + get_weather_property('degree'),lines)
-        if with_rain is True and precip > 0:
-            weatherstr += ', ' + get_weather_property('Rain') + ': ' + str(precip) + ' mm/hr'
-            lines = vertical_longtext_split_and_append(get_weather_property('Rain') + ': ' + str(precip) + ' mm/hr',lines)
-        if with_wind_spd is True:
-            weatherstr += ', ' + get_weather_property('Wind') + ': ' + str(wind_spd) + ' km/h'
-            lines = vertical_longtext_split_and_append(get_weather_property('Wind') + ': ' + str(wind_spd) + ' km/h',lines)
-        if with_wind_dir is True:
-            weatherstr += ' '
+            if with_feel_temperature is True:
+                weatherstr += ', ' + get_weather_property('Feel Temperature') + ' ' + str(feel_temperature) + ' ' + get_weather_property('degree')
+                lines = vertical_longtext_split_and_append(get_weather_property('Feel Temperature') + ' ' + str(feel_temperature) + ' ' + get_weather_property('degree'),lines)
+            if with_rain is True and precip > 0:
+                weatherstr += ', ' + get_weather_property('Rain') + ': ' + str(precip) + ' mm/hr'
+                lines = vertical_longtext_split_and_append(get_weather_property('Rain') + ': ' + str(precip) + ' mm/hr',lines)
             if with_wind_spd is True:
-                lines = vertical_longtext_split_and_append(get_weather_property('Direction') + ' ' + degToCompass(wind_dir),lines)
-            else:
-                weatherstr += get_weather_property('Wind') + ' '
-                lines = vertical_longtext_split_and_append(get_weather_property('Wind') + ' ' + get_weather_property('Direction') + ' ' + degToCompass(wind_dir),lines)
-            weatherstr += get_weather_property('Direction') + ' ' + degToCompass(wind_dir)
-        if with_humidity is True:
-            weatherstr += ', ' + get_weather_property('Humidity') + ': ' + str(humidity) + '%'
-            lines = vertical_longtext_split_and_append(get_weather_property('Humidity') + ': ' + str(humidity) + '%',lines)
-        if with_pressure is True:
-            weatherstr += ', ' + get_weather_property('Pressure') + ': ' + str(pressure) + ' hPa'
-            lines = vertical_longtext_split_and_append(get_weather_property('Pressure') + ': ' + str(pressure) + ' hPa',lines)
-        if with_clouds is True and clouds > 0:
-            weatherstr += ', ' + get_weather_property('Clouds') + ': ' + str(clouds) + '%'
-            lines = vertical_longtext_split_and_append(get_weather_property('Clouds') + ': ' + str(clouds) + '%',lines)
-        if with_snow is True and snow > 0:
-            weatherstr += ', ' + get_weather_property('Snow') + ': ' + str(snow) + ' mm/hr'
-            lines = vertical_longtext_split_and_append(get_weather_property('Snow') + ': ' + str(snow) + ' mm/hr',lines)
-        if with_uv is True:
-            weatherstr += ', UV (0-11): ' + str(uv)
-            lines = vertical_longtext_split_and_append('UV (0-11): ' + str(uv),lines)
-        if with_sunrise is True:
-            weatherstr += ', ' + get_weather_property('Sunrise') + ': ' + sunrise + ' ' + get_message('h')
-            lines = vertical_longtext_split_and_append(get_weather_property('Sunrise') + ': ' + sunrise + ' ' + get_message('h'),lines)
-        if with_sunset is True:
-            weatherstr += ', ' + get_weather_property('Sunset') + ': ' + sunset + ' ' + get_message('h')
-            lines = vertical_longtext_split_and_append(get_weather_property('Sunset') + ': ' + sunset + ' ' + get_message('h'),lines)
-        if with_description is True:
-            weatherstr += ', ' + get_weather_descr(description)
-            lines = vertical_longtext_split_and_append(get_weather_descr(description),lines)
+                weatherstr += ', ' + get_weather_property('Wind') + ': ' + str(wind_spd) + ' km/h'
+                lines = vertical_longtext_split_and_append(get_weather_property('Wind') + ': ' + str(wind_spd) + ' km/h',lines)
+            if with_wind_dir is True:
+                weatherstr += ' '
+                if with_wind_spd is True:
+                    lines = vertical_longtext_split_and_append(get_weather_property('Direction') + ' ' + degToCompass(wind_dir),lines)
+                else:
+                    weatherstr += get_weather_property('Wind') + ' '
+                    lines = vertical_longtext_split_and_append(get_weather_property('Wind') + ' ' + get_weather_property('Direction') + ' ' + degToCompass(wind_dir),lines)
+                weatherstr += get_weather_property('Direction') + ' ' + degToCompass(wind_dir)
+            if with_humidity is True:
+                weatherstr += ', ' + get_weather_property('Humidity') + ': ' + str(humidity) + '%'
+                lines = vertical_longtext_split_and_append(get_weather_property('Humidity') + ': ' + str(humidity) + '%',lines)
+            if with_pressure is True:
+                weatherstr += ', ' + get_weather_property('Pressure') + ': ' + str(pressure) + ' hPa'
+                lines = vertical_longtext_split_and_append(get_weather_property('Pressure') + ': ' + str(pressure) + ' hPa',lines)
+            if with_clouds is True and clouds > 0:
+                weatherstr += ', ' + get_weather_property('Clouds') + ': ' + str(clouds) + '%'
+                lines = vertical_longtext_split_and_append(get_weather_property('Clouds') + ': ' + str(clouds) + '%',lines)
+            if with_snow is True and snow > 0:
+                weatherstr += ', ' + get_weather_property('Snow') + ': ' + str(snow) + ' mm/hr'
+                lines = vertical_longtext_split_and_append(get_weather_property('Snow') + ': ' + str(snow) + ' mm/hr',lines)
+            if with_uv is True:
+                weatherstr += ', UV (0-11): ' + str(uv)
+                lines = vertical_longtext_split_and_append('UV (0-11): ' + str(uv),lines)
+            if with_sunrise is True:
+                weatherstr += ', ' + get_weather_property('Sunrise') + ': ' + sunrise + ' ' + get_message('h')
+                lines = vertical_longtext_split_and_append(get_weather_property('Sunrise') + ': ' + sunrise + ' ' + get_message('h'),lines)
+            if with_sunset is True:
+                weatherstr += ', ' + get_weather_property('Sunset') + ': ' + sunset + ' ' + get_message('h')
+                lines = vertical_longtext_split_and_append(get_weather_property('Sunset') + ': ' + sunset + ' ' + get_message('h'),lines)
+            if with_description is True:
+                weatherstr += ', ' + get_weather_descr(description)
+                lines = vertical_longtext_split_and_append(get_weather_descr(description),lines)
 
-        weatherstr = convert_special_chars(weatherstr)
-        weatherlines = lines
+            weatherstr = convert_special_chars(weatherstr)
+            weatherlines = lines
 
-        if log is True: flexprint('weather update ' + str(weather_fetch_count) + ' @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-    weather_timer = Timer(weather_update_interval, get_weather, (weather_api,location)) # update every 15minutes
-    weather_timer.start()
+            if log is True: flexprint('weather update ' + str(weather_fetch_count) + ' @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+        except Exception as e:            
+            if errorlog is True: 
+                flexprint('[red]==> weather message ERROR: [/red]', str(e))
+                flexprint(traceback.format_exc())
+
+        try:
+            weather_timer = Timer(weather_update_interval, get_weather, (weather_api,location)) # update every 15minutes
+            weather_timer.start()
+        except Exception as e:            
+            if errorlog is True: 
+                flexprint('[red]==> weather timer ERROR: [/red]', str(e))
+                flexprint(traceback.format_exc())
 
 def get_weather_descr(descr):
     descr = descr.strip()
@@ -4401,32 +4425,37 @@ def roon_state_callback(event, changed_ids):
                             check_audioinfo = False
 
 def check_webserver_for_playouts():
-    global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
+    global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines, webcheck_timer
 
-    if initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False:
-        if vertical_output == True:
-            lines = get_playing_apple_or_spotify(webservers_zones,['force>'])
-        else:
-            displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
-        allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
+    try:
+        if initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False:
+            if vertical_output == True:
+                lines = get_playing_apple_or_spotify(webservers_zones,['force>'])
+            else:
+                displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
+            allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
 
-        if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
-        if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
-            if log is True: flexprint('webserver playout detected => interrupt message')
-            interrupt_message = True
-            time.sleep(1)
-            if do_set_zone_control is False:
-                clear_display('check_webserver_for_playouts')
-            fetch_output_time = None
-            if vertical_output == False and prepared_displaystr == '':
-                prepared_displaystr = displaystr
-            if vertical_output == True and len(prepared_vert_strlines) == 0:
-                prepared_vert_strlines = lines
-                prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
-            refresh_output_data()
+            if log is True: flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
+            if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
+                if log is True: flexprint('webserver playout detected => interrupt message')
+                interrupt_message = True
+                time.sleep(1)
+                if do_set_zone_control is False:
+                    clear_display('check_webserver_for_playouts')
+                fetch_output_time = None
+                if vertical_output == False and prepared_displaystr == '':
+                    prepared_displaystr = displaystr
+                if vertical_output == True and len(prepared_vert_strlines) == 0:
+                    prepared_vert_strlines = lines
+                    prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+                refresh_output_data()
 
-    webcheck_timer = Timer(webcheck_update_interval, check_webserver_for_playouts) # check webserver playouts in interval of seconds (webcheck_update_interval)
-    webcheck_timer.start()
+        webcheck_timer = Timer(webcheck_update_interval, check_webserver_for_playouts) # check webserver playouts in interval of seconds (webcheck_update_interval)
+        webcheck_timer.start()
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('[red]==> check_webserver_for_playouts ERROR: [/red]', str(e))
+            flexprint(traceback.format_exc())
 
 def force_custom_message():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
@@ -4716,7 +4745,7 @@ def get_ram_info():
 def remove_completed_threads():
     global jobs
 
-    if display_cover is False and do_set_zone_control is False:
+    if do_set_zone_control is False:
         try:
             for job in as_completed(jobs):
                 if log is True: flexprint('delete job ' + str(jobs[job]))
@@ -4759,13 +4788,13 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
         if 'state' in zone and zone["state"] is not None and zone["state"]=='stopped' and 'now_playing' not in zone:
             stopped_zone_found = True
             break
-    if stopped_zone_found is True:
-        flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
-        roonapi.stop()
-        roonapi = None
-        get_roon_api()
-        if roonapi is not None:
-            return list(roonapi.zones.values())
+    #if stopped_zone_found is True:
+    #    flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
+    #    roonapi.stop()
+    #    roonapi = None
+    #    get_roon_api()
+    #    if roonapi is not None:
+    #        return list(roonapi.zones.values())
     return roon_zones
 
 def build_output():
@@ -4829,10 +4858,10 @@ def build_output():
                         state = zone["state"] # state variants: loading, playing, paused, stopped, not running
                     flexprint('### roon state (' + zone["display_name"] + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else 'None'))
                     
-                    if state=='stopped' and 'now_playing' not in zone:
-                        flexprint('[red]stopped state found => reconnect roon api[/red]')
-                        roonapi.stop()
-                        get_roon_api()
+                    #if state=='stopped' and 'now_playing' not in zone:
+                        #flexprint('[red]stopped state found => reconnect roon api[/red]')
+                        #roonapi.stop()
+                        #get_roon_api()
                     
                     if state == "Unknown" or 'now_playing' not in zone:
                         continue
@@ -5089,6 +5118,8 @@ while True:
         if log is True: flexprint("The internet connection is down")
         pass
 
+flexprint('argparse now...')
+
 parser = argparse.ArgumentParser()
 parser.add_argument("-z", "--zone", help="zone selection")
 parser.add_argument("-a", "--all", default=False, action='store_true',
@@ -5105,6 +5136,7 @@ appinfo = {
 }
 
 if roon_show == True:
+    flexprint('check for roon server now...')
     if core_ip == '' or core_port == '':
         roon_discover()
     if roonapi is None:
@@ -5114,9 +5146,11 @@ if weather_show == True:
     get_weather(weather_api,location)
 
 if webservers_show is True and force_webserver_update is True:
+    flexprint('check for web servers now...')
     check_webserver_for_playouts()
 
 if enable_spotify_connect is True and spotify_connect is not None:
+    flexprint('check spotify connect auth now...')
     spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
 
 set_default_zone()
