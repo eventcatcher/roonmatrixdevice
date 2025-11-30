@@ -2800,8 +2800,8 @@ def roon_get_playlist_tracks(output_id, playlist):
     try:
         tracks = roonapi.list_media(output_id, ["Playlists", playlist, '__all__'])
         if tracks and len(tracks) > 0:
-            if len(tracks) > searchresult_maxlength:
-                tracks = tracks[:searchresult_maxlength]
+            if len(tracks) > searchresult_maxlength + 1:
+                tracks = tracks[:searchresult_maxlength + 1]
             return tracks
         return []
     except Exception as e:
@@ -3438,12 +3438,12 @@ def on_search(is_stream, value, zone, type):
                 if (len(artists) != 1):
                     meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
                     return [meta, artists]
-                artist = artists[0].replace('"','\\\"')
+                artist = artists[0]
                 if is_stream is True:
-                    albums = applemusic_get_albums_by_artist_name(artist)
+                    albums = applemusic_get_albums_by_artist_name(artist['name'].replace('"','\\\"'))
                 else:
                     raw = send_webserver_zone_control(control_id, True, 'albums', artist)
-                    value = artist
+                    value = artist.replace('"','\\\"')
                     flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
                     if raw is None:
                         return [meta, []]
@@ -3501,11 +3501,15 @@ def on_search(is_stream, value, zone, type):
                     if is_stream is True:
                         meta['playlists'] = playlists
                     return [meta, playlists]
-                playlist = playlists[0].replace('"','\\\"')
+                playlist = playlists[0]
                 flexprint('single playlist: ' + str(playlist))
                 if is_stream is True:
-                    tracks = applemusic_get_playlist_relationship(playlist, 'tracks')
+                    tracks = applemusic_get_playlist_relationship(playlist['id'], 'tracks')
+                    playlist_id = playlist['id']
+                    playlist_name = playlist['name'].replace('"','\\\"')
                 else:
+                    playlist_id = playlist
+                    playlist_name = playlist.replace('"','\\\"')
                     raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist)
                     flexprint('#applemusic raw: ' + str(raw))
                     if raw is None:
@@ -3517,7 +3521,7 @@ def on_search(is_stream, value, zone, type):
                     tracks = replace_escaped_list(tracks)
                 #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
                 flexprint('#applemusic tracks escaped: ' + str(tracks))
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlist, 'playlist': playlist}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlist_name, 'playlist': playlist_id}
                 return [meta, tracks]
             if type == 'radio' and is_stream is True:
                 value = value.replace('"','\\"')
