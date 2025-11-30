@@ -622,6 +622,7 @@ socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in sec
 countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
 #ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
 alternative_layout = eval(config['SYSTEM']['alternative_layout']) if 'alternative_layout' in config['SYSTEM'] else False # true: use alternative keyboard layout (special buttons like lock, shift, BS, enter, moved to spacebar row to get more width for buttons), false: standard keyboard layout 
+searchresult_maxlength = int(config['SYSTEM']['searchresult_maxlength']) if 'searchresult_maxlength' in config['SYSTEM'] else 100 # max number of search results (Roon, Webserver, Spotify, Apple Music)
 
 screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
 display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
@@ -817,7 +818,8 @@ async def rest_config():
                             {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
                             {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
                             {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']},
-                            {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']}
+                            {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']},
+                            {"name": "searchresult_maxlength", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max items in search result (Roon, Webserver, Spotify, Apple Music)", "unit": "items", "value": config['SYSTEM']['searchresult_maxlength']}
                         ]
                     },
                     {
@@ -2345,7 +2347,7 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
                 url = data['url']
                 break
         if control_id in channels.keys() and channels[control_id] == 'webserver' and url != '':
-            payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2}
+            payload = {'source':name_parts[1], 'code':code, 'search': search, 'detail': detail, 'detail2': detail2, 'searchresult_maxlength': searchresult_maxlength}
             flexprint('send_webserver_zone_control => payload: ' + str(payload))
             
             requestlist = [{'name':name,'url':url,'data':payload}]            
@@ -2637,18 +2639,26 @@ def roon_get_artists(output_id, name):
         artists = roonapi.list_media(output_id, ["Library", "Artists", name ])
         if artists is not None and len(artists) > 0:
             artists = list(set(artists))
+            if len(artists) > searchresult_maxlength:
+                artists = artists[:searchresult_maxlength]
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.title() ])
         if artists is not None and len(artists) > 0:
             artists = list(set(artists))
+            if len(artists) > searchresult_maxlength:
+                artists = artists[:searchresult_maxlength]
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.upper() ])
         if artists is not None and len(artists) > 0:
             artists = list(set(artists))
+            if len(artists) > searchresult_maxlength:
+                artists = artists[:searchresult_maxlength]
             return artists
         artists = roonapi.list_media(output_id, ["Library", "Artists", name.lower() ])
         if artists is not None and len(artists) > 0:
             artists = list(set(artists))
+            if len(artists) > searchresult_maxlength:
+                artists = artists[:searchresult_maxlength]
         return artists
     except Exception as e:
         return []
@@ -2659,12 +2669,16 @@ def roon_get_genres(output_id, name):
             name = '__all__'
         genres = roonapi.list_media(output_id, ["Genres", name])
         if genres is not None and len(genres) > 0:
+            if len(genres) > searchresult_maxlength:
+                genres = genres[:searchresult_maxlength]
             #genres.sort()
             return genres
         if name == '__all__':
             return []
         genres = roonapi.list_media(output_id, ["Genres", name.title() ])
         if genres is not None and len(genres) > 0:
+            if len(genres) > searchresult_maxlength:
+                genres = genres[:searchresult_maxlength]
             #genres.sort()
             return genres
         return []
@@ -2675,6 +2689,8 @@ def roon_get_genre_artists(output_id, genre):
     try:
         artists = roonapi.list_media(output_id,["Genres", genre, "Artists", '__all__'])
         if artists and len(artists) > 0:
+            if len(artists) > searchresult_maxlength:
+                artists = artists[:searchresult_maxlength]
             return artists
         return []
     except Exception as e:
@@ -2686,14 +2702,22 @@ def roon_get_radios(output_id, name):
             name = '__all__'
         radios = roonapi.list_media(output_id, ["My Live Radio", name ])
         if radios is not None and len(radios) > 0:
+            if len(radios) > searchresult_maxlength:
+                radios = radios[:searchresult_maxlength]
             return radios
         radios = roonapi.list_media(output_id, ["My Live Radio", name.title() ])
         if radios is not None and len(radios) > 0:
+            if len(radios) > searchresult_maxlength:
+                radios = radios[:searchresult_maxlength]
             return radios
         radios = roonapi.list_media(output_id, ["My Live Radio", name.upper() ])
         if radios is not None and len(radios) > 0:
+            if len(radios) > searchresult_maxlength:
+                radios = radios[:searchresult_maxlength]
             return radios
         radios = roonapi.list_media(output_id, ["My Live Radio", name.lower() ])
+        if len(radios) > searchresult_maxlength:
+            radios = radios[:searchresult_maxlength]
         return radios
     except Exception as e:
         return []
@@ -2707,6 +2731,8 @@ def roon_get_artist_albums(output_id, artist):
         album = None
         if albums and len(albums) > 0:
             album = albums[0]
+            if len(albums) > searchresult_maxlength:
+                albums = albums[:searchresult_maxlength]
             return albums
         if album is None:
             flexprint("No albums found")
@@ -2730,9 +2756,13 @@ def roon_get_tracks(output_id, track):
         if tracks and len(tracks) > 0:
             if "Play Album" in tracks:
                 tracks.remove("Play Album")
+            if len(tracks) > searchresult_maxlength:
+                tracks = tracks[:searchresult_maxlength]
             return tracks
         tracks = roonapi.list_media(output_id, ["Library", "Tracks", track.title() ])
         if tracks and len(tracks) > 0:
+            if len(tracks) > searchresult_maxlength:
+                tracks = tracks[:searchresult_maxlength]
             return tracks
         return []
     except Exception as e:
@@ -2744,15 +2774,23 @@ def roon_get_playlists(output_id, name):
             name = '__all__'
         playlists = roonapi.list_media(output_id, ["Playlists", name])
         if playlists and len(playlists) > 0:
+            if len(playlists) > searchresult_maxlength:
+                playlists = playlists[:searchresult_maxlength]
             return playlists
         playlists = roonapi.list_media(output_id, ["Playlists", name.title() ])
         if playlists and len(playlists) > 0:
+            if len(playlists) > searchresult_maxlength:
+                playlists = playlists[:searchresult_maxlength]
             return playlists
         playlists = roonapi.list_media(output_id, ["Playlists", name.upper() ])
         if playlists and len(playlists) > 0:
+            if len(playlists) > searchresult_maxlength:
+                playlists = playlists[:searchresult_maxlength]
             return playlists
         playlists = roonapi.list_media(output_id, ["Playlists", name.lower() ])
         if playlists and len(playlists) > 0:
+            if len(playlists) > searchresult_maxlength:
+                playlists = playlists[:searchresult_maxlength]
             return playlists
         return []
     except Exception as e:
@@ -2762,6 +2800,8 @@ def roon_get_playlist_tracks(output_id, playlist):
     try:
         tracks = roonapi.list_media(output_id, ["Playlists", playlist, '__all__'])
         if tracks and len(tracks) > 0:
+            if len(tracks) > searchresult_maxlength:
+                tracks = tracks[:searchresult_maxlength]
             return tracks
         return []
     except Exception as e:
@@ -2794,7 +2834,7 @@ def applemusic_search_artist(artist_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(artist_name, types=['artists'], limit=25)   # limit range: 1..25 
+        results = am.search(artist_name, types=['artists'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2819,7 +2859,7 @@ def applemusic_genres():
             return am
 
         req_start_time = time.time()
-        results = am.genres_all(limit=25)
+        results = am.genres_all(limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2844,7 +2884,7 @@ def applemusic_station(stations_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(stations_name, types=['stations'], limit=25)
+        results = am.search(stations_name, types=['stations'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2869,7 +2909,7 @@ def applemusic_get_albums_by_artist_name(artist_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(artist_name, types=['albums'])
+        results = am.search(artist_name, types=['albums'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2896,7 +2936,7 @@ def applemusic_get_albums_by_albumname(album_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(album_name, types=['albums'])
+        results = am.search(album_name, types=['albums'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2923,7 +2963,7 @@ def applemusic_get_artist_relationship(artist_id,relationship):
             return am
 
         req_start_time = time.time()
-        results = am.artist_relationship(artist_id, relationship=relationship)
+        results = am.artist_relationship(artist_id, relationship=relationship, limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2950,7 +2990,7 @@ def applemusic_get_playlist_relationship(playlist_id, relationship):
             return am
 
         req_start_time = time.time()
-        results = am.playlist_relationship(playlist_id, relationship=relationship)
+        results = am.playlist_relationship(playlist_id, relationship=relationship, limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -2993,6 +3033,8 @@ def applemusic_get_playlist_tracks(playlist_id):
         if len(tracks) == 0:
             return []
 
+        if len(tracks) > searchresult_maxlength:
+            tracks = tracks[:searchresult_maxlength]
         return tracks
     except Exception as e:
         if errorlog is True:
@@ -3031,7 +3073,7 @@ def applemusic_search_track(track_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(track_name, types=['songs'], limit=25)
+        results = am.search(track_name, types=['songs'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -3056,7 +3098,7 @@ def applemusic_search_playlist(playlist_name):
             return am
 
         req_start_time = time.time()
-        results = am.search(playlist_name, types=['playlists'], limit=25)
+        results = am.search(playlist_name, types=['playlists'], limit=searchresult_maxlength)
         req_end_time = time.time()
         req_time = req_end_time - req_start_time
         flexprint(f"applemusic request time: {req_time:.2f} seconds")
@@ -3080,7 +3122,14 @@ def spotify_search_artist(artist_name):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.search(artist_name, limit=10, type='artist')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.search(artist_name, limit=limit, type='artist')
+        if 'artists' not in results or len(results['artists']) == 0:
+            return []
+
         artists = results['artists']['items']
         return artists
     except Exception as e:
@@ -3092,13 +3141,20 @@ def spotify_search_artist_album(artist_name, album_name):
         if isinstance(spotify, str):
             return spotify
 
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
         query='artist:"'+artist_name+'" album:"'+album_name + '"'
-        results = spotify.search(query, limit=10, type='album')
+        results = spotify.search(query, limit=limit, type='album')
+        if 'albums' not in results or len(results['albums']) == 0:
+            return None
+
         album = results['albums']['items'][0] if 'albums' in results and 'items' in results['albums'] and len(results['albums']['items']) > 0 else None
 
         return album
     except Exception as e:
-        return []
+        return None
 
 def spotify_search_artists_by_genre(genre_name):
     try:
@@ -3106,7 +3162,14 @@ def spotify_search_artists_by_genre(genre_name):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.search('' + ' genre:' + genre_name, limit=20, type='artist')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.search('' + ' genre:' + genre_name, limit=limit, type='artist')
+        if 'artists' not in results or 'items' not in results['artists'] or len(results['artists']) == 0 or len(results['artists']['items']) == 0:
+            return []
+
         artists = list(filter(partial(is_not, None), results['artists']['items']))
         return artists
     except Exception as e:
@@ -3118,7 +3181,14 @@ def spotify_search_playlists_by_genre(genre_name):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.search('' + ' genre:' + genre_name, limit=20, type='playlist')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.search('' + ' genre:' + genre_name, limit=limit, type='playlist')
+        if 'playlists' not in results or 'items' not in results['playlists'] or len(results['playlists']) == 0 or len(results['playlists']['items']) == 0:
+            return []
+
         playlists = list(filter(partial(is_not, None), results['playlists']['items']))
         return playlists
     except Exception as e:
@@ -3133,7 +3203,7 @@ def spotify_get_album_by_track_uri(track_uri):
         album = spotify.track(track_uri)
         return album
     except Exception as e:
-        return ''
+        return None
 
 def spotify_get_tracks_by_album_uri(album_uri):
     try:
@@ -3153,9 +3223,10 @@ def spotify_get_artist_albums(artist_id):
             return spotify
 
         results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
-        albums = results['items']
-        if len(albums) == 0:
+        if 'items' not in results or len(results['items']) == 0:
             return []
+
+        albums = results['items']
 
         while results['next']:
             results = spotify.next(results)
@@ -3172,14 +3243,17 @@ def spotify_get_playlist_tracks(playlist_id):
             return spotify
 
         results = spotify.playlist_items(playlist_id, fields="items", additional_types=('tracks'))
+        if 'items' not in results or len(results['items']) == 0:
+            return []
         
         tracks = results['items']
-        if len(tracks) == 0:
-            return []
 
         #while results['next']:
             #results = spotify.next(results)
             #tracks.extend(results['items'])
+
+        if len(tracks) > searchresult_maxlength:
+            tracks = tracks[:searchresult_maxlength]
 
         return tracks
     except Exception as e:
@@ -3192,6 +3266,8 @@ def spotify_get_album_tracks(album_id):
             return spotify
 
         results = spotify.album_tracks(album_id)
+        if 'items' not in results or len(results['items']) == 0:
+            return []
         tracks = results['items']
 
         return tracks
@@ -3204,8 +3280,18 @@ def spotify_search_track(track_name):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.search(track_name, limit=10, type='track')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.search(track_name, limit=limit, type='track')
+        if 'tracks' not in results or 'items' not in results['tracks'] or len(results['tracks']) == 0 or len(results['tracks']['items']) == 0:
+            return []
         tracks = results['tracks']['items']
+
+        if len(tracks) > searchresult_maxlength:
+            tracks = tracks[:searchresult_maxlength]
+
         return tracks
     except Exception as e:
         return []
@@ -3216,8 +3302,19 @@ def spotify_search_playlist(playlist_name):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.search(playlist_name, limit=10, type='playlist')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.search(playlist_name, limit=limit, type='playlist')
+        if 'playlists' not in results or 'items' not in results['playlists'] or len(results['playlists']) == 0 or len(results['playlists']['items']) == 0:
+            return []
+
         playlists = list(filter(partial(is_not, None), results['playlists']['items']))
+
+        if len(playlists) > searchresult_maxlength:
+            playlists = playlists[:searchresult_maxlength]
+
         return playlists
     except Exception as e:
         return []
@@ -3311,10 +3408,14 @@ def on_search(is_stream, value, zone, type):
                     playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
                     meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                     return [meta, playlists]
+                playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
                 playlist = playlists[0]
                 tracks = spotify_get_playlist_tracks(playlist['id'])
                 if isinstance(tracks, str):
                     return tracks
+                tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": "tracks", "search": value, "playlist": playlist['id']}
+                return [meta, tracknames]
         if zonetype == 'Apple Music':
             if type == 'artist':
                 value = value.replace('"','\\"')
