@@ -1015,9 +1015,15 @@ class SetupParams(BaseModel):
 
 @app.post("/setup/")
 async def rest_setup(params: SetupParams):
-    global config, reboot, screensaver_seconds, alternative_layout
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only
     jsonObj = json.loads(params.data)
     doReboot = False
+    
+    noRebootOnPropChanges = [
+        'screensaver_seconds',
+        'alternative_layout',
+        'ipv4_only'
+    ]
 
     for idx,areaKey in enumerate(jsonObj,1):
         for idx,fieldKey in enumerate(jsonObj[areaKey],1):
@@ -1027,7 +1033,7 @@ async def rest_setup(params: SetupParams):
             if '\\' in fieldValue and '\\\\' not in fieldValue: 
                 fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
             if config[areaKey][fieldKey]!=fieldValue:
-                if fieldKey!='screensaver_seconds' and fieldKey!='alternative_layout':
+                if fieldKey not in noRebootOnPropChanges:
                     config_str_masked = config[areaKey][fieldKey]
                     if '%' in config_str_masked and '%%' not in config_str_masked: 
                         config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
@@ -1045,6 +1051,10 @@ async def rest_setup(params: SetupParams):
                 config[areaKey][fieldKey] = fieldValue
                 screensaver_seconds = int(fieldValue)
                 setScreensaver(config[areaKey][fieldKey])
+            if areaKey=='SYSTEM' and fieldKey=='ipv4_only' and fieldValue!=str(ipv4_only):
+                config[areaKey][fieldKey] = fieldValue
+                ipv4_only = eval(fieldValue)
+                set_ipv4_only(ipv4_only)
             if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
                 config[areaKey][fieldKey] = fieldValue
                 alternative_layout = eval(fieldValue)
@@ -1293,6 +1303,47 @@ def setScreensaver(seconds):
             file.writelines( data )
     except Exception as e:
         flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
+
+def set_ipv4_only(enable):
+    flexprint('set_ipv4_only: ' + str(enable))
+    try:
+        temp_path = '/var/tmp/ipv4_temp.txt'
+
+        with open('/etc/avahi/avahi-daemon.conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "use-ipv6" in data[idx]:
+                data[idx] = 'use-ipv6=' + ('no' if enable is True else 'yes') + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/avahi/avahi-daemon.conf"], check=True)
+
+        with open('/etc/raspotify/conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "LIBRESPOT_DISABLE_IPV6=" in data[idx]:
+                data[idx] = 'LIBRESPOT_DISABLE_IPV6="' + ('true' if enable is True else 'false') + '"' + "\n"
+            if "OPTIONS=" in data[idx]:
+                data[idx] = 'OPTIONS="' + ('--disable-ipv6' if enable is True else '--enable-ipv6') + '"' + "\n"                
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+
+        with open('/etc/sysctl.conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "net.ipv6.conf.wlan0.disable_ipv6" in data[idx]:
+                data[idx] = 'net.ipv6.conf.wlan0.disable_ipv6 = ' + ('1' if enable is True else '0') + "\n"		# run wlan0 with ipv4 only
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/sysctl.conf"], check=True)
+
+        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)	# reload systemd services
+        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+        subprocess.run(["sudo", "systemctl", "restart", "avahi-daemon"], check=True)	# restart avahi daemon
+        subprocess.run(["sudo", "sysctl", "-p"], check=True)	# reload kernel settings
+    except Exception as e:
+        flexprint('[red]set_ipv4_only error: ' + str(e) + '[/red]')
 
 def filter_lines_by_hours(base_filepath, hours_back):
     try:
@@ -1963,7 +2014,7 @@ def set_play_mode(control_id, enable, send, do_async=True):
                                 spotify_connect.play(active_spotify_connect_zone['id']) if enable is True else spotify_connect.pause(active_spotify_connect_zone['id'])
                     except Exception as e:
                         if errorlog is True:
-                            flexprint('spotify_connect error (maybe offline)')
+                            flexprint('spotify_connect error (set_play_mode, maybe offline)')
             else:
                 if roon_show == True and roon_servers:
                     roonapi.playback_control(control_id, playmode[control_id])
@@ -1986,14 +2037,18 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
             if send is True:
                 send_webserver_zone_control(control_id, do_async, shufflemode[control_id])
         elif channels[control_id]=="spotifyconnect":
-            if spotify_connect_enabled():
+            if enable is True:
+                shufflemode[control_id] = 'shuffle'
+            else:
+                shufflemode[control_id] = 'noshuffle'
+            if send is True and spotify_connect_enabled():
                 try:
                     active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
                     if active_spotify_connect_zone is not None:
                         spotify_connect.shuffle(shufflemode[control_id]=='shuffle', active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
                     if errorlog is True:
-                        flexprint('spotify_connect error (maybe offline)')
+                        flexprint('spotify_connect error (set_shuffle_mode, maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -2026,14 +2081,18 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
             if send is True:
                 send_webserver_zone_control(control_id, do_async, repeatmode[control_id])
         elif channels[control_id]=="spotifyconnect":
-            if spotify_connect_enabled():
+            if enable is True:
+                repeatmode[control_id] = 'repeat'
+            else:
+                repeatmode[control_id] = 'norepeat'
+            if send is True and spotify_connect_enabled():
                 try:
                     active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
                     if active_spotify_connect_zone is not None:
                         spotify_connect.repeat("context" if shufflemode[control_id]=='repeat' else "off", active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
                     if errorlog is True:
-                        flexprint('spotify_connect error (maybe offline)')
+                        flexprint('spotify_connect error (set_repeat_mode, maybe offline)')
         else:
             if roon_show == True and roon_servers:
                 if control_id is not None:
@@ -2061,7 +2120,7 @@ def play_previous(control_id, do_async=True):
                         spotify_connect.previous(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
                 except Exception as e:
                     if errorlog is True:
-                        flexprint('spotify_connect error (maybe offline)')                    
+                        flexprint('spotify_connect error (play_previous, maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "previous")
@@ -2079,7 +2138,7 @@ def play_next(control_id, do_async=True):
                         spotify_connect.next(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
                 except Exception as e:
                     if errorlog is True:
-                        flexprint('spotify_connect error (maybe offline)')                    
+                        flexprint('spotify_connect error (play_next, maybe offline)')                    
         else:
             if roon_show == True and roon_servers:
                 roonapi.playback_control(control_id, "next")
