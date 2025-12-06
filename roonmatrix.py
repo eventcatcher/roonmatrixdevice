@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.2.0, date: 08.11.2025
+# version 1.2.0, date: 06.12.2025
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.2.0, date: 08.11.2025'
+scriptVersion = '1.2.0, date: 06.12.2025'
 
 from threading import Timer
 from datetime import datetime, timedelta, timezone
@@ -373,41 +373,49 @@ def creation_date(path_to_file):
     return path.getctime(path_to_file)
 
 def translation_exist(cc, update):
-    current_path = Path(__file__).parent
-    fileName = 'translations_' + cc + '.ini'
-    relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+    try:
+        current_path = Path(__file__).parent
+        fileName = 'translations_' + cc + '.ini'
+        relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
     
-    file_path = str((current_path / relative_path).resolve())
-    exist = Path(file_path).is_file()
-    if exist is False:
-        return [exist]
+        file_path = str((current_path / relative_path).resolve())
+        exist = Path(file_path).is_file()
+        if exist is False:
+            return [exist]
     
-    creationDate = creation_date(file_path)
-    creationDate = datetime.fromtimestamp(creationDate)
-    if debug is True:
-        flexprint('creationDate_' + ('update' if update is True else 'main') + ': ' + str(format(creationDate.isoformat())))
-
-    return [exist, creationDate]
-
-def translation_fileinfo(cc, update):
-    current_path = Path(__file__).parent
-    fileName = 'translations_' + cc + '.ini'
-    relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
-    
-    file_path = str((current_path / relative_path).resolve())
-    exist = Path(file_path).is_file()
-    
-    if exist is True:
         creationDate = creation_date(file_path)
         creationDate = datetime.fromtimestamp(creationDate)
+        if debug is True:
+            flexprint('creationDate_' + ('update' if update is True else 'main') + ': ' + str(format(creationDate.isoformat())))
 
-        with open(file_path, 'r') as fileRead:
-            langdata = fileRead.read()
-        hash = hashlib.md5(langdata.encode()).hexdigest()
+        return [exist, creationDate]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]translation exist error: ' + str(e) + '[/red]')
+        return [False]
 
-        return [exist, creationDate, hash, file_path]
-    else:
-        return [exist]
+def translation_fileinfo(cc, update):
+    try:
+        current_path = Path(__file__).parent
+        fileName = 'translations_' + cc + '.ini'
+        relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+    
+        file_path = str((current_path / relative_path).resolve())
+        exist = Path(file_path).is_file()
+    
+        if exist is True:
+            creationDate = creation_date(file_path)
+            creationDate = datetime.fromtimestamp(creationDate)
+
+            with open(file_path, 'r') as fileRead:
+                langdata = fileRead.read()
+            hash = hashlib.md5(langdata.encode()).hexdigest()
+
+            return [exist, creationDate, hash, file_path]
+        else:
+            return [exist]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]translation fileinfo error: ' + str(e) + '[/red]')
+        return [False]
 
 def get_translation_path(cc):
     current_path = Path(__file__).parent
@@ -417,23 +425,29 @@ def get_translation_path(cc):
     return file_path
 
 def delete_translation(cc, update):
-    current_path = Path(__file__).parent
-    filename = 'translations_' + cc + '.ini'
-    local_filename = ('update_' + filename) if update is True else filename
-    relative_path = base_translations_path + local_filename
-    file_path = str((current_path / relative_path).resolve())
-    remove(file_path)
+    try:
+        current_path = Path(__file__).parent
+        filename = 'translations_' + cc + '.ini'
+        local_filename = ('update_' + filename) if update is True else filename
+        relative_path = base_translations_path + local_filename
+        file_path = str((current_path / relative_path).resolve())
+        remove(file_path)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]delete translation error: ' + str(e) + '[/red]')
 
 def update_translation(cc):
-    current_path = Path(__file__).parent
-    relative_path_old = base_translations_path + 'update_translations_' + cc + '.ini'
-    relative_path_new = base_translations_path + 'translations_' + cc + '.ini'
+    try:
+        current_path = Path(__file__).parent
+        relative_path_old = base_translations_path + 'update_translations_' + cc + '.ini'
+        relative_path_new = base_translations_path + 'translations_' + cc + '.ini'
 
-    file_path_old = str((current_path / relative_path_old).resolve())
-    file_path_new = str((current_path / relative_path_new).resolve())
+        file_path_old = str((current_path / relative_path_old).resolve())
+        file_path_new = str((current_path / relative_path_new).resolve())
 
-    delete_translation(cc, False)
-    rename(file_path_old, file_path_new)
+        delete_translation(cc, False)
+        rename(file_path_old, file_path_new)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]delete translation error: ' + str(e) + '[/red]')
 
 def download_translation(cc, update):
     remote_filename = 'translations_' + cc + '.ini'
@@ -462,10 +476,10 @@ def download_translation(cc, update):
             else:
                 return [exist]
         else:
-            flexprint('[red]translation download error: empty response[/red]')
+            if errorlog is True: flexprint('[red]translation download error: empty response[/red]')
             return None
     except Exception as e:
-        flexprint('[red]translation download error: ' + str(e) + '[/red]')
+        if errorlog is True: flexprint('[red]translation download error: ' + str(e) + '[/red]')
     return None
 
 translation_hash = config['LANGUAGE']['translation_hash']
@@ -479,60 +493,63 @@ flexprint('countrycode: ' + countrycode)
 updateHash = ''
 fileinfo = translation_exist(countrycode, False)
 exist = fileinfo[0]
-if exist:
-    translation_changed = False
-    hash_main = ''
-    max_download_age_in_days = -1
-    download_age_in_days = -1
-    fileinfo_main = translation_fileinfo(countrycode, False)
-    if len(fileinfo_main) > 2:
-        creationDate_main = fileinfo[1]
-        hash_main = fileinfo_main[2]
-        delta = datetime.now() - creationDate_main
-        download_age_in_days = delta.days
-        flexprint('days since last translation download: ' + str(download_age_in_days))
-    if debug is True:
-        flexprint('fileinfo_main: ' + str(fileinfo_main))
+
+try:
+    if exist:
+        translation_changed = False
+        hash_main = ''
+        max_download_age_in_days = -1
+        download_age_in_days = -1
+        fileinfo_main = translation_fileinfo(countrycode, False)
+        if len(fileinfo_main) > 2:
+            creationDate_main = fileinfo[1]
+            hash_main = fileinfo_main[2]
+            delta = datetime.now() - creationDate_main
+            download_age_in_days = delta.days
+            flexprint('days since last translation download: ' + str(download_age_in_days))
+        if debug is True:
+            flexprint('fileinfo_main: ' + str(fileinfo_main))
     
-    if download_age_in_days > max_download_age_in_days:
-        fileinfo = download_translation(countrycode, True)
+        if download_age_in_days > max_download_age_in_days:
+            fileinfo = download_translation(countrycode, True)
+            if fileinfo is not None:
+                if debug is True:
+                    flexprint('fileinfo: ' + str(fileinfo))
+                exist = fileinfo[0]
+                creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
+                hash = fileinfo[2] if len(fileinfo) > 2 else ''
+                updateFile = fileinfo[3] if len(fileinfo) > 3 else ''
+                if hash_main == hash:
+                    flexprint('hash is equal (' + hash + ') => file not changed')
+                    delete_translation(countrycode, True)
+                else:
+                    flexprint('hash is NOT equal (' + hash_main + ' / ' + hash + ') => take updated file')
+                    translation_changed = True
+                    update_translation(countrycode)
+                    hash_main = hash
+
+        overrideFile = get_translation_path(countrycode)
+        updateHash = hash_main
+        load_with_override = (translation_hash != updateHash)
+        flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
+        if load_with_override is True:
+            config.read([configFile, str(overrideFile)])
+        else:
+            config.read([configFile])
+    else:
+        fileinfo = download_translation(countrycode, False)
         if fileinfo is not None:
             if debug is True:
                 flexprint('fileinfo: ' + str(fileinfo))
             exist = fileinfo[0]
             creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
             hash = fileinfo[2] if len(fileinfo) > 2 else ''
-            updateFile = fileinfo[3] if len(fileinfo) > 3 else ''
-            if hash_main == hash:
-                flexprint('hash is equal (' + hash + ') => file not changed')
-                delete_translation(countrycode, True)
-            else:
-                flexprint('hash is NOT equal (' + hash_main + ' / ' + hash + ') => take updated file')
-                translation_changed = True
-                update_translation(countrycode)
-                hash_main = hash
-
-    overrideFile = get_translation_path(countrycode)
-    updateHash = hash_main
-    load_with_override = (translation_hash != updateHash)
-    flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
-    if load_with_override is True:
-        config.read([configFile, str(overrideFile)])
-    else:
-        config.read([configFile])
-
-else:
-    fileinfo = download_translation(countrycode, False)
-    if fileinfo is not None:
-        if debug is True:
-            flexprint('fileinfo: ' + str(fileinfo))
-        exist = fileinfo[0]
-        creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
-        hash = fileinfo[2] if len(fileinfo) > 2 else ''
-        overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
-        if exist is True and overrideFile is not None and len(overrideFile) > 0:
-            updateHash = hash
-            config.read([configFile, overrideFile])
+            overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
+            if exist is True and overrideFile is not None and len(overrideFile) > 0:
+                updateHash = hash
+                config.read([configFile, overrideFile])
+except Exception as e:
+    if errorlog is True: flexprint('[red]get translations error: ' + str(e) + '[/red]')
 
 hostName = socket.gethostname()
 
@@ -762,10 +779,13 @@ if spotify_client_id!='' and spotify_client_secret!='':
         flexprint("spotify_connect error:", e)
 
 if display_cover is True:
-    Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
-    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-    Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
-    Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
+    try:
+        Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
+        Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
+        Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
+        Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]Coverplayer init error: ' + str(e) + '[/red]')
     
     if spotify_client_id!='' and spotify_client_secret!='':
         try:
@@ -1002,15 +1022,19 @@ class LogParams(BaseModel):
 
 @app.post("/log/")
 async def rest_log(params: LogParams):
-    hours = params.hours
-    if display_cover is True:
-        result = filter_lines_by_hours('/home/coverplayer/FTP/logs/roonmatrix.log', hours)
-        return result
-    else:
-        cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
-        flexprint('LOG CMD: ' + cmd)
-        result = subprocess.run(shlex.split(cmd), capture_output=True)
-        return result.stdout
+    try:
+        hours = params.hours
+        if display_cover is True:
+            result = filter_lines_by_hours('/home/coverplayer/FTP/logs/roonmatrix.log', hours)
+            return result
+        else:
+            cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
+            flexprint('LOG CMD: ' + cmd)
+            result = subprocess.run(shlex.split(cmd), capture_output=True)
+            return result.stdout
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get log error: ' + str(e) + '[/red]')
+        return 'log error'
 
 class SetupParams(BaseModel):
     data: str
@@ -1018,76 +1042,80 @@ class SetupParams(BaseModel):
 @app.post("/setup/")
 async def rest_setup(params: SetupParams):
     global config, reboot, screensaver_seconds, alternative_layout, ipv4_only
-    jsonObj = json.loads(params.data)
-    doReboot = False
     
-    noRebootOnPropChanges = [
-        'screensaver_seconds',
-        'alternative_layout',
-        'ipv4_only'
-    ]
+    try:
+        jsonObj = json.loads(params.data)
+        doReboot = False
+    
+        noRebootOnPropChanges = [
+            'screensaver_seconds',
+            'alternative_layout',
+            'ipv4_only'
+        ]
 
-    for idx,areaKey in enumerate(jsonObj,1):
-        for idx,fieldKey in enumerate(jsonObj[areaKey],1):
-            fieldValue = str(jsonObj[areaKey][fieldKey])
-            if '%' in fieldValue and '%%' not in fieldValue: 
-                fieldValue = fieldValue.replace('%','%%') # masking of percent char
-            if '\\' in fieldValue and '\\\\' not in fieldValue: 
-                fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
-            if config[areaKey][fieldKey]!=fieldValue:
-                if fieldKey not in noRebootOnPropChanges:
-                    config_str_masked = config[areaKey][fieldKey]
-                    if '%' in config_str_masked and '%%' not in config_str_masked: 
-                        config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
-                    if '\\' in config_str_masked and '\\\\' not in config_str_masked: 
-                        config_str_masked = config_str_masked.replace('\\','\\\\') # masking of percent char
-                    if config_str_masked!=fieldValue:
-                        config[areaKey][fieldKey] = fieldValue
-                        #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
-                        doReboot = True
-            if areaKey!='SYSTEM' or fieldKey!='password':
-                flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
-            if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
-                setHostname(config[areaKey][fieldKey])
-            if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
-                config[areaKey][fieldKey] = fieldValue
-                screensaver_seconds = int(fieldValue)
-                setScreensaver(config[areaKey][fieldKey])
-            if areaKey=='SYSTEM' and fieldKey=='ipv4_only' and fieldValue!=str(ipv4_only):
-                config[areaKey][fieldKey] = fieldValue
-                ipv4_only = eval(fieldValue)
-                set_ipv4_only(ipv4_only)
-            if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
-                config[areaKey][fieldKey] = fieldValue
-                alternative_layout = eval(fieldValue)
-                Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-            if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
-                if display_cover is True:
-                    setUserPassword('coverplayer',config[areaKey][fieldKey])
-                else:
-                    setUserPassword('rmuser',config[areaKey][fieldKey])
+        for idx,areaKey in enumerate(jsonObj,1):
+            for idx,fieldKey in enumerate(jsonObj[areaKey],1):
+                fieldValue = str(jsonObj[areaKey][fieldKey])
+                if '%' in fieldValue and '%%' not in fieldValue: 
+                    fieldValue = fieldValue.replace('%','%%') # masking of percent char
+                if '\\' in fieldValue and '\\\\' not in fieldValue: 
+                    fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
+                if config[areaKey][fieldKey]!=fieldValue:
+                    if fieldKey not in noRebootOnPropChanges:
+                        config_str_masked = config[areaKey][fieldKey]
+                        if '%' in config_str_masked and '%%' not in config_str_masked: 
+                            config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
+                        if '\\' in config_str_masked and '\\\\' not in config_str_masked: 
+                            config_str_masked = config_str_masked.replace('\\','\\\\') # masking of percent char
+                        if config_str_masked!=fieldValue:
+                            config[areaKey][fieldKey] = fieldValue
+                            #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
+                            doReboot = True
+                if areaKey!='SYSTEM' or fieldKey!='password':
+                    flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
+                if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
+                    setHostname(config[areaKey][fieldKey])
+                if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
+                    config[areaKey][fieldKey] = fieldValue
+                    screensaver_seconds = int(fieldValue)
+                    setScreensaver(config[areaKey][fieldKey])
+                if areaKey=='SYSTEM' and fieldKey=='ipv4_only' and fieldValue!=str(ipv4_only):
+                    config[areaKey][fieldKey] = fieldValue
+                    ipv4_only = eval(fieldValue)
+                    set_ipv4_only(ipv4_only)
+                if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
+                    config[areaKey][fieldKey] = fieldValue
+                    alternative_layout = eval(fieldValue)
+                    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
+                if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
+                    if display_cover is True:
+                        setUserPassword('coverplayer',config[areaKey][fieldKey])
+                    else:
+                        setUserPassword('rmuser',config[areaKey][fieldKey])
 
-    pwbackup = config['SYSTEM']['password']
-    del config['SYSTEM']['password']
+        pwbackup = config['SYSTEM']['password']
+        del config['SYSTEM']['password']
         
-    fileinfo = translation_exist(countrycode, False)
-    exist = fileinfo[0]
-    if exist:
-        flexprint('translation file ' + countrycode + 'exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
-        if updateHash!='':
-            config['LANGUAGE']['translation_hash'] = updateHash
+        fileinfo = translation_exist(countrycode, False)
+        exist = fileinfo[0]
+        if exist:
+            flexprint('translation file ' + countrycode + 'exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
+            if updateHash!='':
+                config['LANGUAGE']['translation_hash'] = updateHash
 
-    with open(configFile, 'w') as fileRes:
-        config.write(fileRes)
+        with open(configFile, 'w') as fileRes:
+            config.write(fileRes)
 
-    config['SYSTEM']['password'] = pwbackup
-    if doReboot is True:
-        flexprint('successfully write of config file => do reboot now')
-        reboot = True
-    else:
-        flexprint('successfully write of config file')
-
-    return True
+        config['SYSTEM']['password'] = pwbackup
+        if doReboot is True:
+            flexprint('successfully write of config file => do reboot now')
+            reboot = True
+        else:
+            flexprint('successfully write of config file')
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]setup configFile error: ' + str(e) + '[/red]')    
+        return False
 
 class ZoneControlParams(BaseModel):
     control_id: str
@@ -1098,34 +1126,36 @@ class ZoneControlParams(BaseModel):
 async def rest_zone_control(params: ZoneControlParams):
     global control_id
 
-    cmd = params.cmd
-    enable = params.enable
+    try:
+        cmd = params.cmd
+        enable = params.enable
 
-    msg = '[bold magenta]POST zone_control => control_id: ' + params.control_id + ', cmd: ' + cmd
-    if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
-        msg += ', enable:' + str(enable)
-    msg += '[/bold magenta]'
-    flexprint(msg)
+        msg = '[bold magenta]POST zone_control => control_id: ' + params.control_id + ', cmd: ' + cmd
+        if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
+            msg += ', enable:' + str(enable)
+        msg += '[/bold magenta]'
+        flexprint(msg)
 
-    if cmd=='previous':
-        play_previous(params.control_id, False)
-        return True
-    if cmd=="next":
-        play_next(params.control_id, False)
-        return True
-    if cmd=="playmode":
-        set_play_mode(params.control_id, enable, True, False)
-        return True
-    if cmd=="shufflemode":
-        set_shuffle_mode(params.control_id, enable, True, False)
-        return True
-    if cmd=="repeatmode":
-        set_repeat_mode(params.control_id, enable, True, False)
-        return True
-    if cmd=="switch":
-        control_id = params.control_id
-        return True
-
+        if cmd=='previous':
+            play_previous(params.control_id, False)
+            return True
+        if cmd=="next":
+            play_next(params.control_id, False)
+            return True
+        if cmd=="playmode":
+            set_play_mode(params.control_id, enable, True, False)
+            return True
+        if cmd=="shufflemode":
+            set_shuffle_mode(params.control_id, enable, True, False)
+            return True
+        if cmd=="repeatmode":
+            set_repeat_mode(params.control_id, enable, True, False)
+            return True
+        if cmd=="switch":
+            control_id = params.control_id
+            return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]zone control error: ' + str(e) + '[/red]')
     return False
 
 class SetSpotifyAuthRedirectUrlParams(BaseModel):
@@ -1134,18 +1164,21 @@ class SetSpotifyAuthRedirectUrlParams(BaseModel):
 @app.post("/spotify_auth_redirect_url/")
 async def rest_set_spotify_auth_redirect_url(params: SetSpotifyAuthRedirectUrlParams):
     global spotify_auth_redirect_url, spotify_connect_authorized
+    success = False
 
-    spotify_auth_redirect_url = params.url
+    try:
+        spotify_auth_redirect_url = params.url
    
-    msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
-    flexprint(msg)
+        msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
+        flexprint(msg)
 
-    success = spotify_connect.auth_response(spotify_auth_redirect_url)
-    if success is True:
-        spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+        success = spotify_connect.auth_response(spotify_auth_redirect_url)
+        if success is True:
+            spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
 
-    flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
-    
+        flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]spotify auth redirect error: ' + str(e) + '[/red]')    
     return success
 
 class CustomMessageParams(BaseModel):
@@ -1156,14 +1189,17 @@ class CustomMessageParams(BaseModel):
 async def rest_custom_message(params: CustomMessageParams):
     global custom_message, custom_message_option
 
-    custom_message = params.message
-    custom_message_option = params.option
-    flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
+    try:
+        custom_message = params.message
+        custom_message_option = params.option
+        flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
 
-    if custom_message != ''  and custom_message_option != 'playout':
-        force_custom_message()
-
-    return True
+        if custom_message != ''  and custom_message_option != 'playout':
+            force_custom_message()
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set message error: ' + str(e) + '[/red]')
+        return False
 
 class LiveControlParams(BaseModel):
     control: str
@@ -1173,43 +1209,47 @@ class LiveControlParams(BaseModel):
 async def rest_live_control(params: LiveControlParams):
     global led_scroll_delay, led_vertical_scroll_delay, vertical_scroll_delay, led_contrast, config
 
-    livecontrol_control = params.control
-    livecontrol_value = params.value
-    flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
+    try:
+        livecontrol_control = params.control
+        livecontrol_value = params.value
+        flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
 
-    if livecontrol_control != '' and livecontrol_value != '':
-        if livecontrol_control == 'led_scroll_delay':
-            led_scroll_delay = float(livecontrol_value)
-            config['SYSTEM']['led_scroll_delay'] = livecontrol_value
-        if livecontrol_control == 'vertical_scroll_delay':
-            vertical_scroll_delay = int(livecontrol_value)
-            config['SYSTEM']['vertical_scroll_delay'] = livecontrol_value
-        if livecontrol_control == 'led_vertical_scroll_delay':
-            led_vertical_scroll_delay = float(livecontrol_value)
-            config['SYSTEM']['led_vertical_scroll_delay'] = livecontrol_value
-        if livecontrol_control == 'led_contrast':
-            led_contrast = int(livecontrol_value)
-            config['SYSTEM']['led_contrast'] = livecontrol_value
-            device.contrast(led_contrast)
+        if livecontrol_control != '' and livecontrol_value != '':
+            if livecontrol_control == 'led_scroll_delay':
+                led_scroll_delay = float(livecontrol_value)
+                config['SYSTEM']['led_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'vertical_scroll_delay':
+                vertical_scroll_delay = int(livecontrol_value)
+                config['SYSTEM']['vertical_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'led_vertical_scroll_delay':
+                led_vertical_scroll_delay = float(livecontrol_value)
+                config['SYSTEM']['led_vertical_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'led_contrast':
+                led_contrast = int(livecontrol_value)
+                config['SYSTEM']['led_contrast'] = livecontrol_value
+                device.contrast(led_contrast)
 
-    config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
-    del config['SYSTEM']['password']
+        config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+        del config['SYSTEM']['password']
 
-    with open(configFile, 'w') as fileRes:
-        config.write(fileRes)
-    flexprint('successfully write of config file')
+        with open(configFile, 'w') as fileRes:
+            config.write(fileRes)
+        flexprint('successfully write of config file')
 
-    config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
-
-    return True
+        config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set livecontrol error: ' + str(e) + '[/red]')    
+        return False
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     global data_changed
-    await websocket.accept()
-    clients.add(websocket)
-    flexprint(f"websocket client connected: {websocket.client}")
     try:
+        await websocket.accept()
+        clients.add(websocket)
+        flexprint(f"websocket client connected: {websocket.client}")
+        
         while True:
             await asyncio.sleep(1)
             if data_changed is True:
@@ -1227,13 +1267,19 @@ async def websocket_endpoint(websocket: WebSocket):
         clients.discard(websocket)
 
 def start_restserver():
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]start restserver error: ' + str(e) + '[/red]')    
 
 # --- REST SERVER END ---
 
 def do_reboot():
-    time.sleep(3)
-    subprocess.run(["sudo", "/usr/sbin/reboot", "-f"], check=True)
+    try:
+        time.sleep(3)
+        subprocess.run(["sudo", "/usr/sbin/reboot", "-f"], check=True)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]do reboot error: ' + str(e) + '[/red]')    
 
 def setHostname(newhostname):
     flexprint('setHostname: ' + newhostname)
@@ -1271,11 +1317,14 @@ def setHostname(newhostname):
 
 def setUserPassword(login,password):
     flexprint('setUserPassword')
-    shadow_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
+    try:
+        shadow_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
 
-    r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
-    if r != 0:
-        flexprint('[red]error changing password[/red]')
+        r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
+        if r != 0:
+            flexprint('[red]error changing password[/red]')
+    except Exception as e:
+        flexprint('[red]setUserPassword error: ' + str(e) + '[/red]')
 
 def setScreensaver(seconds):
     flexprint('setScreensaver: ' + str(seconds))
@@ -1304,7 +1353,7 @@ def setScreensaver(seconds):
         with open(autostart_path, 'w') as file:
             file.writelines( data )
     except Exception as e:
-        flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
+        if errorlog is True: flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
 
 def set_ipv4_only(enable):
     flexprint('set_ipv4_only: ' + str(enable))
@@ -1383,7 +1432,7 @@ def filter_lines_by_hours(base_filepath, hours_back):
         flexprint('filter_lines_by_hours, lines: ' + str(len(matched_lines)))
         return "\n".join(line.rstrip() for line in matched_lines) if matched_lines else ""
     except Exception as e:
-        flexprint('[red]filter_lines_by_hours error: ' + str(e) + '[/red]')
+        if errorlog is True: flexprint('[red]filter_lines_by_hours error: ' + str(e) + '[/red]')
 
 def init_matrix():
     global serial
@@ -1391,29 +1440,42 @@ def init_matrix():
     if display_cover is True:
         return None
 
-    device = max7219(serial, cascaded=led_modules or 1, block_orientation=led_block_orientation,
-                     rotate=led_rotate or 0, blocks_arranged_in_reverse_order=led_inreverse)
-    device.contrast(led_contrast)
-    return device
+    try:
+        device = max7219(serial, cascaded=led_modules or 1, block_orientation=led_block_orientation,
+                         rotate=led_rotate or 0, blocks_arranged_in_reverse_order=led_inreverse)
+        device.contrast(led_contrast)
+        return device
+    except Exception as e:
+        if errorlog is True: flexprint('[red]init matrix error: ' + str(e) + '[/red]')
+        return None
 
 def output():
-    global output_in_progress
+    global output_in_progress, interrupt_message
 
-    if display_cover is True:
-        time.sleep(3) # wait 3sec to give the thread routine enough time to recognize the change of output_in_progress flag, and a time slot to do nothing before next data fetch starts
-        output_in_progress = False
-        return
+    try:
+        if display_cover is True:            
+            waiting_seconds = 8 # wait 8 seconds to give the thread routine enough time to recognize the change of output_in_progress flag, and a time slot to do nothing before next data fetch starts
+            time_start = datetime.now()
+            flexprint('dummy output start @ ' + time_start.strftime("%Y-%m-%d %H:%M:%S"))
+            while (time_start + timedelta(0,waiting_seconds)) > datetime.now() and interrupt_message is False:
+                time.sleep(1)
+            flexprint('dummy output end @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            interrupt_message = False            
+            output_in_progress = False
+            return
 
-    if (vertical_output == False and displaystr is not None and displaystr != '') or (vertical_output == True and len(vert_strlines) > 0):
-        flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
+        if (vertical_output == False and displaystr is not None and displaystr != '') or (vertical_output == True and len(vert_strlines) > 0):
+            flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
 
-        if vertical_output is True:
-            delaySec = led_vertical_scroll_delay/1000
-            show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
-        else:
-            delaySec = led_scroll_delay/1000
-            show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
-        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
+            if vertical_output is True:
+                delaySec = led_vertical_scroll_delay/1000
+                show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
+            else:
+                delaySec = led_scroll_delay/1000
+                show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]matrix output error: ' + str(e) + '[/red]')
 
     output_in_progress = False
 
@@ -1422,47 +1484,59 @@ def clear_display(type):
     if display_cover is True:
         return
 
-    with canvas(device) as draw:
-        text(draw, (0, 0), '', fill="white", font=proportional(CP437_FONT))
+    try:
+        with canvas(device) as draw:
+            text(draw, (0, 0), '', fill="white", font=proportional(CP437_FONT))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]clear display error: ' + str(e) + '[/red]')
 
 def roon_discover_all_test():
     if test_roon_discover is True:
-        discover = RoonDiscovery(None)
-        servers = discover.all()
-        flexprint('[bold red]roon_discover_all_test: ' + str(servers) + '[/bold red]')
-        discover.stop()
-        time.sleep(1)
+        try:
+            discover = RoonDiscovery(None)
+            servers = discover.all()
+            flexprint('[bold red]roon_discover_all_test: ' + str(servers) + '[/bold red]')
+            discover.stop()
+            time.sleep(1)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]roon discover all test error: ' + str(e) + '[/red]')
 
 def roon_discover_first_test():
     if test_roon_discover is True:
-        discover = RoonDiscovery(None)
-        servers = discover.first()
-        flexprint('[bold red]roon_discover_first_test: ' + str(servers) + '[/bold red]')
-        discover.stop()
-        time.sleep(1)
+        try:
+            discover = RoonDiscovery(None)
+            servers = discover.first()
+            flexprint('[bold red]roon_discover_first_test: ' + str(servers) + '[/bold red]')
+            discover.stop()
+            time.sleep(1)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]roon discover first test error: ' + str(e) + '[/red]')
 
 def roon_discover_active_test():
     if test_roon_discover is True:
-        if path.exists(idfile):
-            with open(idfile, "r") as f:
-                core_id = f.read()
-                f.close()
-        else:
-            core_id = None
+        try:
+            if path.exists(idfile):
+                with open(idfile, "r") as f:
+                    core_id = f.read()
+                    f.close()
+            else:
+                core_id = None
 
-        if path.exists(tokenfile):
-            with open(tokenfile, "r") as f:
-                token = f.read()
-                f.close()
-        else:
-            token = None
+            if path.exists(tokenfile):
+                with open(tokenfile, "r") as f:
+                    token = f.read()
+                    f.close()
+            else:
+                token = None
 
-        if core_id is not None and token is not None:
-            discover = RoonDiscovery(core_id)
-            servers = discover.first()
-            flexprint('[bold red]roon_discover_active_test: ' + str(servers) + '[/bold red]')
-            discover.stop()
-            time.sleep(1)
+            if core_id is not None and token is not None:
+                discover = RoonDiscovery(core_id)
+                servers = discover.first()
+                flexprint('[bold red]roon_discover_active_test: ' + str(servers) + '[/bold red]')
+                discover.stop()
+                time.sleep(1)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]roon discover active test error: ' + str(e) + '[/red]')
 
 def roon_discover():
     global roon_servers, core_ip, core_port, config
@@ -1527,8 +1601,8 @@ def roon_discover():
             time.sleep(discovery_delay)
     except Exception as e:
         if errorlog is True: 
-            flexprint('[red]==> roon_discover error: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            flexprint('[red]==> roon discover error: [/red]', str(e))
+            #flexprint(traceback.format_exc())
 
 def get_roon_api():
     global roonapi, roon_servers
@@ -1569,11 +1643,12 @@ def get_roon_api():
                 
                 set_default_zone()
                 if force_roon_update is True:
+                    flexprint('register roonapi state callback')
                     roonapi.register_state_callback(roon_state_callback)
     except Exception as e:
         if errorlog is True: 
-            flexprint('[red]==> get_roon_api error: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            flexprint('[red]==> get roon api error: [/red]', str(e))
+            #flexprint(traceback.format_exc())
 
 def getInfoData():
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1701,90 +1776,102 @@ def getInfoData():
     }
 
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
-    font = font or DEFAULT_FONT
+    try:
+        font = font or DEFAULT_FONT
 
-    if vertical_output is True:
-        estimated_seconds = (2 + len(msg)) * (vertical_scroll_delay + 1/1000 * led_vertical_scroll_delay * 8)
-    else:
-        fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-        if display_cover is True:
-            estimated_seconds = 20 # fake time to limit api calls in display_cover mode
+        if vertical_output is True:
+            estimated_seconds = (2 + len(msg)) * (vertical_scroll_delay + 1/1000 * led_vertical_scroll_delay * 8)
         else:
-            with canvas(device) as draw:
-                w, h = textsize(msg, font)
-            x = device.width
-            fullwidth = w + x
-            estimated_seconds = round(fullwidth/fps)
-    running_start = datetime.now()
-    estimated_end = running_start + timedelta(0,estimated_seconds)
-    fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
-    if debug is True: flexprint('get_next_fetch_output_time, estimated_seconds: ' + str(estimated_seconds) + ', fetch_output_time: ' + str(fetch_output_time) + ' [time: ' + str(build_seconds) + ' sec]')
+            fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
+            if display_cover is True:
+                estimated_seconds = 20 # fake time to limit api calls in display_cover mode
+            else:
+                with canvas(device) as draw:
+                    w, h = textsize(msg, font)
+                x = device.width
+                fullwidth = w + x
+                estimated_seconds = round(fullwidth/fps)
+        running_start = datetime.now()
+        estimated_end = running_start + timedelta(0,estimated_seconds)
+        fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
+        if debug is True: flexprint('get_next_fetch_output_time, estimated_seconds: ' + str(estimated_seconds) + ', fetch_output_time: ' + str(fetch_output_time) + ' [time: ' + str(build_seconds) + ' sec]')
 
-    return fetch_output_time
+        return fetch_output_time
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get next fetch output time error: ' + str(e) + '[/red]')
+        return None
 
 def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, scroll_delay=0.03):
     global interrupt_message
 
     if display_cover is True:
+        interrupt_message = False
         return
 
-    fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-    regulator = framerate_regulator(fps)
-    font = font or DEFAULT_FONT
-    with canvas(device) as draw:
-        w, h = textsize(msg, font)
-    x = device.width
-    fullwidth = w + x
+    try:
+        fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
+        regulator = framerate_regulator(fps)
+        font = font or DEFAULT_FONT
+        with canvas(device) as draw:
+            w, h = textsize(msg, font)
+        x = device.width
+        fullwidth = w + x
 
-    virtual = viewport(device, width=fullwidth + x, height=device.height)
+        virtual = viewport(device, width=fullwidth + x, height=device.height)
 
-    with canvas(virtual) as draw:
-        text(draw, (x, y_offset), msg, font=font, fill=fill)
+        with canvas(virtual) as draw:
+            text(draw, (x, y_offset), msg, font=font, fill=fill)
 
-    i = 0
-    while i <= w + x and interrupt_message is False and do_set_zone_control is False:
-        with regulator:
-            virtual.set_position((i, 0))
-            i += 1
-    interrupt_message = False
+        i = 0
+        while i <= w + x and interrupt_message is False and do_set_zone_control is False:
+            with regulator:
+                virtual.set_position((i, 0))
+                i += 1
+        interrupt_message = False
 
-    if do_set_zone_control is True:
-        set_control_zone()
+        if do_set_zone_control is True:
+            set_control_zone()
+    except Exception as e:
+        if errorlog is True: flexprint('[red]show message interruptable error: ' + str(e) + '[/red]')
 
 def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None, scroll_delay=0.03):
     global interrupt_message
 
     if display_cover is True:
+        interrupt_message = False
         return
 
-    fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-    regulator = framerate_regulator(fps)
-    font = font or DEFAULT_FONT
+    try:
+        fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
+        regulator = framerate_regulator(fps)
+        font = font or DEFAULT_FONT
 
-    virtual = viewport(device, width=device.width, height=device.height * (len(lines) + 2))
+        virtual = viewport(device, width=device.width, height=device.height * (len(lines) + 2))
 
-    with canvas(virtual) as draw:
-        for idx,line in enumerate(lines):
-            w, h = textsize(line, font)
-            x_offset = 0
-            if w < device.width:
-                x_offset = (device.width - w) / 2
-            text(draw, (x_offset, y_offset + device.height * (idx+1)), line, font=font, fill=fill)
+        with canvas(virtual) as draw:
+            for idx,line in enumerate(lines):
+                w, h = textsize(line, font)
+                x_offset = 0
+                if w < device.width:
+                    x_offset = (device.width - w) / 2
+                text(draw, (x_offset, y_offset + device.height * (idx+1)), line, font=font, fill=fill)
 
-    y = 0
-    for row in range(1, len(lines)+2):
-        while y <= device.height * row and interrupt_message is False and do_set_zone_control is False:
-            with regulator:
-                virtual.set_position((0, y))
-                y += 1
-        time.sleep(vertical_scroll_delay)
-        if interrupt_message is True:
-            break
+        y = 0
+        for row in range(1, len(lines)+2):
+            while y <= device.height * row and interrupt_message is False and do_set_zone_control is False:
+                with regulator:
+                    virtual.set_position((0, y))
+                    y += 1
+            time.sleep(vertical_scroll_delay)
+            if interrupt_message is True:
+                break
 
-    interrupt_message = False
+        interrupt_message = False
 
-    if do_set_zone_control is True:
-        set_control_zone()
+        if do_set_zone_control is True:
+            set_control_zone()
+    except Exception as e:
+        if errorlog is True: flexprint('[red]show message vertical interruptable error: ' + str(e) + '[/red]')
 
 def is_url_active(url,timeout):
     try:
@@ -1797,8 +1884,8 @@ def is_url_active(url,timeout):
 
 def is_port_on_ip_open(ip,port):
    msg = 'is_port_on_ip_open (ip: ' + ip + ', port: ' + port + '): '
-   s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
    try:
+      s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       s.connect((ip, int(port)))
       s.shutdown(2)
       flexprint('[green]' + msg + 'true[/green]')
@@ -1816,28 +1903,35 @@ def is_roon_server_active(ip,port):
     return active
 
 def moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones):
-    if control_id is not None and len(webservers_zones) > 0:
-        names = [d.get('name') for d in webservers_zones]
-        baseName = control_id.split('-')[0]
-        if baseName in names and not baseName == webservers_zones[0]['name']:
-            index = names.index(baseName)
-            webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
+    try:
+        if control_id is not None and len(webservers_zones) > 0:
+            names = [d.get('name') for d in webservers_zones]
+            baseName = control_id.split('-')[0]
+            if baseName in names and not baseName == webservers_zones[0]['name']:
+                index = names.index(baseName)
+                webservers_zones.insert(0, webservers_zones.pop(index)) # move actual player to first position in list (check online availability first => possible to fallback to one of the next zones in same loop)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]moveActualPlayerToFirstPosInWebserverZoneList error: ' + str(e) + '[/red]')
+
     return webservers_zones
 
 def get_active_zones_from_webserver_onlinecheck(update):
     active_zones = []
 
-    for idx,data in enumerate(webservers_zones,1):
-        name = data['name']
-        url = data['url']
-        online = is_url_active(url,webserver_head_request_timeout)
-        if update is True:
-            update_webserver_channels(name, online)
-        if debug is True: flexprint('online check of webserver ' + name + ': ' + str(online))
-        if online is True:
-            active_zones.append(data)
-        else:
-            flexprint('Webserver ' + name + ' is down')
+    try:
+        for idx,data in enumerate(webservers_zones,1):
+            name = data['name']
+            url = data['url']
+            online = is_url_active(url,webserver_head_request_timeout)
+            if update is True:
+                update_webserver_channels(name, online)
+            if debug is True: flexprint('online check of webserver ' + name + ': ' + str(online))
+            if online is True:
+                active_zones.append(data)
+            else:
+                flexprint('Webserver ' + name + ' is down')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get active zones from webserver onlinecheck error: ' + str(e) + '[/red]')                
     return active_zones
 
 def spotify_connect_enabled():
@@ -1887,7 +1981,7 @@ def get_active_zone_from_spotify_connect_onlinecheck(update):
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> get_active_zone_from_spotify_connect_onlinecheck error: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            #flexprint(traceback.format_exc())
 
     return active_zone
 
@@ -1957,7 +2051,7 @@ def is_audioinfo_available():
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> audioinfo available error: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            #flexprint(traceback.format_exc())
 
     if available is True:
         fetch_output_time = None
@@ -1969,21 +2063,25 @@ def is_audioinfo_available():
 def refresh_output_data(force = False):
     global fetch_output_time, fetch_output_in_progress, fetch_output_done, prepared_displaystr, prepared_vert_strlines
 
-    fetch_new = fetch_output_time is None or (fetch_output_time + timedelta(0,60)) < datetime.now()
-    if fetch_new is True or force is True:
-        flexprint('fetched output data too old (' + (fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None') + ') => refresh')
-        fetch_output_time = None
-        fetch_output_done = False
-        fetch_output_in_progress = False
-    else:
-        if vertical_output is False and prepared_displaystr == '':
-            prepared_displaystr = displaystr
-        if vertical_output is True and len(prepared_vert_strlines) == 0:
-            prepared_vert_strlines = vert_strlines
-            prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+    try:
+        fetch_new = fetch_output_time is None or (fetch_output_time + timedelta(0,60)) < datetime.now()
+        print('refresh_output_data => force: ' + str(force) + ', fetch_new: ' + str(fetch_new))
+        if fetch_new is True or force is True:
+            flexprint('fetched output data too old (' + (fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None') + ') => refresh')
+            fetch_output_time = None
+            fetch_output_done = False
+            fetch_output_in_progress = False
+        else:
+            if vertical_output is False and prepared_displaystr == '':
+                prepared_displaystr = displaystr
+            if vertical_output is True and len(prepared_vert_strlines) == 0:
+                prepared_vert_strlines = vert_strlines
+                prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
 
-        fetch_output_in_progress = True
-        fetch_output_done = True
+            fetch_output_in_progress = True
+            fetch_output_done = True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]refresh output data error: ' + str(e) + '[/red]')                
 
 def getPlaystateFromPlaymode(control_id):
     if control_id is not None and control_id in playmode:
@@ -1994,32 +2092,35 @@ def getPlaystateFromPlaymode(control_id):
 def set_play_mode(control_id, enable, send, do_async=True):
     global data_changed, active_spotify_connect_zone
     if control_id is not None and control_id in channels.keys():
-        playmode_last = playmode[control_id] if control_id in playmode else None
-        if enable is True:
-            playmode[control_id] = 'play'
-        else:
-            playmode[control_id] = 'stop'
-        if control_id in playmode and playmode_last != playmode[control_id]:
-            data_changed = True
-
-        if send is True:
-            if channels[control_id]=='webserver':
-                send_webserver_zone_control(control_id, do_async, playmode[control_id])
-            elif channels[control_id]=="spotifyconnect":
-                if spotify_connect_enabled():
-                    try:
-                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
-                        if active_spotify_connect_zone is not None:
-                            if active_spotify_connect_zone['is_active'] is True:
-                                spotify_connect.play() if enable is True else spotify_connect.pause()
-                            else:
-                                spotify_connect.play(active_spotify_connect_zone['id']) if enable is True else spotify_connect.pause(active_spotify_connect_zone['id'])
-                    except Exception as e:
-                        if errorlog is True:
-                            flexprint('spotify_connect error (set_play_mode, maybe offline)')
+        try:
+            playmode_last = playmode[control_id] if control_id in playmode else None
+            if enable is True:
+                playmode[control_id] = 'play'
             else:
-                if roon_show == True and roon_servers:
-                    roonapi.playback_control(control_id, playmode[control_id])
+                playmode[control_id] = 'stop'
+            if control_id in playmode and playmode_last != playmode[control_id]:
+                data_changed = True
+
+            if send is True:
+                if channels[control_id]=='webserver':
+                    send_webserver_zone_control(control_id, do_async, playmode[control_id])
+                elif channels[control_id]=="spotifyconnect":
+                    if spotify_connect_enabled():
+                        try:
+                            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                            if active_spotify_connect_zone is not None:
+                                if active_spotify_connect_zone['is_active'] is True:
+                                    spotify_connect.play() if enable is True else spotify_connect.pause()
+                                else:
+                                    spotify_connect.play(active_spotify_connect_zone['id']) if enable is True else spotify_connect.pause(active_spotify_connect_zone['id'])
+                        except Exception as e:
+                            if errorlog is True:
+                                flexprint('spotify_connect error (set_play_mode, maybe offline)')
+                else:
+                    if roon_show == True and roon_servers:
+                        roonapi.playback_control(control_id, playmode[control_id])
+        except Exception as e:
+            if errorlog is True: flexprint('[red]set play mode error: ' + str(e) + '[/red]')                
 
 def getShufflestateFromPlaymode(control_id):
     if control_id is not None and control_id in shufflemode:
@@ -2029,41 +2130,45 @@ def getShufflestateFromPlaymode(control_id):
 
 def set_shuffle_mode(control_id, enable, send, do_async=True):
     global data_changed, active_spotify_connect_zone
-    shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
-    if control_id is not None and control_id in channels.keys():
-        if channels[control_id]=='webserver':
-            if enable is True:
-                shufflemode[control_id] = 'shuffle'
+    
+    try:
+        shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
+        if control_id is not None and control_id in channels.keys():
+            if channels[control_id]=='webserver':
+                if enable is True:
+                    shufflemode[control_id] = 'shuffle'
+                else:
+                    shufflemode[control_id] = 'noshuffle'
+                if send is True:
+                    send_webserver_zone_control(control_id, do_async, shufflemode[control_id])
+            elif channels[control_id]=="spotifyconnect":
+                if enable is True:
+                    shufflemode[control_id] = 'shuffle'
+                else:
+                    shufflemode[control_id] = 'noshuffle'
+                if send is True and spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            spotify_connect.shuffle(shufflemode[control_id]=='shuffle', active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('spotify_connect error (set_shuffle_mode, maybe offline)')
             else:
-                shufflemode[control_id] = 'noshuffle'
-            if send is True:
-                send_webserver_zone_control(control_id, do_async, shufflemode[control_id])
-        elif channels[control_id]=="spotifyconnect":
-            if enable is True:
-                shufflemode[control_id] = 'shuffle'
-            else:
-                shufflemode[control_id] = 'noshuffle'
-            if send is True and spotify_connect_enabled():
-                try:
-                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
-                    if active_spotify_connect_zone is not None:
-                        spotify_connect.shuffle(shufflemode[control_id]=='shuffle', active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('spotify_connect error (set_shuffle_mode, maybe offline)')
-        else:
-            if roon_show == True and roon_servers:
-                if control_id is not None:
-                    if enable is True:
-                        shufflemode[control_id] = 'shuffle'
-                        if send is True:
-                            roonapi.shuffle(control_id, True)
-                    else:
-                        shufflemode[control_id] = 'noshuffle'
-                        if send is True:
-                            roonapi.shuffle(control_id, False)
-    if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
-        data_changed = True
+                if roon_show == True and roon_servers:
+                    if control_id is not None:
+                        if enable is True:
+                            shufflemode[control_id] = 'shuffle'
+                            if send is True:
+                                roonapi.shuffle(control_id, True)
+                        else:
+                            shufflemode[control_id] = 'noshuffle'
+                            if send is True:
+                                roonapi.shuffle(control_id, False)
+        if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
+            data_changed = True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set shuffle mode error: ' + str(e) + '[/red]')                
 
 def getRepeatstateFromPlaymode(control_id):
     if control_id is not None and control_id in repeatmode:
@@ -2073,77 +2178,87 @@ def getRepeatstateFromPlaymode(control_id):
 
 def set_repeat_mode(control_id, enable, send, do_async=True):
     global data_changed, active_spotify_connect_zone
-    repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
-    if control_id is not None and control_id in channels.keys():
-        if channels[control_id]=='webserver':
-            if enable is True:
-                repeatmode[control_id] = 'repeat'
+    
+    try:
+        repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
+        if control_id is not None and control_id in channels.keys():
+            if channels[control_id]=='webserver':
+                if enable is True:
+                    repeatmode[control_id] = 'repeat'
+                else:
+                    repeatmode[control_id] = 'norepeat'
+                if send is True:
+                    send_webserver_zone_control(control_id, do_async, repeatmode[control_id])
+            elif channels[control_id]=="spotifyconnect":
+                if enable is True:
+                    repeatmode[control_id] = 'repeat'
+                else:
+                    repeatmode[control_id] = 'norepeat'
+                if send is True and spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            spotify_connect.repeat("context" if shufflemode[control_id]=='repeat' else "off", active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('spotify_connect error (set_repeat_mode, maybe offline)')
             else:
-                repeatmode[control_id] = 'norepeat'
-            if send is True:
-                send_webserver_zone_control(control_id, do_async, repeatmode[control_id])
-        elif channels[control_id]=="spotifyconnect":
-            if enable is True:
-                repeatmode[control_id] = 'repeat'
-            else:
-                repeatmode[control_id] = 'norepeat'
-            if send is True and spotify_connect_enabled():
-                try:
-                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
-                    if active_spotify_connect_zone is not None:
-                        spotify_connect.repeat("context" if shufflemode[control_id]=='repeat' else "off", active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('spotify_connect error (set_repeat_mode, maybe offline)')
-        else:
-            if roon_show == True and roon_servers:
-                if control_id is not None:
-                    if enable is True:
-                        repeatmode[control_id] = 'repeat'
-                        if send is True:
-                            roonapi.repeat(control_id, 'loop')	# loop, loop_one, disabled
-                    else:
-                        repeatmode[control_id] = 'norepeat'
-                        if send is True:
-                            roonapi.repeat(control_id, 'disabled')
-    if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
-        data_changed = True
+                if roon_show == True and roon_servers:
+                    if control_id is not None:
+                        if enable is True:
+                            repeatmode[control_id] = 'repeat'
+                            if send is True:
+                                roonapi.repeat(control_id, 'loop')	# loop, loop_one, disabled
+                        else:
+                            repeatmode[control_id] = 'norepeat'
+                            if send is True:
+                                roonapi.repeat(control_id, 'disabled')
+        if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
+            data_changed = True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set repeat mode error: ' + str(e) + '[/red]')                
 
 def play_previous(control_id, do_async=True):
     global active_spotify_connect_zone
     if control_id is not None:
-        if control_id in channels.keys() and channels[control_id]=='webserver':
-            send_webserver_zone_control(control_id, do_async, "previous")
-        elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
-            if spotify_connect_enabled():
-                try:
-                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
-                    if active_spotify_connect_zone is not None:
-                        spotify_connect.previous(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('spotify_connect error (play_previous, maybe offline)')                    
-        else:
-            if roon_show == True and roon_servers:
-                roonapi.playback_control(control_id, "previous")
+        try:
+            if control_id in channels.keys() and channels[control_id]=='webserver':
+                send_webserver_zone_control(control_id, do_async, "previous")
+            elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
+                if spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            spotify_connect.previous(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None)
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('spotify_connect error (play_previous, maybe offline)')                    
+            else:
+                if roon_show == True and roon_servers:
+                    roonapi.playback_control(control_id, "previous")
+        except Exception as e:
+            if errorlog is True: flexprint('[red]play previous error: ' + str(e) + '[/red]')                
 
 def play_next(control_id, do_async=True):
     global active_spotify_connect_zone
     if control_id is not None:
-        if control_id in channels.keys() and channels[control_id]=='webserver':
-            send_webserver_zone_control(control_id, do_async, "next")
-        elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
-            if spotify_connect_enabled():
-                try:
-                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
-                    if active_spotify_connect_zone is not None:
-                        spotify_connect.next(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('spotify_connect error (play_next, maybe offline)')                    
-        else:
-            if roon_show == True and roon_servers:
-                roonapi.playback_control(control_id, "next")
+        try:
+            if control_id in channels.keys() and channels[control_id]=='webserver':
+                send_webserver_zone_control(control_id, do_async, "next")
+            elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
+                if spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            spotify_connect.next(active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('spotify_connect error (play_next, maybe offline)')                    
+            else:
+                if roon_show == True and roon_servers:
+                    roonapi.playback_control(control_id, "next")
+        except Exception as e:
+            if errorlog is True: flexprint('[red]play next error: ' + str(e) + '[/red]')                
 
 def pressed_up(channel):
     global do_set_zone_control, zone_control_last_update_time, clock_in_progress, control_id, control_id_update, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
@@ -2151,40 +2266,43 @@ def pressed_up(channel):
     if display_cover is True:
         return
 
-    time.sleep(0.1)
-    if GPIO.event_detected(controlswitch_gpio_top):
-        GPIO.remove_event_detect(controlswitch_gpio_top)
-        flexprint('=> pressed up, do_set_zone_control(before): ' + str(do_set_zone_control))
-        if do_set_zone_control == False:
-            control_id_update = control_id
-            zone_control_last_update_time = datetime.now()
-            do_set_zone_control = True
-            flexprint('enter zone control setup')
-            if clock_in_progress is True or displaystr=='':
-                set_control_zone(False)
-        else:
-            do_set_zone_control = False
-            control_id = control_id_update
-            control_zone = control_id
-            clear_display('pressed_up')
-            refresh_output_data(True)
-            flexprint('close zone control setup')
-            is_playing_last = None
-            shuffle_on_last = None
-            repeat_on_last = None
-            track_id_last = ''
-            if control_id is not None:
-                is_playing = getPlaystateFromPlayouts()
-                shuffle_on = getShufflestateFromPlayouts()
-                repeat_on = getRepeatstateFromPlayouts()
-                track_id = getTrackIdstateFromPlayouts()
-                if log is True and control_id in channels.keys():
-                    if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
-                        flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
-                    else:
-                        flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
+    try:
         time.sleep(0.1)
-        GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
+        if GPIO.event_detected(controlswitch_gpio_top):
+            GPIO.remove_event_detect(controlswitch_gpio_top)
+            flexprint('=> pressed up, do_set_zone_control(before): ' + str(do_set_zone_control))
+            if do_set_zone_control == False:
+                control_id_update = control_id
+                zone_control_last_update_time = datetime.now()
+                do_set_zone_control = True
+                flexprint('enter zone control setup')
+                if clock_in_progress is True or displaystr=='':
+                    set_control_zone(False)
+            else:
+                do_set_zone_control = False
+                control_id = control_id_update
+                control_zone = control_id
+                clear_display('pressed_up')
+                refresh_output_data(True)
+                flexprint('close zone control setup')
+                is_playing_last = None
+                shuffle_on_last = None
+                repeat_on_last = None
+                track_id_last = ''
+                if control_id is not None:
+                    is_playing = getPlaystateFromPlayouts()
+                    shuffle_on = getShufflestateFromPlayouts()
+                    repeat_on = getRepeatstateFromPlayouts()
+                    track_id = getTrackIdstateFromPlayouts()
+                    if log is True and control_id in channels.keys():
+                        if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                            flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
+                        else:
+                            flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
+            time.sleep(0.1)
+            GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]pressed up error: ' + str(e) + '[/red]')                
 
 def pressed_down(channel):
     global do_set_zone_control
@@ -2192,24 +2310,27 @@ def pressed_down(channel):
     if display_cover is True:
         return
 
-    time.sleep(0.1)
-    if GPIO.event_detected(controlswitch_gpio_down):
-        GPIO.remove_event_detect(controlswitch_gpio_down)
-        if do_set_zone_control == True:
-            do_set_zone_control = False
-            clear_display('pressed_down')
-            refresh_output_data()
-            flexprint('close zone control setup')
-            if control_id is not None and log is True and control_id in channels.keys():
-                if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
-                    flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
-                else:
-                    flexprint("actual control zone (roon): " + channels[control_id])
-        else:
-            mode = getShufflestateFromPlaymode(control_id)
-            set_shuffle_mode(control_id, not mode, True)
+    try:
         time.sleep(0.1)
-        GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
+        if GPIO.event_detected(controlswitch_gpio_down):
+            GPIO.remove_event_detect(controlswitch_gpio_down)
+            if do_set_zone_control == True:
+                do_set_zone_control = False
+                clear_display('pressed_down')
+                refresh_output_data()
+                flexprint('close zone control setup')
+                if control_id is not None and log is True and control_id in channels.keys():
+                    if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                        flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
+                    else:
+                        flexprint("actual control zone (roon): " + channels[control_id])
+            else:
+                mode = getShufflestateFromPlaymode(control_id)
+                set_shuffle_mode(control_id, not mode, True)
+            time.sleep(0.1)
+            GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]pressed down error: ' + str(e) + '[/red]')                
 
 def pressed_left(channel):
     global control_id_update, zone_control_last_update_time
@@ -2217,32 +2338,35 @@ def pressed_left(channel):
     if display_cover is True:
         return
 
-    time.sleep(0.1)
-    if GPIO.event_detected(controlswitch_gpio_left):
-        GPIO.remove_event_detect(controlswitch_gpio_left)
-        if do_set_zone_control == True:
-            zone_control_last_update_time = datetime.now()
-            keys = list(channels.keys())
-            keys_len = len(keys)
-            if keys_len > 0:
-                if control_id_update is not None:
-                    idx = keys.index(control_id_update)
-                    idx = idx - 1
-                else:
-                    idx = 0
-                if idx < 0:
-                    idx = keys_len - 1
-                control_id_update = keys[idx]
-                name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
-                if channels[control_id_update]=='webserver':
-                    name = name.replace(' ','')
-
-                with canvas(device) as draw:
-                    text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
-        else:
-            play_previous(control_id)
+    try:
         time.sleep(0.1)
-        GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
+        if GPIO.event_detected(controlswitch_gpio_left):
+            GPIO.remove_event_detect(controlswitch_gpio_left)
+            if do_set_zone_control == True:
+                zone_control_last_update_time = datetime.now()
+                keys = list(channels.keys())
+                keys_len = len(keys)
+                if keys_len > 0:
+                    if control_id_update is not None:
+                        idx = keys.index(control_id_update)
+                        idx = idx - 1
+                    else:
+                        idx = 0
+                    if idx < 0:
+                        idx = keys_len - 1
+                    control_id_update = keys[idx]
+                    name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
+                    if channels[control_id_update]=='webserver':
+                        name = name.replace(' ','')
+
+                    with canvas(device) as draw:
+                        text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
+            else:
+                play_previous(control_id)
+            time.sleep(0.1)
+            GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]pressed left error: ' + str(e) + '[/red]')                
 
 def pressed_right(channel):
     global control_id_update, zone_control_last_update_time
@@ -2250,32 +2374,35 @@ def pressed_right(channel):
     if display_cover is True:
         return
 
-    time.sleep(0.1)
-    if GPIO.event_detected(controlswitch_gpio_right):
-        GPIO.remove_event_detect(controlswitch_gpio_right)
-        if do_set_zone_control == True:
-            zone_control_last_update_time = datetime.now()
-            keys = list(channels.keys())
-            keys_len = len(keys)
-            if keys_len > 0:
-                if control_id_update is not None:
-                    idx = keys.index(control_id_update)
-                    idx = idx + 1
-                else:
-                    idx = 0
-                if idx >= keys_len:
-                    idx = 0
-                control_id_update = keys[idx]
-                name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
-                if channels[control_id_update]=='webserver':
-                    name = name.replace(' ','')
-
-                with canvas(device) as draw:
-                    text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
-        else:
-            play_next(control_id)
+    try:
         time.sleep(0.1)
-        GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+        if GPIO.event_detected(controlswitch_gpio_right):
+            GPIO.remove_event_detect(controlswitch_gpio_right)
+            if do_set_zone_control == True:
+                zone_control_last_update_time = datetime.now()
+                keys = list(channels.keys())
+                keys_len = len(keys)
+                if keys_len > 0:
+                    if control_id_update is not None:
+                        idx = keys.index(control_id_update)
+                        idx = idx + 1
+                    else:
+                        idx = 0
+                    if idx >= keys_len:
+                        idx = 0
+                    control_id_update = keys[idx]
+                    name = control_id_update if (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect') else channels[control_id_update]
+                    if channels[control_id_update]=='webserver':
+                        name = name.replace(' ','')
+
+                    with canvas(device) as draw:
+                        text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(name), fill="white", font=proportional(CP437_FONT))
+            else:
+                play_next(control_id)
+            time.sleep(0.1)
+            GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]pressed right error: ' + str(e) + '[/red]')                
 
 def pressed_enter(channel):
     global playmode, do_set_zone_control, control_id, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
@@ -2283,56 +2410,62 @@ def pressed_enter(channel):
     if display_cover is True:
         return
 
-    time.sleep(0.1)
-    if GPIO.event_detected(controlswitch_gpio_center):
-        GPIO.remove_event_detect(controlswitch_gpio_center)
-        if do_set_zone_control == True:
-            do_set_zone_control = False
-            control_id = control_id_update
-            control_zone = control_id
-            clear_display('pressed_enter')
-            refresh_output_data(True)
-            flexprint('close zone control setup')
-            is_playing_last = None
-            shuffle_on_last = None
-            repeat_on_last = None
-            track_id_last = ''
-            if control_id is not None:
-                is_playing = getPlaystateFromPlayouts()
-                shuffle_on = getShufflestateFromPlayouts()
-                repeat_on = getRepeatstateFromPlayouts()
-                track_id = getTrackIdstateFromPlayouts()
-                if log is True and control_id in channels.keys():
-                    if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
-                        flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
-                    else:
-                        flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
-        else:
-            mode = getPlaystateFromPlaymode(control_id)
-            set_play_mode(control_id, not mode, True)
+    try:
         time.sleep(0.1)
-        GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
+        if GPIO.event_detected(controlswitch_gpio_center):
+            GPIO.remove_event_detect(controlswitch_gpio_center)
+            if do_set_zone_control == True:
+                do_set_zone_control = False
+                control_id = control_id_update
+                control_zone = control_id
+                clear_display('pressed_enter')
+                refresh_output_data(True)
+                flexprint('close zone control setup')
+                is_playing_last = None
+                shuffle_on_last = None
+                repeat_on_last = None
+                track_id_last = ''
+                if control_id is not None:
+                    is_playing = getPlaystateFromPlayouts()
+                    shuffle_on = getShufflestateFromPlayouts()
+                    repeat_on = getRepeatstateFromPlayouts()
+                    track_id = getTrackIdstateFromPlayouts()
+                    if log is True and control_id in channels.keys():
+                        if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                            flexprint("[bold magenta]actual control zone (" + channels[control_id] + "): " + control_id + '[/bold magenta]')
+                        else:
+                            flexprint("[bold magenta]actual control zone (roon): " + channels[control_id] + '[/bold magenta]')
+            else:
+                mode = getPlaystateFromPlaymode(control_id)
+                set_play_mode(control_id, not mode, True)
+            time.sleep(0.1)
+            GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]pressed enter error: ' + str(e) + '[/red]')                
 
 def send_webserver_zone_control(control_id, do_async, code, search = '', detail = '', detail2 = ''):
     global active_spotify_connect_zone
     
-    isSpotifyConnect = control_id.endswith('-SpotifyConnect')
+    try:
+        isSpotifyConnect = control_id.endswith('-SpotifyConnect')
     
-    if spotify_connect_enabled() and isSpotifyConnect is True:    
-        if code=='playtrack' or code=='play-playlist-track':
-            meta = detail
-            if active_spotify_connect_zone is None:
-                active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
-            if active_spotify_connect_zone is None:
-                return
+        if spotify_connect_enabled() and isSpotifyConnect is True:    
+            if code=='playtrack' or code=='play-playlist-track':
+                meta = detail
+                if active_spotify_connect_zone is None:
+                    active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+                if active_spotify_connect_zone is None:
+                    return
 
-            if search.startswith('spotify:track'):
-                if 'albumId' in meta and meta['albumId'] is not None and meta['albumId'] != '':
-                    spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = 'spotify:album:' + meta['albumId'], offset = {"uri": search})
+                if search.startswith('spotify:track'):
+                    if 'albumId' in meta and meta['albumId'] is not None and meta['albumId'] != '':
+                        spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = 'spotify:album:' + meta['albumId'], offset = {"uri": search})
+                    else:
+                        spotify_connect.play(device_id = active_spotify_connect_zone['id'], uris = [search])
                 else:
-                    spotify_connect.play(device_id = active_spotify_connect_zone['id'], uris = [search])
-            else:
-                spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = search)
+                    spotify_connect.play(device_id = active_spotify_connect_zone['id'], context_uri = search)
+    except Exception as e:
+        if errorlog is True: flexprint('webserver_zone_control error (spotify connect): ', str(e))
 
     if webservers_show == True and control_id is not None and isSpotifyConnect is False:
         if detail is not None and isinstance(detail, str) is False:
@@ -2394,77 +2527,90 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
 
 def getPlaystateFromPlayouts():
     idle = False
-    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
-        name_parts = control_id.split('-')
-        serverName = name_parts[0]
-        zoneName = name_parts[1]
-        if serverName in web_playouts:
-            #zones = web_playouts[serverName]
-            for item in web_playouts[serverName]:
-                if 'zone' in item and item['zone'] == zoneName:
-                    idle = 'status' in item and item['status'] != 'playing'
-                    playmode[control_id] = 'stop' if idle is True else 'play'
-                    break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
-        zoneName = channels[control_id]
-        idle = zoneName in roon_playouts and 'status' in roon_playouts[zoneName] and roon_playouts[zoneName]['status'] == 'not running'
-        playmode[control_id] = 'stop' if idle is True else 'play'
-    return idle is False
+    try:
+        if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
+            name_parts = control_id.split('-')
+            serverName = name_parts[0]
+            zoneName = name_parts[1]
+            if serverName in web_playouts:
+                #zones = web_playouts[serverName]
+                for item in web_playouts[serverName]:
+                    if 'zone' in item and item['zone'] == zoneName:
+                        idle = 'status' in item and item['status'] != 'playing'
+                        playmode[control_id] = 'stop' if idle is True else 'play'
+                        break
+        if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
+            zoneName = channels[control_id]
+            idle = zoneName in roon_playouts and 'status' in roon_playouts[zoneName] and roon_playouts[zoneName]['status'] == 'not running'
+            playmode[control_id] = 'stop' if idle is True else 'play'
+        return idle is False
+    except Exception as e:
+        if errorlog is True: flexprint('[red]getPlaystateFromPlayouts error: ' + str(e) + '[/red]')
+        return idle           
 
 def getShufflestateFromPlayouts():
     shuffle = False
-    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
-        name_parts = control_id.split('-')
-        serverName = name_parts[0]
-        zoneName = name_parts[1]
-        if serverName in web_playouts:
-            #zones = web_playouts[serverName]
-            for item in web_playouts[serverName]:
-                if 'zone' in item and item['zone'] == zoneName:
-                    shuffle = 'shuffle' in item and item['shuffle'] == 'true'
-                    shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
-                    break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
-        zoneName = channels[control_id]
-        shuffle = zoneName in roon_playouts and 'shuffle' in roon_playouts[zoneName] and roon_playouts[zoneName]['shuffle'] == True
-        shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
+    try:
+        if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
+            name_parts = control_id.split('-')
+            serverName = name_parts[0]
+            zoneName = name_parts[1]
+            if serverName in web_playouts:
+                #zones = web_playouts[serverName]
+                for item in web_playouts[serverName]:
+                    if 'zone' in item and item['zone'] == zoneName:
+                        shuffle = 'shuffle' in item and item['shuffle'] == 'true'
+                        shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
+                        break
+        if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
+            zoneName = channels[control_id]
+            shuffle = zoneName in roon_playouts and 'shuffle' in roon_playouts[zoneName] and roon_playouts[zoneName]['shuffle'] == True
+            shufflemode[control_id] = 'shuffle' if shuffle is True else 'noshuffle'
+    except Exception as e:
+        if errorlog is True: flexprint('[red]getShufflestateFromPlayouts error: ' + str(e) + '[/red]')            
     return shuffle
 
 def getRepeatstateFromPlayouts():
     repeat = False
-    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
-        name_parts = control_id.split('-')
-        serverName = name_parts[0]
-        zoneName = name_parts[1]
-        if serverName in web_playouts:
-            #zones = web_playouts[serverName]
-            for item in web_playouts[serverName]:
-                if 'zone' in item and item['zone'] == zoneName:
-                    repeat = 'repeat' in item and (item['repeat'] == 'true' or item['repeat'] == 'all' or item['repeat'] == 'one')
-                    repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
-                    break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
-        zoneName = channels[control_id]
-        repeat = zoneName in roon_playouts and 'repeat' in roon_playouts[zoneName] and roon_playouts[zoneName]['repeat'] == True
-        repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
+    try:
+        if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
+            name_parts = control_id.split('-')
+            serverName = name_parts[0]
+            zoneName = name_parts[1]
+            if serverName in web_playouts:
+                #zones = web_playouts[serverName]
+                for item in web_playouts[serverName]:
+                    if 'zone' in item and item['zone'] == zoneName:
+                        repeat = 'repeat' in item and (item['repeat'] == 'true' or item['repeat'] == 'all' or item['repeat'] == 'one')
+                        repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
+                        break
+        if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
+            zoneName = channels[control_id]
+            repeat = zoneName in roon_playouts and 'repeat' in roon_playouts[zoneName] and roon_playouts[zoneName]['repeat'] == True
+            repeatmode[control_id] = 'repeat' if repeat is True else 'norepeat'
+    except Exception as e:
+        if errorlog is True: flexprint('[red]getRepeatstateFromPlayouts error: ' + str(e) + '[/red]')            
     return repeat
 
 def getTrackIdstateFromPlayouts():
     track_id = ''
     repeat = False
-    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
-        name_parts = control_id.split('-')
-        serverName = name_parts[0]
-        zoneName = name_parts[1]
-        if serverName in web_playouts:
-            #zones = web_playouts[serverName]
-            for item in web_playouts[serverName]:
-                if 'zone' in item and item['zone'] == zoneName:
-                    track_id = item['id'] if 'id' in item else ''
-                    break
-    if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
-        # zoneName = channels[control_id]
-        track_id = ''
+    try:
+        if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
+            name_parts = control_id.split('-')
+            serverName = name_parts[0]
+            zoneName = name_parts[1]
+            if serverName in web_playouts:
+                #zones = web_playouts[serverName]
+                for item in web_playouts[serverName]:
+                    if 'zone' in item and item['zone'] == zoneName:
+                        track_id = item['id'] if 'id' in item else ''
+                        break
+        if control_id is not None and control_id in channels.keys() and channels[control_id]!='webserver' and channels[control_id]!='spotifyconnect':
+            # zoneName = channels[control_id]
+            track_id = ''
+    except Exception as e:
+        if errorlog is True: flexprint('[red]getTrackIdstateFromPlayouts error: ' + str(e) + '[/red]')            
     return track_id
 
 def degToCompass(num):
@@ -2552,7 +2698,7 @@ def get_weather(weather_api, location):
         except Exception as e:            
             if errorlog is True: 
                 flexprint('[red]==> weather message ERROR: [/red]', str(e))
-                flexprint(traceback.format_exc())
+                #flexprint(traceback.format_exc())
 
         try:
             weather_timer = Timer(weather_update_interval, get_weather, (weather_api,location)) # update every 15minutes
@@ -2560,7 +2706,7 @@ def get_weather(weather_api, location):
         except Exception as e:            
             if errorlog is True: 
                 flexprint('[red]==> weather timer ERROR: [/red]', str(e))
-                flexprint(traceback.format_exc())
+                #flexprint(traceback.format_exc())
 
 def get_weather_descr(descr):
     descr = descr.strip()
@@ -2593,45 +2739,50 @@ def get_message(key):
 def zone_selection(selection):
     global control_id, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
     flexprint("[bold magenta]zone selection:[/bold magenta]", selection)
-    if selection in channels.keys() and (channels[selection] == 'webserver' or channels[selection] == 'spotifyconnect'):
-        control_id = selection
-        control_zone = selection
-    else:
-        if selection in channels.values():
-            for id, name in channels.items():
-                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == selection:
-                    control_id = id
-                    control_zone = name
-                    break
-    is_playing_last = None
-    shuffle_on_last = None
-    repeat_on_last = None
-    track_id_last = ''
-    is_playing = getPlaystateFromPlayouts()
-    shuffle_on = getShufflestateFromPlayouts()
-    repeat_on = getRepeatstateFromPlayouts()
-    track_id = getTrackIdstateFromPlayouts()
-
+    try:
+        if selection in channels.keys() and (channels[selection] == 'webserver' or channels[selection] == 'spotifyconnect'):
+            control_id = selection
+            control_zone = selection
+        else:
+            if selection in channels.values():
+                for id, name in channels.items():
+                    if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == selection:
+                        control_id = id
+                        control_zone = name
+                        break
+        is_playing_last = None
+        shuffle_on_last = None
+        repeat_on_last = None
+        track_id_last = ''
+        is_playing = getPlaystateFromPlayouts()
+        shuffle_on = getShufflestateFromPlayouts()
+        repeat_on = getRepeatstateFromPlayouts()
+        track_id = getTrackIdstateFromPlayouts()
+    except Exception as e:
+        if errorlog is True: flexprint('[red]zone_selection error: ' + str(e) + '[/red]')            
     return [is_playing, shuffle_on, repeat_on, track_id]
 
 def on_control_click(action):
     flexprint("on_control_click:", action)
-    if action=='backward':
-        play_previous(control_id)
-    if action=='pause':
-        set_play_mode(control_id, False, True)
-    if action=='play': 
-        set_play_mode(control_id, True, True)
-    if action=='forward':
-        play_next(control_id)
-    if action=='shuffle_on':
-        set_shuffle_mode(control_id, True, True)
-    if action=='shuffle_off':
-        set_shuffle_mode(control_id, False, True)
-    if action=='repeat_on':
-        set_repeat_mode(control_id, True, True)
-    if action=='repeat_off':
-        set_repeat_mode(control_id, False, True)
+    try:
+        if action=='backward':
+            play_previous(control_id)
+        if action=='pause':
+            set_play_mode(control_id, False, True)
+        if action=='play': 
+            set_play_mode(control_id, True, True)
+        if action=='forward':
+            play_next(control_id)
+        if action=='shuffle_on':
+            set_shuffle_mode(control_id, True, True)
+        if action=='shuffle_off':
+            set_shuffle_mode(control_id, False, True)
+        if action=='repeat_on':
+            set_repeat_mode(control_id, True, True)
+        if action=='repeat_off':
+            set_repeat_mode(control_id, False, True)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]on control click error: ' + str(e) + '[/red]')
     return [is_playing, shuffle_on, repeat_on, track_id]
 
 def roon_get_artists(output_id, name):
@@ -3324,513 +3475,564 @@ def replace_escaped_item(item):
 
 def replace_escaped_list(items):
     filteredItems = []
-    for item in items:
-        filteredItems.append(replace_escaped_item(item))
+    try:
+        for item in items:
+            filteredItems.append(replace_escaped_item(item))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]replace escaped list error: ' + str(e) + '[/red]')
     return filteredItems
 
 def is_json_str(raw):
-    not_valid = isinstance(raw, str) is False or len(raw)<2 or (raw[0:1] != '{' and raw[0:1] != '[') or (raw[-1:] != '}' and raw[-1:] != ']')
-    if not_valid is True:
-        if raw is None or isinstance(raw, str) is False:
-            flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)) + ', str: ' + str(raw))
-        else:
-            flexprint('json string not valid => len: ' + str(len(raw)) + ', first char: ' + raw[0:1] + ', last char: ' + raw[-1:])
-    return not_valid is False
+    try:
+        not_valid = isinstance(raw, str) is False or len(raw)<2 or (raw[0:1] != '{' and raw[0:1] != '[') or (raw[-1:] != '}' and raw[-1:] != ']')
+        if not_valid is True:
+            if raw is None or isinstance(raw, str) is False:
+                flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)) + ', str: ' + str(raw))
+            else:
+                flexprint('json string not valid => len: ' + str(len(raw)) + ', first char: ' + raw[0:1] + ', last char: ' + raw[-1:])
+        return not_valid is False
+    except Exception as e:
+        if errorlog is True: flexprint('[red]is json str error: ' + str(e) + '[/red]')
+        return False
 
 def on_search(is_stream, value, zone, type):
-    control_id = None
-    albums = None
-    is_webserver = False
-    zonetype = ''
-    if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
-        zonetype = zone.split('-')[1] 
-        control_id = zone
-        is_webserver = True
-    else:
-        if zone in channels.values():
-            for id, name in channels.items():
-                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
-                    control_id = id
-                    break
-    flexprint("roonmatrix => on_search:" + str(value) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id) + ', type:' + str(type))
-    if is_webserver is True:
-        if zonetype.startswith('Spotify'):
-            if type == 'artist':
-                artists = spotify_search_artist(value)
-                if isinstance(artists, str):
-                    return artists
-                if (len(artists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
-                    return [meta, []]
-                if (len(artists) != 1):
-                    artists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, artists))
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
-                    return [meta, artists]
-                artist = artists[0]
-                albums = spotify_get_artist_albums(artist['id'])
-                if isinstance(albums, str):
-                    return albums
-            if type == 'genre':
-                genretype = 'playlists'
-                if genretype=='artists':
-                    artists = spotify_search_artists_by_genre(value)
+    try:
+        control_id = None
+        albums = None
+        is_webserver = False
+        zonetype = ''
+        if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
+            zonetype = zone.split('-')[1] 
+            control_id = zone
+            is_webserver = True
+        else:
+            if zone in channels.values():
+                for id, name in channels.items():
+                    if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
+                        control_id = id
+                        break
+        flexprint("roonmatrix => on_search:" + str(value) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id) + ', type:' + str(type))
+        if is_webserver is True:
+            if zonetype.startswith('Spotify'):
+                if type == 'artist':
+                    artists = spotify_search_artist(value)
                     if isinstance(artists, str):
                         return artists
                     if (len(artists) == 0):
                         meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                         return [meta, []]
-                    artists = list(map(lambda obj: {"name": obj['name'] + ((' [' + ','.join(obj['genres']) + ']') if len(obj['genres']) > 0 else ''), "id": obj['id']}, artists))
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
-                    return [meta, artists]
-                if genretype=='playlists':
-                    playlists = spotify_search_playlists_by_genre(value)
+                    if (len(artists) != 1):
+                        artists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, artists))
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
+                        return [meta, artists]
+                    artist = artists[0]
+                    albums = spotify_get_artist_albums(artist['id'])
+                    if isinstance(albums, str):
+                        return albums
+                if type == 'genre':
+                    genretype = 'playlists'
+                    if genretype=='artists':
+                        artists = spotify_search_artists_by_genre(value)
+                        if isinstance(artists, str):
+                            return artists
+                        if (len(artists) == 0):
+                            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
+                            return [meta, []]
+                        artists = list(map(lambda obj: {"name": obj['name'] + ((' [' + ','.join(obj['genres']) + ']') if len(obj['genres']) > 0 else ''), "id": obj['id']}, artists))
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
+                        return [meta, artists]
+                    if genretype=='playlists':
+                        playlists = spotify_search_playlists_by_genre(value)
+                        if isinstance(playlists, str):
+                            return playlists
+                        if (len(playlists) == 0):
+                            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
+                            return [meta, []]
+                        playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
+                        return [meta, playlists]
+                if type == 'track':
+                    tracks = spotify_search_track(value)
+                    if isinstance(tracks, str):
+                        return tracks
+                    tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "artist": obj['artists'][0]['name'] if ('artists' in obj and len(obj['artists']) > 0 and 'name' in obj['artists'][0]) else None}, tracks))
+                if type == 'playlist':
+                    playlists = spotify_search_playlist(value)
                     if isinstance(playlists, str):
                         return playlists
                     if (len(playlists) == 0):
                         meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
                         return [meta, []]
+                    if (len(playlists) != 1):
+                        playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
+                        return [meta, playlists]
                     playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
-                    return [meta, playlists]
-            if type == 'track':
-                tracks = spotify_search_track(value)
-                if isinstance(tracks, str):
-                    return tracks
-                tracks = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "artist": obj['artists'][0]['name'] if ('artists' in obj and len(obj['artists']) > 0 and 'name' in obj['artists'][0]) else None}, tracks))
-            if type == 'playlist':
-                playlists = spotify_search_playlist(value)
-                if isinstance(playlists, str):
-                    return playlists
-                if (len(playlists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
-                    return [meta, []]
-                if (len(playlists) != 1):
-                    playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
-                    return [meta, playlists]
-                playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
-                playlist = playlists[0]
-                tracks = spotify_get_playlist_tracks(playlist['id'])
-                if isinstance(tracks, str):
-                    return tracks
-                tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": "tracks", "search": value, "playlist": playlist['id']}
-                return [meta, tracknames]
-        if zonetype == 'Apple Music':
-            if type == 'artist':
-                value = value.replace('"','\\"')
-                flexprint('************ Apple Music artist search value: ' + str(value) + ', is_stream: ' + str(is_stream))
-                if is_stream is True:
-                    artists = applemusic_search_artist(value)
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'artists', value)
-                    if raw is None:
-                        return [meta, []]
-                    if is_json_str(raw) is False:
-                        return str(raw)
-                    flexprint('************ Apple Music artist search raw response: ' + str(raw))
-                    artists = json.loads(raw)
-                if (len(artists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
-                    return [meta, []]
-                if is_stream is False:
-                    artists = replace_escaped_list(artists)
-                if (len(artists) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
-                    return [meta, artists]
-                artist = artists[0]
-                if is_stream is True:
-                    albums = applemusic_get_albums_by_artist_name(artist['name'].replace('"','\\\"'))
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'albums', artist)
-                    value = artist.replace('"','\\\"')
-                    flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
-                    if raw is None:
-                        return [meta, []]
-                    if is_json_str(raw) is False:
-                        return str(raw)
-                    albums = json.loads(raw)
-                    albums = replace_escaped_list(albums)
-            if type == 'genre' and is_stream is False:
-                value = value.replace('"','\\"')
-                flexprint('************ Apple Music genre search value: ' + str(value))
-                raw = send_webserver_zone_control(control_id, True, 'genres', value)
-                if raw is None:
-                    return [meta, []]
-                if is_json_str(raw) is False:
-                    return str(raw)
-                flexprint('************ Apple Music genre search raw response: ' + str(raw))
-                genres = json.loads(raw)
-                if (len(genres) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value}
-                    return [meta, []]
-                genres = replace_escaped_list(genres)
-                if (len(genres) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
-                    return [meta, genres]
-                genre = genres[0].replace('"','\\\"')
-                raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', genre)
-                value = genre
-                flexprint('genre '+str(genre)+' artists raw: ' + str(raw))
-                if raw is None:
-                    return [meta, []]
-                if is_json_str(raw) is False:
-                    return str(raw)
-                artists = json.loads(raw)
-                artists = replace_escaped_list(artists)
-            if type == 'playlist':
-                value = value.replace('"','\\"')
-                #value = value.replace('"','[dq]')
-                if is_stream is True:
-                    playlists = applemusic_search_playlist(value)
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'playlists', value)
-                    if raw is None:
-                        return [meta, []]
-                    if is_json_str(raw) is False:
-                        return str(raw)
-                    flexprint('playlist apple music raw: ' + str(raw))
-                    playlists = json.loads(raw)
-                if (len(playlists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
-                    return [meta, []]
-                if is_stream is False:
-                    playlists = replace_escaped_list(playlists)
-                if (len(playlists) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                    playlist = playlists[0]
+                    tracks = spotify_get_playlist_tracks(playlist['id'])
+                    if isinstance(tracks, str):
+                        return tracks
+                    tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": "tracks", "search": value, "playlist": playlist['id']}
+                    return [meta, tracknames]
+            if zonetype == 'Apple Music':
+                if type == 'artist':
+                    value = value.replace('"','\\"')
+                    flexprint('************ Apple Music artist search value: ' + str(value) + ', is_stream: ' + str(is_stream))
                     if is_stream is True:
-                        meta['playlists'] = playlists
-                    return [meta, playlists]
-                playlist = playlists[0]
-                flexprint('single playlist: ' + str(playlist))
-                if is_stream is True:
-                    tracks = applemusic_get_playlist_relationship(playlist['id'], 'tracks')
-                    playlist_id = playlist['id']
-                    playlist_name = playlist['name'].replace('"','\\\"')
-                else:
-                    playlist_id = playlist
-                    playlist_name = playlist.replace('"','\\\"')
-                    raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist)
-                    flexprint('#applemusic raw: ' + str(raw))
+                        artists = applemusic_search_artist(value)
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'artists', value)
+                        if raw is None:
+                            return [meta, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        flexprint('************ Apple Music artist search raw response: ' + str(raw))
+                        artists = json.loads(raw)
+                    if (len(artists) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
+                        return [meta, []]
+                    if is_stream is False:
+                        artists = replace_escaped_list(artists)
+                    if (len(artists) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                        return [meta, artists]
+                    artist = artists[0]
+                    if is_stream is True:
+                        albums = applemusic_get_albums_by_artist_name(artist['name'].replace('"','\\\"'))
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'albums', artist)
+                        value = artist.replace('"','\\\"')
+                        flexprint('artist '+str(artist)+' albums raw: ' + str(raw))
+                        if raw is None:
+                            return [meta, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        albums = json.loads(raw)
+                        albums = replace_escaped_list(albums)
+                if type == 'genre' and is_stream is False:
+                    value = value.replace('"','\\"')
+                    flexprint('************ Apple Music genre search value: ' + str(value))
+                    raw = send_webserver_zone_control(control_id, True, 'genres', value)
                     if raw is None:
                         return [meta, []]
                     if is_json_str(raw) is False:
                         return str(raw)
-                    flexprint('#applemusic before loads: ' + str(raw))
-                    tracks = json.loads(raw)
-                    tracks = replace_escaped_list(tracks)
-                #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
-                flexprint('#applemusic tracks escaped: ' + str(tracks))
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlist_name, 'playlist': playlist_id}
-                return [meta, tracks]
-            if type == 'radio' and is_stream is True:
-                value = value.replace('"','\\"')
-                radios = applemusic_station(value)
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title(), 'radios': radios}
-                return [meta, radios]
-            if type == 'track':
-                value = value.replace('"','\\"')
-                flexprint('************ Apple Music track search value: ' + str(value))
-                if is_stream is True:
-                    tracks = applemusic_search_track(value)
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'tracks-with-artist', value)
+                    flexprint('************ Apple Music genre search raw response: ' + str(raw))
+                    genres = json.loads(raw)
+                    if (len(genres) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value}
+                        return [meta, []]
+                    genres = replace_escaped_list(genres)
+                    if (len(genres) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                        return [meta, genres]
+                    genre = genres[0].replace('"','\\\"')
+                    raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', genre)
+                    value = genre
+                    flexprint('genre '+str(genre)+' artists raw: ' + str(raw))
                     if raw is None:
                         return [meta, []]
                     if is_json_str(raw) is False:
                         return str(raw)
-                    flexprint('************ Apple Music track search raw response: ' + str(raw))
-                    tracks = json.loads(raw)
-                    tracks = replace_escaped_list(tracks)
-        if type == 'artist':
-            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
-            return [meta, albums]
-        if type == 'genre':
-            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value, "genre": value}
-            return [meta, artists]
-        if type == 'track':
-            meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value}
-            if zonetype == 'Apple Music' and is_stream is True:
-                meta['tracks'] = tracks
-            flexprint('track search: ' + str(tracks))
-            return [meta, tracks]
-    if is_webserver is False and control_id is not None and zone in channels.values():
-        zonetype = 'Roon'
-        outputs = roonapi.outputs
-        output_id = None
-        for (k, v) in outputs.items():
-            if zone in v["display_name"]:
-                output_id = k
-                flexprint("roonmatrix => output_id:" + output_id)
-        if output_id is not None:
+                    artists = json.loads(raw)
+                    artists = replace_escaped_list(artists)
+                if type == 'playlist':
+                    value = value.replace('"','\\"')
+                    #value = value.replace('"','[dq]')
+                    if is_stream is True:
+                        playlists = applemusic_search_playlist(value)
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'playlists', value)
+                        if raw is None:
+                            return [meta, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        flexprint('playlist apple music raw: ' + str(raw))
+                        playlists = json.loads(raw)
+                    if (len(playlists) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value}
+                        return [meta, []]
+                    if is_stream is False:
+                        playlists = replace_escaped_list(playlists)
+                    if (len(playlists) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                        if is_stream is True:
+                            meta['playlists'] = playlists
+                        return [meta, playlists]
+                    playlist = playlists[0]
+                    flexprint('single playlist: ' + str(playlist))
+                    if is_stream is True:
+                        tracks = applemusic_get_playlist_relationship(playlist['id'], 'tracks')
+                        playlist_id = playlist['id']
+                        playlist_name = playlist['name'].replace('"','\\\"')
+                    else:
+                        playlist_id = playlist
+                        playlist_name = playlist.replace('"','\\\"')
+                        raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist)
+                        flexprint('#applemusic raw: ' + str(raw))
+                        if raw is None:
+                            return [meta, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        flexprint('#applemusic before loads: ' + str(raw))
+                        tracks = json.loads(raw)
+                        tracks = replace_escaped_list(tracks)
+                    #tracks.insert(0, {"name": self.lang['play_playlist'].title(), "id": "[FULLPLAYLIST]"})
+                    flexprint('#applemusic tracks escaped: ' + str(tracks))
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlist_name, 'playlist': playlist_id}
+                    return [meta, tracks]
+                if type == 'radio' and is_stream is True:
+                    value = value.replace('"','\\"')
+                    radios = applemusic_station(value)
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title(), 'radios': radios}
+                    return [meta, radios]
+                if type == 'track':
+                    value = value.replace('"','\\"')
+                    flexprint('************ Apple Music track search value: ' + str(value))
+                    if is_stream is True:
+                        tracks = applemusic_search_track(value)
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'tracks-with-artist', value)
+                        if raw is None:
+                            return [meta, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        flexprint('************ Apple Music track search raw response: ' + str(raw))
+                        tracks = json.loads(raw)
+                        tracks = replace_escaped_list(tracks)
             if type == 'artist':
-                artists = roon_get_artists(output_id, value)
-                flexprint('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
-                if (len(artists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
-                    return [meta, []]
-                if (len(artists) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
-                    return [meta, artists]
-                albums = roon_get_artist_albums(output_id, artists[0])
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value, "artist": value}
                 return [meta, albums]
             if type == 'genre':
-                genres = roon_get_genres(output_id, value)
-                flexprint('roon_get_genres count: ' + str(len(genres)) + ' for search of: ' + value)
-                if (len(genres) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
-                    return [meta, []]
-                if (len(genres) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
-                    return [meta, genres]
-                artists = roon_get_genre_artists(output_id, genres[0])
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title(), "genre":genres[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value, "genre": value}
                 return [meta, artists]
             if type == 'track':
-                tracks = roon_get_tracks(output_id, value)
-                tracks = list(OrderedDict.fromkeys(tracks)) # remove doubles
-                flexprint('roon_get_tracks count: ' + str(len(tracks)) + ' for search of: ' + value)
-                if (len(tracks) > 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
-                    return [meta, tracks]
-                else:
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
-                    return [meta, []]
-            if type == 'playlist':
-                playlists = roon_get_playlists(output_id, value)
-                flexprint('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
-                if (len(playlists) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
-                    return [meta, []]
-                if (len(playlists) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
-                    return [meta, playlists]
-                tracks = roon_get_playlist_tracks(output_id, playlists[0])
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
+                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value}
+                if zonetype == 'Apple Music' and is_stream is True:
+                    meta['tracks'] = tracks
+                flexprint('track search: ' + str(tracks))
                 return [meta, tracks]
-            if type == 'radio':
-                radios = roon_get_radios(output_id, value)
-                flexprint('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
-                if (len(radios) == 0):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
-                    return [meta, []]
-                if (len(radios) != 1):
-                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
+        if is_webserver is False and control_id is not None and zone in channels.values():
+            zonetype = 'Roon'
+            outputs = roonapi.outputs
+            output_id = None
+            for (k, v) in outputs.items():
+                if zone in v["display_name"]:
+                    output_id = k
+                    flexprint("roonmatrix => output_id:" + output_id)
+            if output_id is not None:
+                if type == 'artist':
+                    artists = roon_get_artists(output_id, value)
+                    flexprint('roon_get_artists count: ' + str(len(artists)) + ' for search of: ' + value)
+                    if (len(artists) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                        return [meta, []]
+                    if (len(artists) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title()}
+                        return [meta, artists]
+                    albums = roon_get_artist_albums(output_id, artists[0])
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'albums', 'search': value.title(), "artist":artists[0]}
+                    return [meta, albums]
+                if type == 'genre':
+                    genres = roon_get_genres(output_id, value)
+                    flexprint('roon_get_genres count: ' + str(len(genres)) + ' for search of: ' + value)
+                    if (len(genres) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                        return [meta, []]
+                    if (len(genres) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'genres', 'search': value.title()}
+                        return [meta, genres]
+                    artists = roon_get_genre_artists(output_id, genres[0])
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value.title(), "genre":genres[0]}
+                    return [meta, artists]
+                if type == 'track':
+                    tracks = roon_get_tracks(output_id, value)
+                    tracks = list(OrderedDict.fromkeys(tracks)) # remove doubles
+                    flexprint('roon_get_tracks count: ' + str(len(tracks)) + ' for search of: ' + value)
+                    if (len(tracks) > 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
+                        return [meta, tracks]
+                    else:
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': value.title()}
+                        return [meta, []]
+                if type == 'playlist':
+                    playlists = roon_get_playlists(output_id, value)
+                    flexprint('roon_get_playlists count: ' + str(len(playlists)) + ' for search of: ' + value)
+                    if (len(playlists) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                        return [meta, []]
+                    if (len(playlists) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'playlists', 'search': value.title()}
+                        return [meta, playlists]
+                    tracks = roon_get_playlist_tracks(output_id, playlists[0])
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'tracks', 'search': playlists[0], "playlist":playlists[0]}
+                    return [meta, tracks]
+                if type == 'radio':
+                    radios = roon_get_radios(output_id, value)
+                    flexprint('roon_get_radios count: ' + str(len(radios)) + ' for search of: ' + value)
+                    if (len(radios) == 0):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                        return [meta, []]
+                    if (len(radios) != 1):
+                        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radios', 'search': value.title()}
+                        return [meta, radios]
+                    radio = radios[0]
+                    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radio', 'search': value.title(), "radio":radios[0]}
+                    try:
+                        roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('roonapi.play_media error: ' + str(e))
                     return [meta, radios]
-                radio = radios[0]
-                meta = {"stream": is_stream, "zonetype": zonetype, "type": 'radio', 'search': value.title(), "radio":radios[0]}
-                try:
-                    roonapi.play_media(output_id, ["My Live Radio", radio], None, False)
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('roonapi.play_media error: ' + str(e))
-                return [meta, radios]
-    meta = {"stream": is_stream, "zonetype": zonetype, "type": 'search', 'search': value.title()}
-    return [meta, []]
+        meta = {"stream": is_stream, "zonetype": zonetype, "type": 'search', 'search': value.title()}
+        return [meta, []]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]on search error: ' + str(e) + '[/red]')
+        return [{}, []]
 
 def on_itemclick(meta, search, itemname, zone):
     global control_id, active_spotify_connect_zone
-    is_stream = meta['stream'] if 'stream' in meta else False # TODO: get from props
-    control_id = None
-    is_webserver = False
-    is_spotify = False
-    if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
-        is_spotify = zone.split('-')[1].startswith('Spotify')
-        control_id = zone
-        is_webserver = True
-    else:
-        if zone in channels.values():
-            for id, name in channels.items():
-                if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
-                    control_id = id
-                    break
-    flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + str(search) + ', itemname: ' + str(itemname) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id))
-    if is_webserver is True:
-        if is_spotify is True:
-            if meta['type'] == 'spotify-devicelist':
-                if 'spotify_devices' in meta:
-                    for idx,data in enumerate(meta['spotify_devices']):
-                        name = data['name']
-                        if search == name:
-                            data['sourcetype'] = 'spotify_connect'
-                            active_spotify_connect_zone = data
-                            control_id = name + '-SpotifyConnect'
-                            update_spotify_connect_channel(name, data['is_active'] is True)
-                            spotify_connect.transfer_playback(device_id=active_spotify_connect_zone['id'], force_play=True)
-                            break                    
-                    return ['selected-spotify-device', search, itemname]
-                else:
-                    spotify_devices = spotify_connect.devices()
-                    meta['spotify_devices'] = spotify_devices
-                    return ['spotify-devicelist', itemname, spotify_devices]            
-            if meta['type'] == 'artists':
-                albums = spotify_get_artist_albums(itemname)
-                if isinstance(albums, str):
-                    return albums
-                albums = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, albums))
-                return ['albums', search, albums]
-            if meta['type'] == 'albums':
-                if 'searchtype' in meta and meta['searchtype']=='tracklist':
-                    if 'trackId' in meta and meta['trackId']!='':
-                        flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
-                        album = spotify_get_album_by_track_uri(meta['trackId'])
-                        if isinstance(album, str):
-                            return album
-                        if 'album' not in album or 'uri' not in album['album']:
-                            return coverplayer_lang['unknown_error']
-                        meta['albumId'] = album['album']['id']
-                        album_uri = album['album']['uri']
-                        album = spotify_get_tracks_by_album_uri(album_uri)
-                        if isinstance(album, str):
-                            return album
-                        items = album['tracks']['items'] if ('tracks' in album and 'items' in album['tracks']) else []
-                        if len(items) > 0:
-                            album_artist = album['artists'][0]['name']
-                            album_name = album['name']
-                            tracknames = list(map(lambda obj: {"name": obj['name'] + ((' [' + ', '.join(list(map(lambda artist: artist['name'], obj['artists']))) + ']') if (len(obj['artists']) > 1 or obj['artists'][0]['name'] != album_artist) else ''), "id": obj['id'], "track_number": obj['track_number']}, items))
-                        else:
-                            return coverplayer_lang['unknown_error']
+    try:
+        is_stream = meta['stream'] if 'stream' in meta else False # TODO: get from props
+        control_id = None
+        is_webserver = False
+        is_spotify = False
+        if zone in channels.keys() and (channels[zone] == 'webserver' or channels[zone] == 'spotifyconnect'):
+            is_spotify = zone.split('-')[1].startswith('Spotify')
+            control_id = zone
+            is_webserver = True
+        else:
+            if zone in channels.values():
+                for id, name in channels.items():
+                    if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == zone:
+                        control_id = id
+                        break
+        flexprint('roonmatrix => on_itemclick, meta: ' + str(meta) + ', search: ' + str(search) + ', itemname: ' + str(itemname) + ', zone: ' + str(zone) + ', control_id: ' + str(control_id))
+        if is_webserver is True:
+            if is_spotify is True:
+                if meta['type'] == 'spotify-devicelist':
+                    if 'spotify_devices' in meta:
+                        for idx,data in enumerate(meta['spotify_devices']):
+                            name = data['name']
+                            if search == name:
+                                data['sourcetype'] = 'spotify_connect'
+                                active_spotify_connect_zone = data
+                                control_id = name + '-SpotifyConnect'
+                                update_spotify_connect_channel(name, data['is_active'] is True)
+                                spotify_connect.transfer_playback(device_id=active_spotify_connect_zone['id'], force_play=True)
+                                break                    
+                        return ['selected-spotify-device', search, itemname]
                     else:
-                        flexprint('roonmatrix search tracklist by artist and album name: ' + str(meta['artist']) + ' / ' + str(meta['album']))
-                        # fallback if trackId is undefined or empty
-                        album_obj = spotify_search_artist_album(meta['artist'], meta['album'])
-                        if isinstance(album_obj, str):
-                            return album_obj
-                        if album_obj is None:
-                            return ['tracks', search, itemname, []]
-                        itemname = album_obj['id']
+                        spotify_devices = spotify_connect.devices()
+                        meta['spotify_devices'] = spotify_devices
+                        return ['spotify-devicelist', itemname, spotify_devices]            
+                if meta['type'] == 'artists':
+                    albums = spotify_get_artist_albums(itemname)
+                    if isinstance(albums, str):
+                        return albums
+                    albums = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, albums))
+                    return ['albums', search, albums]
+                if meta['type'] == 'albums':
+                    if 'searchtype' in meta and meta['searchtype']=='tracklist':
+                        if 'trackId' in meta and meta['trackId']!='':
+                            flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
+                            album = spotify_get_album_by_track_uri(meta['trackId'])
+                            if isinstance(album, str):
+                                return album
+                            if 'album' not in album or 'uri' not in album['album']:
+                                return coverplayer_lang['unknown_error']
+                            meta['albumId'] = album['album']['id']
+                            album_uri = album['album']['uri']
+                            album = spotify_get_tracks_by_album_uri(album_uri)
+                            if isinstance(album, str):
+                                return album
+                            items = album['tracks']['items'] if ('tracks' in album and 'items' in album['tracks']) else []
+                            if len(items) > 0:
+                                album_artist = album['artists'][0]['name']
+                                album_name = album['name']
+                                tracknames = list(map(lambda obj: {"name": obj['name'] + ((' [' + ', '.join(list(map(lambda artist: artist['name'], obj['artists']))) + ']') if (len(obj['artists']) > 1 or obj['artists'][0]['name'] != album_artist) else ''), "id": obj['id'], "track_number": obj['track_number']}, items))
+                            else:
+                                return coverplayer_lang['unknown_error']
+                        else:
+                            flexprint('roonmatrix search tracklist by artist and album name: ' + str(meta['artist']) + ' / ' + str(meta['album']))
+                            # fallback if trackId is undefined or empty
+                            album_obj = spotify_search_artist_album(meta['artist'], meta['album'])
+                            if isinstance(album_obj, str):
+                                return album_obj
+                            if album_obj is None:
+                                return ['tracks', search, itemname, []]
+                            itemname = album_obj['id']
+                            tracks = spotify_get_album_tracks(itemname)
+                            if isinstance(tracks, str):
+                                return tracks
+                            tracknames = list(map(lambda obj: {"name": obj['name'] + ((' [' + ', '.join(list(map(lambda artist: artist['name'], obj['artists']))) + ']') if (len(obj['artists']) > 1 or obj['artists'][0]['name'].title() != meta['artist'].title()) else ''), "id": obj['id'], "track_number": obj['track_number']}, tracks))
+                    else:
                         tracks = spotify_get_album_tracks(itemname)
                         if isinstance(tracks, str):
                             return tracks
-                        tracknames = list(map(lambda obj: {"name": obj['name'] + ((' [' + ', '.join(list(map(lambda artist: artist['name'], obj['artists']))) + ']') if (len(obj['artists']) > 1 or obj['artists'][0]['name'].title() != meta['artist'].title()) else ''), "id": obj['id'], "track_number": obj['track_number']}, tracks))
-                else:
-                    tracks = spotify_get_album_tracks(itemname)
+                        tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
+                    meta['tracks'] = tracknames
+                    return ['tracks', search, itemname, tracknames]
+                if meta['type'] == 'playlists':
+                    tracks = spotify_get_playlist_tracks(itemname)
                     if isinstance(tracks, str):
                         return tracks
-                    tracknames = list(map(lambda obj: {"name": obj['name'], "id": obj['id'], "track_number": obj['track_number']}, tracks))
-                meta['tracks'] = tracknames
-                return ['tracks', search, itemname, tracknames]
-            if meta['type'] == 'playlists':
-                tracks = spotify_get_playlist_tracks(itemname)
-                if isinstance(tracks, str):
-                    return tracks
-                tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
-                meta['tracks'] = tracknames
-                return ['tracks', search, itemname, tracknames]
-            if meta['type'] == 'tracks':
-                if 'artist' in meta:
-                    send_webserver_zone_control(control_id, True, 'playtrack', itemname, meta)
-                    return ['track', meta['artist'], itemname]
-                elif 'playlist' in meta:
-                    if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
-                        itemname = itemname.replace('"', '\\"')
-                    send_webserver_zone_control(control_id, True, 'play-playlist-track', itemname, meta)
-                    return ['track', meta['playlist'], itemname]
-                else:
-                    send_webserver_zone_control(control_id, True, 'playtrack', 'spotify:track:' + itemname, meta)
-                    return ['track', itemname]
-        else:
-            if meta['type'] == 'artists':
-                if is_stream is True:
-                    albums = applemusic_get_artist_relationship(itemname,'albums')
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'albums', itemname)
-                    if raw is None:
-                        return ['albums', search, []]
-                    if is_json_str(raw) is False:
-                        return str(raw)
-                    albums = json.loads(raw)
-                    albums = replace_escaped_list(albums)
-                return ['albums', search, albums]
-            if meta['type'] == 'genres':
-                raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', itemname)
-                if raw is None:
-                    return ['artists', search, []]
-                if is_json_str(raw) is False:
-                    return str(raw)
-                artists = json.loads(raw)
-                artists = replace_escaped_list(artists)
-                return ['artists', search, artists]
-            if meta['type'] == 'albums':
-                if is_stream is True and 'searchtype' in meta and meta['searchtype']=='tracklist':
-                    itemname = ''
-                    tracks = []
-                    albums = applemusic_get_albums_by_albumname(meta['album'])
-                    albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
-                    flexprint('[bold blue]tracklist => search for albums by album name => albums found: ' + str(len(albums)) + '[/bold blue]')
-                    if len(albums) > 0:
-                        itemname = albums[0]['id']
+                    tracknames = list(map(lambda obj: {"name": obj['track']['name'] + ' [' + ', '.join(list(map(lambda obj: obj['name'], obj['track']['artists']))) + ']', "id": obj['track']['uri']}, tracks))
+                    meta['tracks'] = tracknames
+                    return ['tracks', search, itemname, tracknames]
+                if meta['type'] == 'tracks':
+                    if 'artist' in meta:
+                        send_webserver_zone_control(control_id, True, 'playtrack', itemname, meta)
+                        return ['track', meta['artist'], itemname]
+                    elif 'playlist' in meta:
+                        if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
+                            itemname = itemname.replace('"', '\\"')
+                        send_webserver_zone_control(control_id, True, 'play-playlist-track', itemname, meta)
+                        return ['track', meta['playlist'], itemname]
                     else:
-                        flexprint('[bold blue]tracklist => search for albums by albumname empty => try to search for artist name[/bold blue]')
-                        albums = applemusic_get_albums_by_artist_name(meta['artist'])
-                        albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
-                        flexprint('[bold blue]tracklist => search for albums by artist name => albums found: ' + str(len(albums)) + '[/bold blue]')
-                        if len(albums) > 0:
-                            itemname = albums[0]['id']
-                else:
-                    itemname = itemname.replace('"', '\\\"')
-                if is_stream is True:
-                    if itemname!='':
-                        tracks = applemusic_get_album_tracks(itemname)
-                else:
-                    if 'trackId' in meta and meta['trackId']!='':
-                        flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
-                        raw = send_webserver_zone_control(control_id, True, 'artist-and-album-by-track-id', meta['trackId'])
+                        send_webserver_zone_control(control_id, True, 'playtrack', 'spotify:track:' + itemname, meta)
+                        return ['track', itemname]
+            else:
+                if meta['type'] == 'artists':
+                    if is_stream is True:
+                        albums = applemusic_get_artist_relationship(itemname,'albums')
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'albums', itemname)
+                        if raw is None:
+                            return ['albums', search, []]
                         if is_json_str(raw) is False:
                             return str(raw)
-                        result_json = json.loads(raw)
-                        if len(result_json) != 2:
-                            return ['tracks', meta['trackId'], '', []]
-                        artist_name = result_json[0]
-                        album_name = result_json[1]
-                        raw = send_webserver_zone_control(control_id, True, 'albumtracks', artist_name, album_name)
-                    else:
-                        flexprint('roonmatrix search tracklist by artist and album name: ' + str(search) + ' / ' + str(itemname))
-                        raw = send_webserver_zone_control(control_id, True, 'albumtracks', search, itemname) # fallback if trackId is undefined or empty
+                        albums = json.loads(raw)
+                        albums = replace_escaped_list(albums)
+                    return ['albums', search, albums]
+                if meta['type'] == 'genres':
+                    raw = send_webserver_zone_control(control_id, True, 'artists-in-genre', itemname)
                     if raw is None:
-                        return ['tracks', search, itemname, []]
+                        return ['artists', search, []]
                     if is_json_str(raw) is False:
                         return str(raw)
-                    tracks = json.loads(raw)
-                    tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
-                meta['tracks'] = tracks
-                flexprint('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
-                return ['tracks', search, itemname, tracks]
-            if meta['type'] == 'radios':
-                itemname = itemname.replace('"', '\\\"')
-                if is_stream is True:
-                    radios = [e for e in meta['radios'] if e['id'] == itemname]
-                    if len(radios) > 0:
-                        radio = radios[0]
-                        send_webserver_zone_control(control_id, True, 'applemusic-play-url', radio['url'], '0')
-                return ['radio', radio]
-            if meta['type'] == 'playlists':
-                flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
-                itemname = itemname.replace('"', '\\\"')
-                if is_stream is True:
-                    tracks = applemusic_get_playlist_relationship(itemname, 'tracks')
-                else:
-                    raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', itemname)
-                    if raw is None:
-                        return ['tracks', search, itemname, []]
-                    if is_json_str(raw) is False:
-                        return str(raw)
-                    tracks = json.loads(raw)
-                    tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
-                meta['tracks'] = tracks
-                flexprint('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
-                return ['tracks', search, itemname, tracks]
-            if meta['type'] == 'tracks':
-                flexprint('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
-                if 'album' in meta:
-                    album = meta['album']
-                    album = album.replace('"', '\\"')
-                    if itemname == '[FULLALBUM]':
-                        if is_stream is True:
-                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', meta['tracks'][0]['url'], '2')
+                    artists = json.loads(raw)
+                    artists = replace_escaped_list(artists)
+                    return ['artists', search, artists]
+                if meta['type'] == 'albums':
+                    if is_stream is True and 'searchtype' in meta and meta['searchtype']=='tracklist':
+                        itemname = ''
+                        tracks = []
+                        albums = applemusic_get_albums_by_albumname(meta['album'])
+                        albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
+                        flexprint('[bold blue]tracklist => search for albums by album name => albums found: ' + str(len(albums)) + '[/bold blue]')
+                        if len(albums) > 0:
+                            itemname = albums[0]['id']
                         else:
-                            send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
+                            flexprint('[bold blue]tracklist => search for albums by albumname empty => try to search for artist name[/bold blue]')
+                            albums = applemusic_get_albums_by_artist_name(meta['artist'])
+                            albums = [e for e in albums if e['name'] == meta['album'] and (meta['artist'].lower()) in (e['artistName'].lower())]
+                            flexprint('[bold blue]tracklist => search for albums by artist name => albums found: ' + str(len(albums)) + '[/bold blue]')
+                            if len(albums) > 0:
+                                itemname = albums[0]['id']
+                    else:
+                        itemname = itemname.replace('"', '\\\"')
+                    if is_stream is True:
+                        if itemname!='':
+                            tracks = applemusic_get_album_tracks(itemname)
+                    else:
+                        if 'trackId' in meta and meta['trackId']!='':
+                            flexprint('roonmatrix search tracklist by id: ' + str(meta['trackId']))
+                            raw = send_webserver_zone_control(control_id, True, 'artist-and-album-by-track-id', meta['trackId'])
+                            if is_json_str(raw) is False:
+                                return str(raw)
+                            result_json = json.loads(raw)
+                            if len(result_json) != 2:
+                                return ['tracks', meta['trackId'], '', []]
+                            artist_name = result_json[0]
+                            album_name = result_json[1]
+                            raw = send_webserver_zone_control(control_id, True, 'albumtracks', artist_name, album_name)
+                        else:
+                            flexprint('roonmatrix search tracklist by artist and album name: ' + str(search) + ' / ' + str(itemname))
+                            raw = send_webserver_zone_control(control_id, True, 'albumtracks', search, itemname) # fallback if trackId is undefined or empty
+                        if raw is None:
+                            return ['tracks', search, itemname, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        tracks = json.loads(raw)
+                        tracks = list(map(lambda string: {"name": replace_escaped_item(string.replace('|','. ')),"id": replace_escaped_item(string.split('|')[1])}, tracks))
+                    meta['tracks'] = tracks
+                    flexprint('on_itemclick webserver ==> search: ' + search + ', album: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                    return ['tracks', search, itemname, tracks]
+                if meta['type'] == 'radios':
+                    itemname = itemname.replace('"', '\\\"')
+                    if is_stream is True:
+                        radios = [e for e in meta['radios'] if e['id'] == itemname]
+                        if len(radios) > 0:
+                            radio = radios[0]
+                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', radio['url'], '0')
+                    return ['radio', radio]
+                if meta['type'] == 'playlists':
+                    flexprint('applemusic on_itemclick playlists ===> meta: ' + str(meta) + ', playlist: ' + itemname)
+                    itemname = itemname.replace('"', '\\\"')
+                    if is_stream is True:
+                        tracks = applemusic_get_playlist_relationship(itemname, 'tracks')
+                    else:
+                        raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', itemname)
+                        if raw is None:
+                            return ['tracks', search, itemname, []]
+                        if is_json_str(raw) is False:
+                            return str(raw)
+                        tracks = json.loads(raw)
+                        tracks = list(map(lambda name: {"name": replace_escaped_item(name.split('|')[0]) + ' [' + replace_escaped_item(name.split('|')[1]) + ']', "id": replace_escaped_item(name.split('|')[0])}, tracks))
+                    meta['tracks'] = tracks
+                    flexprint('on_itemclick webserver playlist applemusic ==> search: ' + search + ', playlist: ' + itemname + ', track to play: ' + str(tracks[0]) if len(tracks) > 0 else 'None' + ', tracks('+str(len(tracks))+'): ' + str(tracks))
+                    return ['tracks', search, itemname, tracks]
+                if meta['type'] == 'tracks':
+                    flexprint('applemusic on_itemclick tracks ===> meta: ' + str(meta) + ', track: ' + itemname)
+                    if 'album' in meta:
+                        album = meta['album']
+                        album = album.replace('"', '\\"')
+                        if itemname == '[FULLALBUM]':
+                            if is_stream is True:
+                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', meta['tracks'][0]['url'], '2')
+                            else:
+                                send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, meta['tracks'][0]['id'])
+                        else:
+                            if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
+                                itemname = itemname.replace('"', '\\"')
+                            if is_stream is True:
+                                tracks = [e for e in meta['tracks'] if e['id'] == itemname]
+                                if len(tracks) > 0:
+                                    track = tracks[0]
+                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], '2')
+                            else:
+                                send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, itemname)
+                        return ['track', meta['artist'], meta['album'], itemname]
+                    elif 'playlist' in meta:
+                        playlist = meta['playlist']
+                        if len(playlist) > 0 and '"' in playlist and '\\\"' not in playlist:
+                            playlist = playlist.replace('"', '\\"')                        
+                        if itemname == '[FULLPLAYLIST]':
+                            if is_stream is True:
+                                items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
+                                if len(items) > 0:
+                                    playlist = items[0]
+                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', playlist['url'], '3') # play whole playlist (autoplay works)
+                            else:
+                                send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist)
+                        else:
+                            if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
+                                itemname = itemname.replace('"', '\\"')
+                            if is_stream is True:
+                                items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
+                                if len(items) > 0:
+                                    playlist_url = items[0]['url']                        
+                                    tracks = [e for e in meta['tracks'] if e['id'] == itemname]
+                                    if len(tracks) > 0:
+                                        track = tracks[0]
+                                        track_url = track['url'] # album link with track selection (autostart of play is working)
+                                        #track_url = playlist_url + '?i=' + track['id'] # playlist link with song item anchor (open page but without selection in app - not possible to autostart of play)
+                                        send_webserver_zone_control(control_id, True, 'applemusic-play-url', track_url, '3')
+                            else:
+                                send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist, itemname)
+                        return ['track', meta['playlist'], itemname]
                     else:
                         if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
                             itemname = itemname.replace('"', '\\"')
@@ -3839,181 +4041,147 @@ def on_itemclick(meta, search, itemname, zone):
                             if len(tracks) > 0:
                                 track = tracks[0]
                                 send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], '2')
-                        else:
-                            send_webserver_zone_control(control_id, True, 'playtrack', meta['artist'], album, itemname)
-                    return ['track', meta['artist'], meta['album'], itemname]
-                elif 'playlist' in meta:
-                    playlist = meta['playlist']
-                    if len(playlist) > 0 and '"' in playlist and '\\\"' not in playlist:
-                        playlist = playlist.replace('"', '\\"')                        
-                    if itemname == '[FULLPLAYLIST]':
-                        if is_stream is True:
-                            items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
-                            if len(items) > 0:
-                                playlist = items[0]
-                                send_webserver_zone_control(control_id, True, 'applemusic-play-url', playlist['url'], '3') # play whole playlist (autoplay works)
-                        else:
-                            send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist)
+                        else:    
+                            if len(itemname.split('|')) == 2:
+                                itemparts = itemname.split('|')
+                                itemname = itemparts[0]
+                                artist = itemparts[1]
+                                send_webserver_zone_control(control_id, True, 'playtrack', itemname, artist)
+                                return ['track', itemname, artist]
+                            else:
+                                send_webserver_zone_control(control_id, True, 'playtrack', itemname)                    
+                        return ['track', itemname]
+        if is_webserver is False and control_id is not None and zone in channels.values():
+            outputs = roonapi.outputs
+            output_id = None
+            for (k, v) in outputs.items():
+                if zone in v["display_name"]:
+                    output_id = k
+                    flexprint("roonmatrix => output_id:" + output_id)
+            if output_id is not None:
+                if meta['type'] == 'artists':
+                    if 'genre' in meta:
+                        try:
+                            albums = roon_get_artist_albums(output_id, search)
+                        except Exception as e:
+                            albums = []
+                        return ['albums', itemname, albums]
                     else:
-                        if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
-                            itemname = itemname.replace('"', '\\"')
-                        if is_stream is True:
-                            items = [e for e in meta['playlists'] if e['id'] == meta['playlistId']]
-                            if len(items) > 0:
-                                playlist_url = items[0]['url']                        
-                                tracks = [e for e in meta['tracks'] if e['id'] == itemname]
-                                if len(tracks) > 0:
-                                    track = tracks[0]
-                                    track_url = track['url'] # album link with track selection (autostart of play is working)
-                                    #track_url = playlist_url + '?i=' + track['id'] # playlist link with song item anchor (open page but without selection in app - not possible to autostart of play)
-                                    send_webserver_zone_control(control_id, True, 'applemusic-play-url', track_url, '3')
-                        else:
-                            send_webserver_zone_control(control_id, True, 'play-playlist-track', playlist, itemname)
-                    return ['track', meta['playlist'], itemname]
-                else:
-                    if len(itemname) > 0 and '"' in itemname and '\\\"' not in itemname:
-                        itemname = itemname.replace('"', '\\"')
-                    if is_stream is True:
-                        tracks = [e for e in meta['tracks'] if e['id'] == itemname]
-                        if len(tracks) > 0:
-                            track = tracks[0]
-                            send_webserver_zone_control(control_id, True, 'applemusic-play-url', track['url'], '2')
-                    else:    
-                        if len(itemname.split('|')) == 2:
-                            itemparts = itemname.split('|')
-                            itemname = itemparts[0]
-                            artist = itemparts[1]
-                            send_webserver_zone_control(control_id, True, 'playtrack', itemname, artist)
-                            return ['track', itemname, artist]
-                        else:
-                            send_webserver_zone_control(control_id, True, 'playtrack', itemname)                    
-                    return ['track', itemname]
-    if is_webserver is False and control_id is not None and zone in channels.values():
-        outputs = roonapi.outputs
-        output_id = None
-        for (k, v) in outputs.items():
-            if zone in v["display_name"]:
-                output_id = k
-                flexprint("roonmatrix => output_id:" + output_id)
-        if output_id is not None:
-            if meta['type'] == 'artists':
-                if 'genre' in meta:
+                        return ['artist', itemname]
+                if meta['type'] == 'artistalbums':
                     try:
                         albums = roon_get_artist_albums(output_id, search)
                     except Exception as e:
                         albums = []
                     return ['albums', itemname, albums]
-                else:
-                    return ['artist', itemname]
-            if meta['type'] == 'artistalbums':
-                try:
-                    albums = roon_get_artist_albums(output_id, search)
-                except Exception as e:
-                    albums = []
-                return ['albums', itemname, albums]
-            if meta['type'] == 'genres':
-                try:
-                    artists = roon_get_genre_artists(output_id, itemname)
-                except Exception as e:
-                    artists = []
-                return ['artists', itemname, artists]
-            if meta['type'] == 'playlists':
-                try:
-                    tracks = roon_get_playlist_tracks(output_id, search)
-                except Exception as e:
-                    tracks = []
-                meta['tracks'] = tracks
-                flexprint('playlist tracks: ' + str(tracks))
-                return ['tracks', search, itemname, tracks]
-            if meta['type'] == 'albums':
-                try:
-                    tracks = roon_get_artist_album_tracks(output_id, search, itemname)
-                except Exception as e:
-                    tracks = []
-                meta['tracks'] = tracks
-                return ['tracks', search, itemname, tracks]
-            if meta['type'] == 'tracks':
-                if 'album' in meta:
-                    flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', album: ' + meta['album'] + ', track: ' + itemname)
+                if meta['type'] == 'genres':
                     try:
-                        roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)                        
+                        artists = roon_get_genre_artists(output_id, itemname)
+                    except Exception as e:
+                        artists = []
+                    return ['artists', itemname, artists]
+                if meta['type'] == 'playlists':
+                    try:
+                        tracks = roon_get_playlist_tracks(output_id, search)
+                    except Exception as e:
+                        tracks = []
+                    meta['tracks'] = tracks
+                    flexprint('playlist tracks: ' + str(tracks))
+                    return ['tracks', search, itemname, tracks]
+                if meta['type'] == 'albums':
+                    try:
+                        tracks = roon_get_artist_album_tracks(output_id, search, itemname)
+                    except Exception as e:
+                        tracks = []
+                    meta['tracks'] = tracks
+                    return ['tracks', search, itemname, tracks]
+                if meta['type'] == 'tracks':
+                    if 'album' in meta:
+                        flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['artist'] + ', album: ' + meta['album'] + ', track: ' + itemname)
+                        try:
+                            roonapi.play_media(output_id, ["Library", "Artists", meta['artist'], meta['album'], itemname], None, False)                        
+                        except Exception as e:
+                            if errorlog is True:
+                                flexprint('roonapi.play_media error: ' + str(e))
+                        return ['track', meta['artist'], meta['album'], itemname]
+                    elif 'playlist' in meta:
+                        flexprint('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
+                        try:
+                            roonapi.play_media(output_id, ["Playlists", meta['playlist'], itemname], None, False)                        
+                        except Exception as e:
+                            if errorlog is True:
+                                flexprint('roonapi.play_media error: ' + str(e))
+                        return ['track', meta['playlist'], itemname]
+                    else:
+                        flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
+                        try:
+                            roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
+                        except Exception as e:
+                            if errorlog is True:
+                                flexprint('roonapi.play_media error: ' + str(e))
+                        return ['track', itemname]
+                if meta['type'] == 'radios':
+                    try:
+                        roonapi.play_media(output_id, ["My Live Radio", itemname], None, False)
                     except Exception as e:
                         if errorlog is True:
                             flexprint('roonapi.play_media error: ' + str(e))
-                    return ['track', meta['artist'], meta['album'], itemname]
-                elif 'playlist' in meta:
-                    flexprint('roonmatrix on_itemclick playlist ===> search: ' + meta['playlist'] + ', track: ' + itemname)
-                    try:
-                        roonapi.play_media(output_id, ["Playlists", meta['playlist'], itemname], None, False)                        
-                    except Exception as e:
-                        if errorlog is True:
-                            flexprint('roonapi.play_media error: ' + str(e))
-                    return ['track', meta['playlist'], itemname]
-                else:
-                    flexprint('roonmatrix on_itemclick tracks ===> search: ' + meta['search'] + ', track: ' + itemname)
-                    try:
-                        roonapi.play_media(output_id, ["Library", "Tracks", itemname], None, False)
-                    except Exception as e:
-                        if errorlog is True:
-                            flexprint('roonapi.play_media error: ' + str(e))
-                    return ['track', itemname]
-            if meta['type'] == 'radios':
-                try:
-                    roonapi.play_media(output_id, ["My Live Radio", itemname], None, False)
-                except Exception as e:
-                    if errorlog is True:
-                        flexprint('roonapi.play_media error: ' + str(e))
-                return ['radio', itemname]
+                    return ['radio', itemname]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]on itemclick error: ' + str(e) + '[/red]')
     return
 
 def transform_zone_data_to_string(displaystr, name, controlled, obj):
-    if type(displaystr) == list:
-        if len(displaystr) == 0 and playing_headline !='':
-            displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
-        if show_zone is True:
-            sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
-            font = proportional(CP437_FONT)
-            w, h = textsize(sourcestr, font)
-            if w > device.width:
-                displaystr.append(get_message('Source'))
-                displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
-            else:
-                displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
+    try:
+        if type(displaystr) == list:
+            if len(displaystr) == 0 and playing_headline !='':
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
+            if show_zone is True:
+                sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
+                font = proportional(CP437_FONT)
+                w, h = textsize(sourcestr, font)
+                if w > device.width:
+                    displaystr.append(get_message('Source'))
+                    displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
+                else:
+                    displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
 
-            zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
-            font = proportional(CP437_FONT)
-            w, h = textsize(zonestr, font)
-            if w > device.width:
-                displaystr.append(controlled + get_message('Zone'))
-                displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
+                zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
+                font = proportional(CP437_FONT)
+                w, h = textsize(zonestr, font)
+                if w > device.width:
+                    displaystr.append(controlled + get_message('Zone'))
+                    displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["zone"]),displaystr)
+                else:
+                    displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
+            if 'artist' in obj and obj["artist"] != '':
+                if show_vertical_music_label is True:
+                    displaystr.append('< ' + get_message('Artist') + ' >')
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
+            if show_album is True and 'album' in obj and obj["album"] != '':
+                if show_vertical_music_label is True:
+                    displaystr.append('< ' + get_message('Album') + ' >')
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
+            if show_vertical_music_label is True:
+                displaystr.append('< ' + get_message('Track') + ' >')
+                displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
             else:
-                displaystr = vertical_longtext_split_and_append(zonestr,displaystr)
-        if 'artist' in obj and obj["artist"] != '':
-            if show_vertical_music_label is True:
-                displaystr.append('< ' + get_message('Artist') + ' >')
-            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["artist"]),displaystr)
-        if show_album is True and 'album' in obj and obj["album"] != '':
-            if show_vertical_music_label is True:
-                displaystr.append('< ' + get_message('Album') + ' >')
-            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["album"]),displaystr)
-        if show_vertical_music_label is True:
-            displaystr.append('< ' + get_message('Track') + ' >')
-            displaystr = vertical_longtext_split_and_append(convert_special_chars(obj["track"]),displaystr)
+                displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
         else:
-            displaystr = vertical_longtext_split_and_append('=> ' + convert_special_chars(obj["track"]),displaystr)
-    else:
-        if displaystr == '' and playing_headline !='':
-            displaystr += playing_headline + ': '
-        if show_zone is True:
-            displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
-            displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
-        if 'artist' in obj and obj["artist"] != '':
-            displaystr += get_message('Artist') + ': "' + convert_special_chars(obj["artist"]) + '" / '
-        if show_album is True and 'album' in obj and obj["album"] != '':
-            displaystr += get_message('Album') + ': "' + convert_special_chars(obj["album"]) + '" / '
-        if 'track' in obj:
-            displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
-            displaystr = convert_special_chars(displaystr)
+            if displaystr == '' and playing_headline !='':
+                displaystr += playing_headline + ': '
+            if show_zone is True:
+                displaystr += get_message('Source') + ': ' + name + ' => ' + controlled
+                displaystr += get_message('Zone') + ': ' + obj["zone"] + ' / '
+            if 'artist' in obj and obj["artist"] != '':
+                displaystr += get_message('Artist') + ': "' + convert_special_chars(obj["artist"]) + '" / '
+            if show_album is True and 'album' in obj and obj["album"] != '':
+                displaystr += get_message('Album') + ': "' + convert_special_chars(obj["album"]) + '" / '
+            if 'track' in obj:
+                displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
+                displaystr = convert_special_chars(displaystr)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]transform zone data to string error: ' + str(e) + '[/red]')
     return displaystr
 
 def get_force_mode(displaystr):
@@ -4026,400 +4194,456 @@ def get_force_mode(displaystr):
 
 def set_data_changed_and_web_playouts_raw(result, name):
     global data_changed, web_playouts_raw
-    if result.startswith('[') is False:
-        result = "[" + result + "]"
-    playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
-    if playout_changed is True:
-        data_changed = True
-    if result is not None:
-        web_playouts_raw[name] = result
-    else:
-        del web_playouts_raw[name]
+    try:
+        if result.startswith('[') is False:
+            result = "[" + result + "]"
+        playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
+        if playout_changed is True:
+            data_changed = True
+        if result is not None:
+            web_playouts_raw[name] = result
+        else:
+            del web_playouts_raw[name]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set data changed and web playouts raw error: ' + str(e) + '[/red]')
 
 def webserver_zone_not_running_coverplayer_updates(result, name, obj):
     if name == '-SpotifyConnect' and obj is None:
         return
-    
-    if log is True and obj is not None: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
-    set_data_changed_and_web_playouts_raw(result, name)
-    if display_cover is True and control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect') and obj is not None:
-        name_parts = control_id.split('-')
-        zone = name_parts[1]
-        if (name.endswith('-SpotifyConnect') and obj is None) or (name == name_parts[0] and obj["zone"] == zone):
-            cover_text_line_parts = []
-            cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
-            cover_text_line_parts.append(get_message('inactive'))
-            last_cover_url = ''
-            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-            zonestatus_list = get_zone_names()
-            zones_online = zonestatus_list[0]
-            zones_playing = zonestatus_list[1]
-            is_playing = False
-            shuffle_on = False
-            repeat_on = False
-            is_radio = False
-            sourcetype = 'local'
-            track_id = ''
-            flexprint('[bold red]Roonmatrix => Coverplayer.update (web): not running[/bold red]')
-            Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+    try:
+        if log is True and obj is not None: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
+        set_data_changed_and_web_playouts_raw(result, name)
+        if display_cover is True and control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect') and obj is not None:
+            name_parts = control_id.split('-')
+            zone = name_parts[1]
+            if (name.endswith('-SpotifyConnect') and obj is None) or (name == name_parts[0] and obj["zone"] == zone):
+                cover_text_line_parts = []
+                cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+                cover_text_line_parts.append(get_message('inactive'))
+                last_cover_url = ''
+                last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                zonestatus_list = get_zone_names()
+                zones_online = zonestatus_list[0]
+                zones_playing = zonestatus_list[1]
+                is_playing = False
+                shuffle_on = False
+                repeat_on = False
+                is_radio = False
+                sourcetype = 'local'
+                track_id = ''
+                flexprint('[bold red]Roonmatrix => Coverplayer.update (web): not running[/bold red]')
+                Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]webserver zone not running coverplayer updates error: ' + str(e) + '[/red]')
 
 def prepend_cover_url(obj, url):
-    if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
-        obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
+    try:
+        if 'cover' in obj and len(obj["cover"]) > 0 and obj["cover"].startswith('http') is False:
+            obj["cover"] = url[:1+url.rfind('/')] + obj["cover"] # cover url from Apple Music needs to prepend with webserver url
+    except Exception as e:
+        if errorlog is True: flexprint('[red]prepend cover url error: ' + str(e) + '[/red]')
     return obj
 
 def get_and_set_play_shuffle_repeat_track_id(name, obj):
-    playing = 'status' in obj and obj['status'] == 'playing'
-    shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
-    repeat = 'repeat' in obj and (obj['repeat'] == 'true' or obj['repeat'] == 'all' or obj['repeat'] == 'one')
-    track_id =  obj['id'] if 'id' in obj else ''
-    sourcetype = obj['sourcetype'] if 'sourcetype' in obj else 'local'
-    zid = name + '-' + obj["zone"]
-    set_play_mode(zid, playing, False)
-    set_shuffle_mode(zid, shuffle, False)
-    set_repeat_mode(zid, repeat, False)
-    return {'playing': playing, 'sourcetype':sourcetype, 'shuffle':shuffle, 'repeat':repeat, 'track_id':track_id}
+    try:
+        playing = 'status' in obj and obj['status'] == 'playing'
+        shuffle = 'shuffle' in obj and obj['shuffle'] == 'true'
+        repeat = 'repeat' in obj and (obj['repeat'] == 'true' or obj['repeat'] == 'all' or obj['repeat'] == 'one')
+        track_id =  obj['id'] if 'id' in obj else ''
+        sourcetype = obj['sourcetype'] if 'sourcetype' in obj else 'local'
+        zid = name + '-' + obj["zone"]
+        set_play_mode(zid, playing, False)
+        set_shuffle_mode(zid, shuffle, False)
+        set_repeat_mode(zid, repeat, False)
+        return {'playing': playing, 'sourcetype':sourcetype, 'shuffle':shuffle, 'repeat':repeat, 'track_id':track_id}
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get and set play shuffle repeat track id error: ' + str(e) + '[/red]')
+        return {'playing': False, 'sourcetype':'local', 'shuffle':False, 'repeat':False, 'track_id':''}
 
 def add_separator(displaystr, playprops):
-    if type(displaystr) == list:
-        if playprops['playing'] is True and len(displaystr) > 0 and displaystr[0] != 'force>':
-            displaystr.append('')
-    else:
-        if playprops['playing'] is True and displaystr != '':
-            displaystr += separator
+    try:
+        if type(displaystr) == list:
+            if playprops['playing'] is True and len(displaystr) > 0 and displaystr[0] != 'force>':
+                displaystr.append('')
+        else:
+            if playprops['playing'] is True and displaystr != '':
+                displaystr += separator
+    except Exception as e:
+        if errorlog is True: flexprint('[red]add separator error: ' + str(e) + '[/red]')
     return displaystr
 
 def webserver_zone_running_coverplayer_updates(obj, playprops):
     global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last
-    playpos = int(obj['position'])
-    playlen = int(obj['total'])
-    is_playing_last = is_playing
-    shuffle_on_last = shuffle_on
-    repeat_on_last = repeat_on
-    track_id_last = track_id
-    is_playing = playprops['playing']
-    sourcetype = playprops['sourcetype']
-    shuffle_on = playprops['shuffle']
-    repeat_on = playprops['repeat']
-    track_id = playprops['track_id']
-    is_radio = obj['zone'] == 'Apple Music' and sourcetype == 'stream' and playpos == 0
+    try:
+        playpos = int(obj['position'])
+        playlen = int(obj['total'])
+        is_playing_last = is_playing
+        shuffle_on_last = shuffle_on
+        repeat_on_last = repeat_on
+        track_id_last = track_id
+        is_playing = playprops['playing']
+        sourcetype = playprops['sourcetype']
+        shuffle_on = playprops['shuffle']
+        repeat_on = playprops['repeat']
+        track_id = playprops['track_id']
+        is_radio = obj['zone'] == 'Apple Music' and sourcetype == 'stream' and playpos == 0
 
-    if display_cover is True and (("cover" in obj and len(obj["cover"]) > 0) or ("track" in obj and len(obj["track"]) > 0)):
-        cover_str = obj["cover"] if "cover" in obj else ""
-        cover_text_line_parts = []
-        cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
-        if 'artist' in obj and obj["artist"] != '':
-            cover_text_line_parts.append(get_message('Artist') + ': ' + filterIllegalChars(obj["artist"]))
-        if show_album is True and 'album' in obj and obj["album"] != '':
-            cover_text_line_parts.append(get_message('Album') + ': ' + filterIllegalChars(obj["album"]))
-        if 'track' in obj and obj["track"] != '':
-            cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
+        if display_cover is True and (("cover" in obj and len(obj["cover"]) > 0) or ("track" in obj and len(obj["track"]) > 0)):
+            cover_str = obj["cover"] if "cover" in obj else ""
+            cover_text_line_parts = []
+            cover_text_line_parts.append(get_message('Zone') + ': ' + control_id)
+            if 'artist' in obj and obj["artist"] != '':
+                cover_text_line_parts.append(get_message('Artist') + ': ' + filterIllegalChars(obj["artist"]))
+            if show_album is True and 'album' in obj and obj["album"] != '':
+                cover_text_line_parts.append(get_message('Album') + ': ' + filterIllegalChars(obj["album"]))
+            if 'track' in obj and obj["track"] != '':
+                cover_text_line_parts.append(get_message('Track') + ': ' + filterIllegalChars(obj["track"]))
 
-        if (last_cover_url != cover_str or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
-            last_cover_url = cover_str
-            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-            zonestatus_list = get_zone_names()
-            zones_online = zonestatus_list[0]
-            zones_playing = zonestatus_list[1]
-            flexprint('[bold red]Roonmatrix => Coverplayer.update (web) => cover: ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
-            Coverplayer.update(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
-        else:
-            flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
-            Coverplayer.setpos(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
+            if (last_cover_url != cover_str or last_cover_text_line_parts != '|'.join(cover_text_line_parts)):
+                last_cover_url = cover_str
+                last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                zonestatus_list = get_zone_names()
+                zones_online = zonestatus_list[0]
+                zones_playing = zonestatus_list[1]
+                flexprint('[bold red]Roonmatrix => Coverplayer.update (web) => cover: ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
+                Coverplayer.update(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+            else:
+                flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
+                Coverplayer.setpos(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]webserver zone running coverplayer updates error: ' + str(e) + '[/red]')
 
 def remove_prepended_from_displaystr(displaystr):
-    if type(displaystr) == list:
-        displaystr.pop(0) # remove first list item 'force>'
-    else:
-        displaystr = displaystr[6:] # remove prepended 'force>'
+    try:
+        if type(displaystr) == list:
+            displaystr.pop(0) # remove first list item 'force>'
+        else:
+            displaystr = displaystr[6:] # remove prepended 'force>'
+    except Exception as e:
+        if errorlog is True: flexprint('[red]remove prepended from displaystr error: ' + str(e) + '[/red]')
     return displaystr
 
 def get_name_zone_and_controlled_marker(name, obj, playprops):
     controlled = ''
-    if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
-        control_id_parts = control_id.split('-')
-        name_part = control_id_parts[0]
-        zone = control_id_parts[1]
-        if name == name_part and obj["zone"] == zone:
-            controlled = '[*] '
-            webserver_zone_running_coverplayer_updates(obj, playprops)
-        return {'name':name_part, 'zone':zone, 'controlled':controlled}
+    try:
+        if control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect'):
+            control_id_parts = control_id.split('-')
+            name_part = control_id_parts[0]
+            zone = control_id_parts[1]
+            if name == name_part and obj["zone"] == zone:
+                controlled = '[*] '
+                webserver_zone_running_coverplayer_updates(obj, playprops)
+            return {'name':name_part, 'zone':zone, 'controlled':controlled}
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get name zone and controlled marker error: ' + str(e) + '[/red]')
     return {'name':None, 'zone':None, 'controlled':controlled}
 
 def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,result):
     flexprint('get webserver results and fast updating of coverplayer and app => start, name: ' + name + ', url: ' + url)
-    
-    result = str(result).replace('\n','')
-    if result.startswith('[{') and result.endswith('}]'):
-        resultJson = json.loads(result)
-        for obj in resultJson:
-            if "status" in obj and obj["status"] == 'not running':
-                webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
-            else:
-                obj = prepend_cover_url(obj, url)
-                playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
-                props = get_name_zone_and_controlled_marker(name, obj, playprops)
+    try:
+        result = str(result).replace('\n','')
+        if result.startswith('[{') and result.endswith('}]'):
+            resultJson = json.loads(result)
+            for obj in resultJson:
+                if "status" in obj and obj["status"] == 'not running':
+                    webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
+                else:
+                    obj = prepend_cover_url(obj, url)
+                    playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
+                    props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
-                if name not in web_playouts_raw or web_playouts_raw[name] != result:
-                    set_data_changed_and_web_playouts_raw(result, name)
+                    if name not in web_playouts_raw or web_playouts_raw[name] != result:
+                        set_data_changed_and_web_playouts_raw(result, name)
 
-        web_playouts[name] = resultJson
-    else:
-        flexprint('Webserver ' + name + ' is not available')
-
+            web_playouts[name] = resultJson
+        else:
+            flexprint('Webserver ' + name + ' is not available')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get webserver results and fast updating of coverplayer and app error: ' + str(e) + '[/red]')
     flexprint('get webserver results and fast updating of coverplayer and app => end')
     flexprint('')
 
 def compare_filtered_zonedata_is_equal(old_raw, new_raw):
-    old = json.loads(old_raw)
-    new = json.loads(new_raw)
-    equal = True
-    if len(old) != len(new):
-        return False
+    try:
+        old = json.loads(old_raw)
+        new = json.loads(new_raw)
+        equal = True
+        if len(old) != len(new):
+            return False
 
-    for idx,zone in enumerate(new,0):
-        if 'shuffle' in new[idx]:
-            del new[idx]['shuffle']
-        if 'repeat' in new[idx]:
-            del new[idx]['repeat']
-        if 'position' in new[idx]:
-            del new[idx]['position']
-        if 'shuffle' in old[idx]:
-            del old[idx]['shuffle']
-        if 'repeat' in old[idx]:
-            del old[idx]['repeat']
-        if 'position' in old[idx]:
-            del old[idx]['position']
+        for idx,zone in enumerate(new,0):
+            if 'shuffle' in new[idx]:
+                del new[idx]['shuffle']
+            if 'repeat' in new[idx]:
+                del new[idx]['repeat']
+            if 'position' in new[idx]:
+                del new[idx]['position']
+            if 'shuffle' in old[idx]:
+                del old[idx]['shuffle']
+            if 'repeat' in old[idx]:
+                del old[idx]['repeat']
+            if 'position' in old[idx]:
+                del old[idx]['position']
      
-    old_raw = json.dumps(old)
-    old_new = json.dumps(new)
-    if old_raw != old_new:
-        equal = False
-    return equal
+        old_raw = json.dumps(old)
+        old_new = json.dumps(new)
+        if old_raw != old_new:
+            equal = False
+        return equal
+    except Exception as e:
+        if errorlog is True: flexprint('[red]compare filtered zonedata is equal error: ' + str(e) + '[/red]')
+        return False
 
 def get_spotify_connect_name_from_channels():
     nameFound = None
-    for idx,k in enumerate(channels.keys()):
-        if channels[k] == 'spotifyconnect':
-            nameFound = k.split('-')[0]
-            break        
+    try:
+        for idx,k in enumerate(channels.keys()):
+            if channels[k] == 'spotifyconnect':
+                nameFound = k.split('-')[0]
+                break        
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get spotify connect name from channels error: ' + str(e) + '[/red]')
     return nameFound
 
 def get_playing_apple_or_spotify(webservers_zones,displaystr):
     global web_playouts, active_spotify_connect_zone
-    flexprint('get playing apple or spotify => start')
-    breakToo = False
-    force = get_force_mode(displaystr)
-    if webservers_show == True:
-        webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
-        active_zones = get_active_zones_from_webserver_onlinecheck(True)
-        async_web_response = async_web_requests_with_timing(active_zones)
-        #async_web_response = async_web_requests_with_timing(webservers_zones)
-        async_results = async_web_response[0]
-        req_time = async_web_response[1]
     
-        for idx,data in enumerate(async_results,1):
-            name = data['name']
-            result = ''
+    try:
+        flexprint('get playing apple or spotify => start')
+        breakToo = False
+        force = get_force_mode(displaystr)
+        if webservers_show == True:
+            webservers_zones = moveActualPlayerToFirstPosInWebserverZoneList(webservers_zones)
+            active_zones = get_active_zones_from_webserver_onlinecheck(True)
+            async_web_response = async_web_requests_with_timing(active_zones)
+            #async_web_response = async_web_requests_with_timing(webservers_zones)
+            async_results = async_web_response[0]
+            req_time = async_web_response[1]
+    
+            for idx,data in enumerate(async_results,1):
+                name = data['name']
+                result = ''
         
-            if 'status' in data and data['status'] == 200:
-                result = str(data['text']).replace('\n','')
-                if result != '':
-                    if result.startswith('[{') and result.endswith('}]'):
-                        resultJson = json.loads(result)
-                        for obj in resultJson:
-                            if "status" in obj and obj["status"] == 'not running':
-                                webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
-                            else:
-                                obj = prepend_cover_url(obj, data['url'])
-                                playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
-                                displaystr = add_separator(displaystr, playprops)
-                                props = get_name_zone_and_controlled_marker(name, obj, playprops)
+                if 'status' in data and data['status'] == 200:
+                    result = str(data['text']).replace('\n','')
+                    if result != '':
+                        if result.startswith('[{') and result.endswith('}]'):
+                            resultJson = json.loads(result)
+                            for obj in resultJson:
+                                if "status" in obj and obj["status"] == 'not running':
+                                    webserver_zone_not_running_coverplayer_updates(result, name, obj)                            
+                                else:
+                                    obj = prepend_cover_url(obj, data['url'])
+                                    playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
+                                    displaystr = add_separator(displaystr, playprops)
+                                    props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
-                                if playprops['playing'] is True:
-                                    displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
+                                    if playprops['playing'] is True:
+                                        displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                                has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
-                                if has_changed:
-                                    flexprint('webserver ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
-                                    set_data_changed_and_web_playouts_raw(result, name)
+                                    has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                                    if has_changed:
+                                        flexprint('webserver ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
+                                        set_data_changed_and_web_playouts_raw(result, name)
 
-                                    active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
-                                    if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
-                                        flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
-                                        displaystr = remove_prepended_from_displaystr(displaystr)
-                                        breakToo = True # flag to break outer for loop too
-                                        break
-                        web_playouts[name] = resultJson
-                        if breakToo is True:
-                            break
+                                        active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
+                                        if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
+                                            flexprint('web zone update => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                                            displaystr = remove_prepended_from_displaystr(displaystr)
+                                            breakToo = True # flag to break outer for loop too
+                                            break
+                            web_playouts[name] = resultJson
+                            if breakToo is True:
+                                break
+                        else:
+                            flexprint('Webserver ' + name + ' is not available')
                     else:
-                        flexprint('Webserver ' + name + ' is not available')
-                else:
-                    flexprint('Webserver ' + name + ' with empty result')
+                        flexprint('Webserver ' + name + ' with empty result')
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('==> get playing apple or spotify error: ', str(e))
+            #flexprint(traceback.format_exc())
 
-    if spotify_connect_enabled():
-        # spotify_devices: [{'id': 'e4691c51cf9f3d352c82f7320c22d93c9b045732', 'is_active': True, 'is_private_session': False, 'is_restricted': False, 'name': 'Mac Studio', 'supports_volume': True, 'type': 'Computer', 'volume_percent': 100}]
-        # current spotify connect track: {'zone': 'SpotifyConnect', 'status': 'playing', 'artist': 'White Lies', 'album': 'In The Middle', 'track': 'In The Middle', 'shuffle': False, 'repeat': False, 'position': 66, 'total': 365, 'sourcetype': 'stream', 'id': 'spotify:track:2ppTMGPJmFGAB3AI59pGTc', 'cover': 'https://i.scdn.co/image/ab67616d0000b27311f4c9260cc97354d54e7211'}
-        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True) 
-        if active_spotify_connect_zone is None:
-            name = get_spotify_connect_name_from_channels()
-            if name is not None:
-                web_playouts[name] = [{"zone": "SpotifyConnect", "status": "not running"}]  
-                web_playouts_raw[name] = '[{"zone": "SpotifyConnect", "status": "not running"}]'    
-        else:
-            name = active_spotify_connect_zone['name']
-            obj = spotify_connect.current_or_last_played_track()
-            result = '[' + json.dumps(obj) + ']' 
+    try:
+        if spotify_connect_enabled():
+            # spotify_devices: [{'id': 'e4691c51cf9f3d352c82f7320c22d93c9b045732', 'is_active': True, 'is_private_session': False, 'is_restricted': False, 'name': 'Mac Studio', 'supports_volume': True, 'type': 'Computer', 'volume_percent': 100}]
+            # current spotify connect track: {'zone': 'SpotifyConnect', 'status': 'playing', 'artist': 'White Lies', 'album': 'In The Middle', 'track': 'In The Middle', 'shuffle': False, 'repeat': False, 'position': 66, 'total': 365, 'sourcetype': 'stream', 'id': 'spotify:track:2ppTMGPJmFGAB3AI59pGTc', 'cover': 'https://i.scdn.co/image/ab67616d0000b27311f4c9260cc97354d54e7211'}
+            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True) 
+            if active_spotify_connect_zone is None:
+                name = get_spotify_connect_name_from_channels()
+                if name is not None:
+                    web_playouts[name] = [{"zone": "SpotifyConnect", "status": "not running"}]  
+                    web_playouts_raw[name] = '[{"zone": "SpotifyConnect", "status": "not running"}]'    
+            else:
+                name = active_spotify_connect_zone['name']
+                obj = spotify_connect.current_or_last_played_track()
+                result = '[' + json.dumps(obj) + ']' 
         
-            if obj is not None and "status" in obj:
-                playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
-                displaystr = add_separator(displaystr, playprops)
-                props = get_name_zone_and_controlled_marker(name, obj, playprops)
+                if obj is not None and "status" in obj:
+                    playprops = get_and_set_play_shuffle_repeat_track_id(name, obj)
+                    displaystr = add_separator(displaystr, playprops)
+                    props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
-                if playprops['playing'] is True:
-                    displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
+                    if playprops['playing'] is True:
+                        displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
-                if has_changed:
-                    flexprint('spotify connect zone ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
-                    set_data_changed_and_web_playouts_raw(result, name)
+                    has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                    if has_changed:
+                        flexprint('spotify connect zone ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
+                        set_data_changed_and_web_playouts_raw(result, name)
 
-                    active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='spotifyconnect' and name == props['name'] and obj["zone"] == props['zone'])
-                    if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
-                        flexprint('web zone update (spotify connect) => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
-                        displaystr = remove_prepended_from_displaystr(displaystr)
-                flexprint('save web_playouts for ' + str(name) + ', obj: ' + str(obj))
-                web_playouts[name] = [obj]
+                        active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='spotifyconnect' and name == props['name'] and obj["zone"] == props['zone'])
+                        if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
+                            flexprint('web zone update (spotify connect) => zone: ' + control_id + ', zone found: ' + str(active) + ', playing: ' + str(obj))
+                            displaystr = remove_prepended_from_displaystr(displaystr)
+                    flexprint('save web_playouts for ' + str(name) + ', obj: ' + str(obj))
+                    web_playouts[name] = [obj]
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('==> get playing spotify connect error: ', str(e))
+            #flexprint(traceback.format_exc())
 
     flexprint('get playing apple or spotify => end')
     flexprint('')
     return displaystr
 
 def set_control_zone(waiting = True):
-    clear_display('set_control_zone')
-    time.sleep(1)
+    try:
+        clear_display('set_control_zone')
+        time.sleep(1)
 
-    flexprint('control_id_update: ' + str(control_id_update))
-    if control_id_update is None:
-        channel_name = '-'
-    else:
-        channel_name = control_id_update if (control_id_update in channels.keys() and (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect')) else channels[control_id_update]
-        if channels[control_id_update]=='webserver':
-            channel_name = channel_name.replace(' ','')
+        flexprint('control_id_update: ' + str(control_id_update))
+        if control_id_update is None:
+            channel_name = '-'
+        else:
+            channel_name = control_id_update if (control_id_update in channels.keys() and (channels[control_id_update]=='webserver' or channels[control_id_update]=='spotifyconnect')) else channels[control_id_update]
+            if channels[control_id_update]=='webserver':
+                channel_name = channel_name.replace(' ','')
 
-    if debug is True: flexprint('set_control_zone message')
-    if display_cover is False:
-        with canvas(device) as draw:
-            text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(channel_name), fill="white", font=proportional(CP437_FONT))
+        if debug is True: flexprint('set_control_zone message')
+        if display_cover is False:
+            with canvas(device) as draw:
+                text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(channel_name), fill="white", font=proportional(CP437_FONT))
 
-    if waiting is True:
-        while do_set_zone_control == True:
-            time.sleep(1)
-        clear_display('set_control_zone waiting')
+        if waiting is True:
+            while do_set_zone_control == True:
+                time.sleep(1)
+            clear_display('set_control_zone waiting')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set control zone error: ' + str(e) + '[/red]')
 
 def set_fetch_time_before_clock_ends():
     global fetch_output_time
 
-    time_start = datetime.now()
-    estimated_end = time_start + timedelta(0,clock_max_show_time * 60)
-    fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
-    flexprint('show_clock => estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
+    try:
+        time_start = datetime.now()
+        estimated_end = time_start + timedelta(0,clock_max_show_time * 60)
+        fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
+        flexprint('show_clock => estimated output fetch time: ' + fetch_output_time.strftime("%H:%M:%S"))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set fetch time before clock ends error: ' + str(e) + '[/red]')
 
 def show_clock():
     global last_idle_time, check_audioinfo, audioinfo_available
 
     if display_cover is True:
         return
+    try:
+        time_start = datetime.now()
+        framecount = 0
 
-    time_start = datetime.now()
-    framecount = 0
-
-    below_maxtime = ((datetime.now() - time_start).total_seconds()) < clock_max_show_time * 60
-    while do_set_zone_control is False and audioinfo_available is False and ((music_required is True and ((exclusive_audio_mode is False and displaystr=='') or (exclusive_audio_mode is True and audio_playing == '')) and ((exclusive_audio_mode is False and clock_without_idle_time is True) or below_maxtime is True)) or (music_required is False and below_maxtime is True)):
-        if led_modules < 15:
-            timestr = datetime.now().strftime("%H:%M:%S")
-            offset_x = ceil((led_modules - 7) / 2) * 8 if led_modules > 6 else 0
-        else:
-            timestr = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
-            offset_x = ceil((led_modules - 15) / 2) * 8
-
-        with canvas(device) as draw:
-            text(draw, (offset_x, 0), timestr, fill="white", font=proportional(CP437_FONT))
-        time.sleep(1 / clock_refresh_per_second)
-        framecount += 1
-        if framecount % clock_refresh_per_second == 0:
-            tick()
         below_maxtime = ((datetime.now() - time_start).total_seconds()) < clock_max_show_time * 60
+        while do_set_zone_control is False and audioinfo_available is False and ((music_required is True and ((exclusive_audio_mode is False and displaystr=='') or (exclusive_audio_mode is True and audio_playing == '')) and ((exclusive_audio_mode is False and clock_without_idle_time is True) or below_maxtime is True)) or (music_required is False and below_maxtime is True)):
+            if led_modules < 15:
+                timestr = datetime.now().strftime("%H:%M:%S")
+                offset_x = ceil((led_modules - 7) / 2) * 8 if led_modules > 6 else 0
+            else:
+                timestr = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+                offset_x = ceil((led_modules - 15) / 2) * 8
 
-    clear_display('show_clock')
-    if music_required is True and clock_without_idle_time is False and displaystr=='':
-        last_idle_time = datetime.now()
-    else:
-        last_idle_time = None
-    check_audioinfo = False
-    audioinfo_available = False
+            with canvas(device) as draw:
+                text(draw, (offset_x, 0), timestr, fill="white", font=proportional(CP437_FONT))
+            time.sleep(1 / clock_refresh_per_second)
+            framecount += 1
+            if framecount % clock_refresh_per_second == 0:
+                tick()
+            below_maxtime = ((datetime.now() - time_start).total_seconds()) < clock_max_show_time * 60
+
+        clear_display('show_clock')
+        if music_required is True and clock_without_idle_time is False and displaystr=='':
+            last_idle_time = datetime.now()
+        else:
+            last_idle_time = None
+        check_audioinfo = False
+        audioinfo_available = False
+    except Exception as e:
+        if errorlog is True: flexprint('[red]show clock error: ' + str(e) + '[/red]')
 
 def split_word(word,lines):
-    font = proportional(CP437_FONT)
-    w, h = textsize(word, font)
-
-    count = len(word)
-    while w > device.width:
-        while count > 0 and w > device.width:
-            count -= 1
-            part = word[:count]
-            w, h = textsize(part, font)
-        word = word[count:]
-        lines.append(part)
+    try:
+        font = proportional(CP437_FONT)
         w, h = textsize(word, font)
-    if len(word) > 0:
-        lines.append(word)
+
+        count = len(word)
+        while w > device.width:
+            while count > 0 and w > device.width:
+                count -= 1
+                part = word[:count]
+                w, h = textsize(part, font)
+            word = word[count:]
+            lines.append(part)
+            w, h = textsize(word, font)
+        if len(word) > 0:
+            lines.append(word)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]split word error: ' + str(e) + '[/red]')
     return lines
 
 def vertical_longtext_split_and_append(text,lines):
     if display_cover is True:
         return lines
+    try:
+        font = proportional(CP437_FONT)
 
-    font = proportional(CP437_FONT)
+        if len(text) > 0:
+            words = text.split(' ')
 
-    if len(text) > 0:
-        words = text.split(' ')
-
-        line = ''
-        for word in words:
-            line_before = line
-            if len(line) > 0:
-                line += ' '
-            line += word
-            w, h = textsize(line, font)
-            if w > device.width and line_before != '':
-                lb_w, lb_h = textsize(line_before, font)
-                if lb_w <= device.width:
-                    lines.append(line_before)
-                else:
-                    lines = split_word(line_before,lines)
-                    last_line = lines.pop()
-                    lb_w, lb_h = textsize(last_line + ' ' + word, font)
+            line = ''
+            for word in words:
+                line_before = line
+                if len(line) > 0:
+                    line += ' '
+                line += word
+                w, h = textsize(line, font)
+                if w > device.width and line_before != '':
+                    lb_w, lb_h = textsize(line_before, font)
                     if lb_w <= device.width:
-                        last_line += (' ' + word)
-                        word = ''
-                    lines.append(last_line)
-                line = word
-        if len(line) > 0:
-            if w <= device.width:
-                lines.append(line)
-            else:
-                lines = split_word(line,lines)
+                        lines.append(line_before)
+                    else:
+                        lines = split_word(line_before,lines)
+                        last_line = lines.pop()
+                        lb_w, lb_h = textsize(last_line + ' ' + word, font)
+                        if lb_w <= device.width:
+                            last_line += (' ' + word)
+                            word = ''
+                        lines.append(last_line)
+                    line = word
+            if len(line) > 0:
+                if w <= device.width:
+                    lines.append(line)
+                else:
+                    lines = split_word(line,lines)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]vertical longtext split and append error: ' + str(e) + '[/red]')
     return lines
 
 def get_rss_feed(displaystr):
     for idx,data in enumerate(rss_feeds,1):
         count = 0
-        name = data['name']
-        max = data['count']
 
         try:
+            name = data['name']
+            max = data['count']
             feed = feedparser.parse(data['url'])
 
             for entry in feed.entries:
@@ -4451,7 +4675,7 @@ def get_rss_feed(displaystr):
         except Exception as e:
             if errorlog is True: 
                 flexprint('==> rss feed error: ', str(e))
-                flexprint(traceback.format_exc())
+                #flexprint(traceback.format_exc())
 
     return displaystr
 
@@ -4465,178 +4689,191 @@ def set_default_zone():
     shufflemode = {}
     repeatmode = {}
 
-    if webservers_show == True:
-        for idx,data in enumerate(webservers_zones,1):
-            name = data['name']
-            url = data['url']
-            online = is_url_active(url,webserver_head_request_timeout)
-            update_webserver_channels(name, online)
+    try:
+        if webservers_show == True:
+            for idx,data in enumerate(webservers_zones,1):
+                name = data['name']
+                url = data['url']
+                online = is_url_active(url,webserver_head_request_timeout)
+                update_webserver_channels(name, online)
 
-    if spotify_connect_enabled():
-        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
-        if active_spotify_connect_zone is not None:
-            name = active_spotify_connect_zone['name']
-            update_spotify_connect_channel(name, True)
+        if spotify_connect_enabled():
+            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+            if active_spotify_connect_zone is not None:
+                name = active_spotify_connect_zone['name']
+                update_spotify_connect_channel(name, True)
 
-    if roon_show == True and roon_servers:
-        update_roon_channels()
+        if roon_show == True and roon_servers:
+            update_roon_channels()
 
-    if control_id is None:
-        flexprint("actual control zone: -")
-    else:
-        if control_id in channels.keys():
-            if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
-                flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
-            else:
-                flexprint("actual control zone (roon): " + channels[control_id])
+        if control_id is None:
+            flexprint("actual control zone: -")
+        else:
+            if control_id in channels.keys():
+                if channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect':
+                    flexprint("actual control zone (" + channels[control_id] + "): " + control_id)
+                else:
+                    flexprint("actual control zone (roon): " + channels[control_id])
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set default zone error: ' + str(e) + '[/red]')
 
 def roon_state_callback(event, changed_ids):
     global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
 
-    if debug is True:
-        flexprint('roon_state_callback start => event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids))
+    try:
+        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
+        coverplayer_allowed = display_cover is True and initialization_done is True and fetch_output_in_progress is False and output_in_progress is True
+        flexprint('[bold blue]roon_state_callback start @ ' + datetime.now().strftime("%H:%M:%S") + '=> matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + ', event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids) + '[/bold blue]')
+        if matrix_allowed is True or coverplayer_allowed is True:
+            update_roon_channels() # TODO: should this be enabled here too?
+            for zone_id in changed_ids:
+                if zone_id not in roonapi.zones:
+                    flexprint('[red]zone_id ' + zone_id + ' not found in roonapi_zones![/red]')
+                    continue
+                zone = roonapi.zones[zone_id]
 
-    if initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False:
-        update_roon_channels() # TODO: should this be enabled here too?
-        for zone_id in changed_ids:
-            if zone_id not in roonapi.zones:
-                flexprint('[red]zone_id ' + zone_id + ' not found in roonapi_zones![/red]')
-                continue
-            zone = roonapi.zones[zone_id]
+                state = "Unknown"
+                name = '-'
+                artistFiltered = ''
+                albumFiltered = ''
+                trackFiltered = ''
+                shuffle = False
 
-            state = "Unknown"
-            name = '-'
-            artistFiltered = ''
-            albumFiltered = ''
-            trackFiltered = ''
-            shuffle = False
-
-            if zone["state"] is None:
-                continue
-            else:
-                state = zone["state"]
-                name = zone["display_name"]
-            flexprint('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else '-'))
-            if state == "Unknown" or 'now_playing' not in zone:
-                continue
-            else:
-                playstr = zone["now_playing"]["three_line"]
-                artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
-                album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
-                track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
-                playing = state == "playing"
-                shuffle = zone["settings"]["shuffle"]
-                repeat = zone["settings"]["loop"] != 'disabled'
-                set_play_mode(zone_id, playing, False)
-                set_shuffle_mode(zone_id, shuffle, False)
-                set_repeat_mode(zone_id, repeat, False)
-
-                artistFiltered = filterIllegalChars(artist.decode())
-                albumFiltered = filterIllegalChars(album.decode())
-                trackFiltered = filterIllegalChars(track.decode())
-
-                cover_url = ''
-                image_key = zone["now_playing"].get("image_key")
-                if image_key:
-                    cover_url = roonapi.get_image(image_key)
-
-                if display_cover is True and control_id is not None and control_id in channels.keys() and name == channels[control_id]:
-                    cover_text_line_parts = []
-                    cover_text_line_parts.append(get_message('Zone') + ': ' + name)
-                    if artistFiltered != '':
-                        cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered[1:-1] if (len(artistFiltered) > 1 and artistFiltered[0:1]=='"' and artistFiltered[-1:]=='"') else artistFiltered)
-                    if show_album is True and albumFiltered != '':
-                        cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered[1:-1] if (len(albumFiltered) > 1 and albumFiltered[0:1]=='"' and albumFiltered[-1:]=='"') else albumFiltered)
-                    if trackFiltered != '':
-                        cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
-
-                    playpos = zone.get("seek_position")
-                    playlen = zone["now_playing"].get("length")                                   
-
-                    cover_changed = cover_url != last_cover_url
-                    text_changed = last_cover_text_line_parts != '|'.join(cover_text_line_parts)
-                    
-                    is_playing_changed = playing != is_playing_last
-                    shuffle_changed = shuffle != shuffle_on_last
-                    repeat_changed = repeat != repeat_on_last
-                    track_id_changed = track_id != track_id_last
-                    playpos_changed = playpos_last != playpos
-                    playlen_changed = playlen_last != playlen
-                    anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or repeat_changed or playlen_changed
-                    
-                    if (anything_changed is True or (anything_changed is False and playpos_changed is True)):
-                        last_cover_url = cover_url
-                        last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-                        #zonestatus_list = get_zone_names()
-                        #zones_online = zonestatus_list[0]
-                        #zones_playing = zonestatus_list[1]
-                        playpos_last = playpos
-                        playlen_last = playlen
-                        is_playing_last = is_playing
-                        shuffle_on_last = shuffle_on
-                        repeat_on_last = repeat_on
-                        track_id_last = track_id
-                        is_playing = playing
-                        sourcetype = 'local'
-                        shuffle_on = shuffle
-                        repeat_on = repeat
-                        is_radio = False
-                                    
-                        flexprint('[bold red]Roonmatrix => Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
-                        Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
-
-
-            if name not in channels.values():
-                playing = '{"status": "not running"}'
-
-                if name not in roon_playouts_raw or roon_playouts_raw[name] != playing:
-                    roon_playouts_raw[name] = playing
-                    roon_playouts[name] = json.loads(playing)
-                    data_changed = True
-                continue
-            else:
-                if cover_url and len(cover_url) > 0:
-                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
+                if zone["state"] is None:
+                    continue
                 else:
-                    playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
-                playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
-                if playing_data_has_changed is True:            
-                    roon_playouts_raw[name] = playing
-                    roon_playouts[name] = json.loads(playing)
-                    data_changed = True
+                    state = zone["state"]
+                    name = zone["display_name"]
+                flexprint('roon_state_callback (' + name + '): ' + state + ', lines: ' + str(zone["now_playing"]["three_line"] if 'now_playing' in zone else '-'))
+                if state == "Unknown" or 'now_playing' not in zone:
+                    continue
+                else:
+                    playstr = zone["now_playing"]["three_line"]
+                    artist = json.dumps(playstr["line2"],ensure_ascii=False).encode('utf8')
+                    album = json.dumps(playstr["line3"],ensure_ascii=False).encode('utf8')
+                    track = json.dumps(playstr["line1"],ensure_ascii=False).encode('utf8')
+                    playing = state == "playing"
+                    shuffle = zone["settings"]["shuffle"]
+                    repeat = zone["settings"]["loop"] != 'disabled'
+                    set_play_mode(zone_id, playing, False)
+                    set_shuffle_mode(zone_id, shuffle, False)
+                    set_repeat_mode(zone_id, repeat, False)
 
-                # state variants: loading, playing, paused, stopped, not running
-                if state == 'playing':
-                    if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
-                        allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
-                        if allowed is True:
-                            flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
-                            interrupt_message = True
-                            time.sleep(1)
-                            if do_set_zone_control is False:
-                                clear_display('roon_state_callback')
-                            fetch_output_time = None
-                            if vertical_output is False and prepared_displaystr == '':
-                                prepared_displaystr = displaystr
-                            if vertical_output is True and len(prepared_vert_strlines) == 0:
-                                prepared_vert_strlines = vert_strlines
-                                prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+                    artistFiltered = filterIllegalChars(artist.decode())
+                    albumFiltered = filterIllegalChars(album.decode())
+                    trackFiltered = filterIllegalChars(track.decode())
 
-                            refresh_output_data()
-                            check_audioinfo = False
+                    cover_url = ''
+                    image_key = zone["now_playing"].get("image_key")
+                    if image_key:
+                        cover_url = roonapi.get_image(image_key)
+
+                    if display_cover is True and control_id is not None and control_id in channels.keys() and name == channels[control_id]:
+                        cover_text_line_parts = []
+                        cover_text_line_parts.append(get_message('Zone') + ': ' + name)
+                        if artistFiltered != '':
+                            cover_text_line_parts.append(get_message('Artist') + ': ' + artistFiltered[1:-1] if (len(artistFiltered) > 1 and artistFiltered[0:1]=='"' and artistFiltered[-1:]=='"') else artistFiltered)
+                        if show_album is True and albumFiltered != '':
+                            cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered[1:-1] if (len(albumFiltered) > 1 and albumFiltered[0:1]=='"' and albumFiltered[-1:]=='"') else albumFiltered)
+                        if trackFiltered != '':
+                            cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
+
+                        playpos = zone.get("seek_position")
+                        playlen = zone["now_playing"].get("length")                                   
+
+                        cover_changed = cover_url != last_cover_url
+                        text_changed = last_cover_text_line_parts != '|'.join(cover_text_line_parts)
+                    
+                        is_playing_changed = playing != is_playing_last
+                        shuffle_changed = shuffle != shuffle_on_last
+                        repeat_changed = repeat != repeat_on_last
+                        track_id_changed = track_id != track_id_last
+                        playpos_changed = playpos_last != playpos
+                        playlen_changed = playlen_last != playlen
+                        anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or repeat_changed or playlen_changed
+                    
+                        if (anything_changed is True or (anything_changed is False and playpos_changed is True)):
+                            last_cover_url = cover_url
+                            last_cover_text_line_parts = '|'.join(cover_text_line_parts)
+                            #zonestatus_list = get_zone_names()
+                            #zones_online = zonestatus_list[0]
+                            #zones_playing = zonestatus_list[1]
+                            playpos_last = playpos
+                            playlen_last = playlen
+                            is_playing_last = is_playing
+                            shuffle_on_last = shuffle_on
+                            repeat_on_last = repeat_on
+                            track_id_last = track_id
+                            is_playing = playing
+                            sourcetype = 'local'
+                            shuffle_on = shuffle
+                            repeat_on = repeat
+                            is_radio = False
+                                    
+                            flexprint('[bold red]Roonmatrix => Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
+                            Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
+
+
+                if name not in channels.values():
+                    playing = '{"status": "not running"}'
+
+                    if name not in roon_playouts_raw or roon_playouts_raw[name] != playing:
+                        roon_playouts_raw[name] = playing
+                        roon_playouts[name] = json.loads(playing)
+                        data_changed = True
+                    continue
+                else:
+                    if cover_url and len(cover_url) > 0:
+                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
+                    else:
+                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
+                    playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
+                    if playing_data_has_changed is True:            
+                        roon_playouts_raw[name] = playing
+                        roon_playouts[name] = json.loads(playing)
+                        data_changed = True
+
+                    # state variants: loading, playing, paused, stopped, not running
+                    print('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
+                    if state == 'playing':
+                        if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
+                            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2)
+                            print('roon_state_callback => allowed: ' + str(allowed))
+                            if allowed is True:
+                                flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
+                                interrupt_message = True
+                                time.sleep(1)
+                                if do_set_zone_control is False:
+                                    clear_display('roon_state_callback')
+                                fetch_output_time = None
+                                if vertical_output is False and prepared_displaystr == '':
+                                    prepared_displaystr = displaystr
+                                if vertical_output is True and len(prepared_vert_strlines) == 0:
+                                    prepared_vert_strlines = vert_strlines
+                                    prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+
+                                refresh_output_data()
+                                check_audioinfo = False
+    except Exception as e:
+        if errorlog is True: 
+            flexprint('[red]==> roon state callback ERROR: [/red]', str(e))
+            #flexprint(traceback.format_exc())
 
 def check_webserver_for_playouts():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines, webcheck_timer
 
     try:
-        if initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False:
+        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
+        coverplayer_allowed = display_cover is True and initialization_done is True and fetch_output_in_progress is False and output_in_progress is True
+        flexprint('[bold blue]### check_webserver_for_playouts start @ ' + datetime.now().strftime("%H:%M:%S") + ' => matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + '[/bold blue]')
+        if matrix_allowed is True or coverplayer_allowed is True:
             if vertical_output == True:
                 lines = get_playing_apple_or_spotify(webservers_zones,['force>'])
             else:
                 displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
-            allowed = output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2
+            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2)
 
-            flexprint('### allowed: ' + str(allowed) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None'))
+            flexprint('[blue]### check_webserver_for_playouts done => allowed: ' + str(allowed) + ', output_in_progress: ' + str(output_in_progress) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None') + '[/blue]')
             if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
                 flexprint('webserver playout detected => interrupt message')
                 interrupt_message = True
@@ -4653,84 +4890,146 @@ def check_webserver_for_playouts():
 
         webcheck_timer = Timer(webcheck_update_interval, check_webserver_for_playouts) # check webserver playouts in interval of seconds (webcheck_update_interval)
         webcheck_timer.start()
+        flexprint('webserver playout check => timer restart (matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + ')')
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> check_webserver_for_playouts ERROR: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            #flexprint(traceback.format_exc())
 
 def force_custom_message():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
 
     if display_cover is True:
         return
+    try:
+        if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
+            displaystr = convert_special_chars(custom_message)
 
-    if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
-        displaystr = convert_special_chars(custom_message)
-
-        flexprint('custom message with force option detected => interrupt message')
-        interrupt_message = True
-        time.sleep(1)
-        if do_set_zone_control is False:
-            clear_display('interrupt playout for custom message')
-        fetch_output_time = None
-        if vertical_output == False and prepared_displaystr == '':
-            prepared_displaystr = displaystr
-        if vertical_output == True and len(prepared_vert_strlines) == 0:
-            prepared_vert_strlines = [displaystr]
-            prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
-        refresh_output_data()
+            flexprint('custom message with force option detected => interrupt message')
+            interrupt_message = True
+            time.sleep(1)
+            if do_set_zone_control is False:
+                clear_display('interrupt playout for custom message')
+            fetch_output_time = None
+            if vertical_output == False and prepared_displaystr == '':
+                prepared_displaystr = displaystr
+            if vertical_output == True and len(prepared_vert_strlines) == 0:
+                prepared_vert_strlines = [displaystr]
+                prepared_displaystr = str(prepared_vert_strlines) if len(prepared_vert_strlines) > 0 else ''
+            refresh_output_data()
+    except Exception as e:
+        if errorlog is True: flexprint('[red]force custom message error: ' + str(e) + '[/red]')
 
 def update_roon_channels():
     global control_id, channels, playmode, shufflemode, repeatmode
-    #flexprint('update_roon_channels, zones: ' + str(roonapi.zones))
-    #outputs = roonapi.outputs
-    outputs = roonapi.zones
-    if debug is True: flexprint('update_roon_channels start')
+    
+    try:
+        #flexprint('update_roon_channels, zones: ' + str(roonapi.zones))
+        #outputs = roonapi.outputs
+        outputs = roonapi.zones
+        if debug is True: flexprint('update_roon_channels start')
 
-    ch_keys = list(channels.keys())
-    out_keys = outputs.keys()
+        ch_keys = list(channels.keys())
+        out_keys = outputs.keys()
 
-    for (k, v) in outputs.items():
-        if debug is True: flexprint('check output: ' + v["display_name"])
-        if not k in ch_keys:
-            flexprint('add ' + v["display_name"])
-            channels[k] = v["display_name"]
-            playmode[k] = 'stop'
-            shufflemode[k] = 'noshuffle'
-            repeatmode[k] = 'norepeat'
+        for (k, v) in outputs.items():
+            if debug is True: flexprint('check output: ' + v["display_name"])
+            if not k in ch_keys:
+                flexprint('add ' + v["display_name"])
+                channels[k] = v["display_name"]
+                playmode[k] = 'stop'
+                shufflemode[k] = 'noshuffle'
+                repeatmode[k] = 'norepeat'
 
-    for key in ch_keys:
-        if not key in out_keys and not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
-            flexprint('del key: ' + key + ', name: ' + channels[key])
-            del channels[key]
-            del playmode[key]
-            del repeatmode[key]
-            if control_id==key and zone_autoswitch is True:
-                control_id = None
+        for key in ch_keys:
+            if not key in out_keys and not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
+                flexprint('del key: ' + key + ', name: ' + channels[key])
+                del channels[key]
+                del playmode[key]
+                del repeatmode[key]
+                if control_id==key and zone_autoswitch is True:
+                    control_id = None
 
-    get_new_control_id_by_roon_control_zone()
-    get_new_control_id_by_webserver_control_zone()
-    get_new_control_id_by_roon_zone_playing()
-    get_new_control_id_by_webserver_zone_online()
-    get_new_control_id_by_roon_zone_online()
-    if debug is True: flexprint('update_roon_channels end')
+        get_new_control_id_by_roon_control_zone()
+        get_new_control_id_by_webserver_control_zone()
+        get_new_control_id_by_roon_zone_playing()
+        get_new_control_id_by_webserver_zone_online()
+        get_new_control_id_by_roon_zone_online()
+        if debug is True: flexprint('update_roon_channels end')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]update roon channels error: ' + str(e) + '[/red]')
 
 def update_webserver_channels(name, online):
     global control_id, channels, playmode, shufflemode, repeatmode
 
-    if debug is True:
-        flexprint('update_webserver_channels => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
-        flexprint(name + ' online:' + str(online))
-    keys = list(channels.keys())
-    players = ['Spotify', 'Apple Music']
+    try:
+        if debug is True:
+            flexprint('update_webserver_channels => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+            flexprint(name + ' online:' + str(online))
+        keys = list(channels.keys())
+        players = ['Spotify', 'Apple Music']
 
-    for player in players:
-        key = name + '-' + player
+        for player in players:
+            key = name + '-' + player
+            if debug is True: flexprint('check player: ' + key)
+            if online is True:
+                if not key in keys:
+                    if debug is True: flexprint('add player ' + key)
+                    channels[key] = 'webserver'
+                    playmode[key] = 'stop'
+                    shufflemode[key] = 'noshuffle'
+                    repeatmode[key] = 'norepeat'
+            else:
+                if key in keys:
+                    if debug is True: flexprint('del key: ' + key)
+                    del channels[key]
+                    del playmode[key]
+                    del shufflemode[key]
+                    del repeatmode[key]
+                    if control_id==key and zone_autoswitch is True:
+                        control_id = None
+
+        get_new_control_id_by_webserver_control_zone()
+        get_new_control_id_by_roon_control_zone()
+        get_new_control_id_by_roon_zone_playing()
+        get_new_control_id_by_webserver_zone_online()
+        get_new_control_id_by_roon_zone_online()
+
+        if debug is True: flexprint('update_webserver_channels => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]update webserver channels error: ' + str(e) + '[/red]')
+
+
+def remove_spotify_connect_zone():
+    try:
+        keys = list(channels.keys())
+        keys_len = len(keys)
+        if keys_len > 0:
+            for key in keys:
+                if channels[key]=='spotifyconnect':
+                    del channels[key]
+                    #del playmode[key]
+                    #del shufflemode[key]
+                    #del repeatmode[key]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]remove spotify connect zone error: ' + str(e) + '[/red]')
+
+def update_spotify_connect_channel(name, online):
+    global control_id, channels, playmode, shufflemode, repeatmode
+
+    try:
+        if debug is True:
+            flexprint('update_spotify_connect_channel => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+            flexprint(name + ' online:' + str(online))
+        keys = list(channels.keys())
+                    
+        key = name + '-SpotifyConnect'
         if debug is True: flexprint('check player: ' + key)
         if online is True:
             if not key in keys:
                 if debug is True: flexprint('add player ' + key)
-                channels[key] = 'webserver'
+                remove_spotify_connect_zone()
+                channels[key] = 'spotifyconnect'
                 playmode[key] = 'stop'
                 shufflemode[key] = 'noshuffle'
                 repeatmode[key] = 'norepeat'
@@ -4744,205 +5043,187 @@ def update_webserver_channels(name, online):
                 if control_id==key and zone_autoswitch is True:
                     control_id = None
 
-    get_new_control_id_by_webserver_control_zone()
-    get_new_control_id_by_roon_control_zone()
-    get_new_control_id_by_roon_zone_playing()
-    get_new_control_id_by_webserver_zone_online()
-    get_new_control_id_by_roon_zone_online()
+        get_new_control_id_by_webserver_control_zone()
+        get_new_control_id_by_roon_control_zone()
+        get_new_control_id_by_roon_zone_playing()
+        get_new_control_id_by_webserver_zone_online()
+        get_new_control_id_by_roon_zone_online()
 
-    if debug is True: flexprint('update_webserver_channels => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
-
-def remove_spotify_connect_zone():
-    keys = list(channels.keys())
-    keys_len = len(keys)
-    if keys_len > 0:
-        for key in keys:
-            if channels[key]=='spotifyconnect':
-                del channels[key]
-                #del playmode[key]
-                #del shufflemode[key]
-                #del repeatmode[key]
-
-def update_spotify_connect_channel(name, online):
-    global control_id, channels, playmode, shufflemode, repeatmode
-
-    if debug is True:
-        flexprint('update_spotify_connect_channel => start, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
-        flexprint(name + ' online:' + str(online))
-    keys = list(channels.keys())
-                    
-    key = name + '-SpotifyConnect'
-    if debug is True: flexprint('check player: ' + key)
-    if online is True:
-        if not key in keys:
-            if debug is True: flexprint('add player ' + key)
-            remove_spotify_connect_zone()
-            channels[key] = 'spotifyconnect'
-            playmode[key] = 'stop'
-            shufflemode[key] = 'noshuffle'
-            repeatmode[key] = 'norepeat'
-    else:
-        if key in keys:
-            if debug is True: flexprint('del key: ' + key)
-            del channels[key]
-            del playmode[key]
-            del shufflemode[key]
-            del repeatmode[key]
-            if control_id==key and zone_autoswitch is True:
-                control_id = None
-
-    get_new_control_id_by_webserver_control_zone()
-    get_new_control_id_by_roon_control_zone()
-    get_new_control_id_by_roon_zone_playing()
-    get_new_control_id_by_webserver_zone_online()
-    get_new_control_id_by_roon_zone_online()
-
-    if debug is True: flexprint('update_spotify_connect_channel => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+        if debug is True: flexprint('update_spotify_connect_channel => end, control_id: ' + str(control_id) + ', name: ' + (channels[control_id] if control_id in channels.keys() else ''))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]update spotify connect channel error: ' + str(e) + '[/red]')
 
 def get_new_control_id_by_webserver_control_zone():
     global control_id, control_zone
 
-    if control_zone is not None and webservers_show == True and control_zone in channels.keys() and (channels[control_zone]=='webserver' or channels[control_zone]=='spotifyconnect'):
-        if zone_autoswitch is True:
-            control_id = control_zone 
-            flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
-            control_zone = None
-        else:
-            if control_id is None:
+    try:
+        if control_zone is not None and webservers_show == True and control_zone in channels.keys() and (channels[control_zone]=='webserver' or channels[control_zone]=='spotifyconnect'):
+            if zone_autoswitch is True:
                 control_id = control_zone 
                 flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+                control_zone = None
             else:
-                if debug is True:
-                    flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
+                if control_id is None:
+                    control_id = control_zone 
+                    flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
+                else:
+                    if debug is True:
+                        flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get new control id by webserver control zone error: ' + str(e) + '[/red]')
 
 def get_new_control_id_by_webserver_zone_online():
     global control_id
 
-    if control_id is None and webservers_show == True:
-        keys = list(channels.keys())
-        keys_len = len(keys)
-        if keys_len > 0:
-            for key in keys:
-                if channels[key]=='webserver' or channels[key]=='spotifyconnect':
-                    if zone_autoswitch is True:
-                        control_id = key
-                        flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
-                    else:
-                        if control_id is None and key==control_zone:
+    try:
+        if control_id is None and webservers_show == True:
+            keys = list(channels.keys())
+            keys_len = len(keys)
+            if keys_len > 0:
+                for key in keys:
+                    if channels[key]=='webserver' or channels[key]=='spotifyconnect':
+                        if zone_autoswitch is True:
                             control_id = key
                             flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
-                        else: 
-                            flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
-                    break
+                        else:
+                            if control_id is None and key==control_zone:
+                                control_id = key
+                                flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
+                            else: 
+                                flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
+                        break
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get new control id by webserver zone online error: ' + str(e) + '[/red]')
 
 def get_new_control_id_by_roon_control_zone():
     global control_id, control_zone
 
-    if control_zone is not None and roon_show == True:
-        keys = list(channels.keys())
-        keys_len = len(keys)
-        if keys_len > 0:
-            for key in keys:
-                if not channels[key]=='webserver' and not channels[key]=='spotifyconnect'  and channels[key]==control_zone:
-                    if zone_autoswitch is True:
-                        control_id = key
-                        flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
-                        control_zone = None
-                    else:
-                        if control_id is None:
+    try:
+        if control_zone is not None and roon_show == True:
+            keys = list(channels.keys())
+            keys_len = len(keys)
+            if keys_len > 0:
+                for key in keys:
+                    if not channels[key]=='webserver' and not channels[key]=='spotifyconnect'  and channels[key]==control_zone:
+                        if zone_autoswitch is True:
                             control_id = key
                             flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                            control_zone = None
                         else:
-                            flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
-                    break
+                            if control_id is None:
+                                control_id = key
+                                flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
+                            else:
+                                flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
+                        break
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get new control id by roon control zone error: ' + str(e) + '[/red]')
 
 def get_new_control_id_by_roon_zone_playing():
     global control_id
 
-    if control_id is None and roon_show == True and len(roon_servers) > 0:
-        names = list(channels.values())
-        for zone in list(roonapi.zones.values()):
-            state = "Unknown"
-            if zone["state"] is not None:
-                state = zone["state"]
-            if state == "playing" and zone["display_name"] in names:
-                flexprint('zone: ' + str(zone))
-                for id, name in channels.items():
-                    if name == zone["display_name"]:
-                        if zone_autoswitch is True:
-                            control_id = id
-                            flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
-                        else:
-                            if control_id is None and name==control_zone:
+    try:
+        if control_id is None and roon_show == True and len(roon_servers) > 0:
+            names = list(channels.values())
+            for zone in list(roonapi.zones.values()):
+                state = "Unknown"
+                if zone["state"] is not None:
+                    state = zone["state"]
+                if state == "playing" and zone["display_name"] in names:
+                    flexprint('zone: ' + str(zone))
+                    for id, name in channels.items():
+                        if name == zone["display_name"]:
+                            if zone_autoswitch is True:
                                 control_id = id
                                 flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
                             else:
-                                flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
-                        return
+                                if control_id is None and name==control_zone:
+                                    control_id = id
+                                    flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
+                                else:
+                                    flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
+                            return
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get new control id by roon zone playing error: ' + str(e) + '[/red]')
 
 def get_zone_names():
     global roon_zones
-
-    if (len(roon_zones) == 0 and roonapi != None):
-        roon_zones = list(roonapi.zones.values())
     zones_online = []
     zones_playing = []
-    for zone in roon_zones:
-        if zone["state"] is not None and zone["state"] != "Unknown":
-            zones_online.append(zone['display_name'])
-            if 'now_playing' in zone:
-                zones_playing.append(zone['display_name'])
 
-    for id, name in channels.items():
-        if name == 'webserver':
-            zones_online.append(id)
-            zones_playing.append(id)
-        if name == 'spotifyconnect':
-            active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
-            if active_spotify_connect_zone is not None:
-                sc_name = active_spotify_connect_zone['name']
-                zones_online.append(sc_name + '-SpotifyConnect')
-                if active_spotify_connect_zone['is_active'] is True:
-                    zones_playing.append(sc_name + '-SpotifyConnect')
+    try:
+        if (len(roon_zones) == 0 and roonapi != None):
+            roon_zones = roonapi.zones.values()
+        zones = list(roon_zones)
+        for zone in zones:
+            if zone["state"] is not None and zone["state"] != "Unknown":
+                zones_online.append(zone['display_name'])
+                if 'now_playing' in zone:
+                    zones_playing.append(zone['display_name'])
+
+        items = channels.items()
+        for id, name in items:
+            if name == 'webserver':
+                zones_online.append(id)
+                zones_playing.append(id)
+            if name == 'spotifyconnect':
+                active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(False)
+                if active_spotify_connect_zone is not None:
+                    sc_name = active_spotify_connect_zone['name']
+                    zones_online.append(sc_name + '-SpotifyConnect')
+                    if active_spotify_connect_zone['is_active'] is True:
+                        zones_playing.append(sc_name + '-SpotifyConnect')
         
-    zones_online.sort()
-    zones_playing.sort()
-    flexprint('zones_online: ' + str(zones_online))
-    flexprint('zones_playing: ' + str(zones_playing))
+        zones_online.sort()
+        zones_playing.sort()
+        flexprint('zones_online: ' + str(zones_online))
+        flexprint('zones_playing: ' + str(zones_playing))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get zone names error: ' + str(e) + '[/red]')
     return [zones_online, zones_playing]
 
 def get_new_control_id_by_roon_zone_online():
     global control_id
 
-    if control_id is None and roon_show == True:
-        keys = list(channels.keys())
-        keys_len = len(keys)
-        if keys_len > 0:
-            for key in keys:
-                if not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
-                    if zone_autoswitch is True:
-                        control_id = key 
-                        flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
-                    else:
-                        if control_id is None and channels[key]==control_zone:
-                            control_id = key
+    try:
+        if control_id is None and roon_show == True:
+            keys = list(channels.keys())
+            keys_len = len(keys)
+            if keys_len > 0:
+                for key in keys:
+                    if not channels[key]=='webserver' and not channels[key]=='spotifyconnect':
+                        if zone_autoswitch is True:
+                            control_id = key 
                             flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
                         else:
-                            flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
-                    break
+                            if control_id is None and channels[key]==control_zone:
+                                control_id = key
+                                flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
+                            else:
+                                flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
+                        break
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get new control id by roon zone online error: ' + str(e) + '[/red]')
 
 def get_zone_control_shortname(str):
-    conv_str = str
-    if map_zone_control == True:
-        for key, val in zone_control_map.items():
-            conv_str = conv_str.replace(key, val)
+    try:
+        conv_str = str
+        if map_zone_control == True:
+            for key, val in zone_control_map.items():
+                conv_str = conv_str.replace(key, val)
 
-    return convert_special_chars(conv_str)
+        return convert_special_chars(conv_str)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get zone control shortname error: ' + str(e) + '[/red]')
+        return str
 
 def get_ram_info():
     if debug is True:
-        ram = psutil.virtual_memory()
-        flexprint('Total RAM: ' + str(ram))
+        try:
+            ram = psutil.virtual_memory()
+            flexprint('Total RAM: ' + str(ram))
+        except Exception as e:
+            if errorlog is True: flexprint('[red]get ram info error: ' + str(e) + '[/red]')
 
 def remove_completed_threads():
     global jobs
@@ -4962,67 +5243,87 @@ def tick():
 
     if debug is True:
         flexprint('tick ' + datetime.now().strftime("%H:%M:%S") + ', vars: (cInp:' + str (clock_in_progress) + '|fOinP:' + str(fetch_output_in_progress) + '|fODone:' + str(fetch_output_done) + '|oinP:' + str(output_in_progress) + '|prDispEmpty:' + str(prepared_displaystr=='') + ')')
-    n.notify("WATCHDOG=1")
+    try:
+        n.notify("WATCHDOG=1")
+    except Exception as e:
+        if errorlog is True: flexprint('[red]tick notify error: ' + str(e) + '[/red]')
 
 def filterIllegalChars(str):
     filtered = str.replace("\\\"","”") # RIGHT DOUBLE QUOTATION MARK
     return filtered
 
 def is_active_roon_zone(zone):
-    return zone["display_name"] == control_zone or control_id == zone['zone_id']
+    try:
+        return zone["display_name"] == control_zone or control_id == zone['zone_id']
+    except Exception as e:
+        if errorlog is True: flexprint('[red]is active roon zone error: ' + str(e) + '[/red]')
+        return False
 
 def is_active_web_zone(name):
-    for id, name in channels.items():
-        if name == 'webserver' and id == name:
-            return True
+    try:
+        for id, name in channels.items():
+            if name == 'webserver' and id == name:
+                return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]is active web zone error: ' + str(e) + '[/red]')
     return False
 
 def is_active_spotify_connect_zone(name):
-    for id, name in channels.items():
-        if name == 'spotifyconnect' and id == name:
-            return True
+    try:
+        for id, name in channels.items():
+            if name == 'spotifyconnect' and id == name:
+                return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]is active spotify connect zone error: ' + str(e) + '[/red]')
     return False
 
 def reconnect_roon_api_if_zone_is_stopped(roon_zones):
     global roonapi
-    stopped_zone_found = False
-    for zone in roon_zones:
-        if 'state' in zone and zone["state"] is not None and zone["state"]=='stopped' and 'now_playing' not in zone:
-            stopped_zone_found = True
-            break
-    #if stopped_zone_found is True:
-    #    flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
-    #    roonapi.stop()
-    #    roonapi = None
-    #    get_roon_api()
-    #    if roonapi is not None:
-    #        return list(roonapi.zones.values())
+    
+    try:
+        stopped_zone_found = False
+        for zone in roon_zones:
+            if 'state' in zone and zone["state"] is not None and zone["state"]=='stopped' and 'now_playing' not in zone:
+                stopped_zone_found = True
+                break
+        #if stopped_zone_found is True:
+        #    flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
+        #    roonapi.stop()
+        #    roonapi = None
+        #    get_roon_api()
+        #    if roonapi is not None:
+        #        return list(roonapi.zones.values())
+    except Exception as e:
+        if errorlog is True: flexprint('[red]reconnect roon api if zone is stopped error: ' + str(e) + '[/red]')
     return roon_zones
 
 def build_output():
     global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
 
-    if display_cover is True:
-        upcoming_control_zone = None # the actual selected roon zone which is coming online again
-        zonestatus_list = get_zone_names()
-        zones_online = zonestatus_list[0]
-        zones_playing = zonestatus_list[1]
-        if last_zones_online != zones_online or last_zones_playing != zones_playing:
-            missing_control_zone = control_zone not in zones_online
-            stopped_control_zone = control_zone not in zones_playing
-            if control_zone not in last_zones_online and control_zone in zones_online:
-                upcoming_control_zone = control_zone # zone is online again
-            last_zones_online = zones_online
-            last_zones_playing = zones_playing
-            flexprint('[bold red]Roonmatrix => Coverplayer.setZones (roon build_output) => zones online: ' + str(zones_online) + ', control_zone: ' + str(control_zone) + ', control_id: ' + str(control_id) + ', missing_control_zone: ' + str(missing_control_zone) + ', stopped_control_zone: ' + str(stopped_control_zone) + ', upcoming_control_zone: ' + str(upcoming_control_zone) + '[/bold red]')
-            if stopped_control_zone or missing_control_zone:
-                cover_text_line_parts = []
-                cover_text_line_parts.append(get_message('Zone') + ': ' + control_zone)
-                cover_text_line_parts.append('[offline]' if missing_control_zone else '[inactive]')
-            else:
-                cover_text_line_parts = None
-            Coverplayer.setZones(zones_online, cover_text_line_parts, zone_selection)    
+    try:
+        if display_cover is True:
+            upcoming_control_zone = None # the actual selected roon zone which is coming online again
+            zonestatus_list = get_zone_names()
+            zones_online = zonestatus_list[0]
+            zones_playing = zonestatus_list[1]
+            if last_zones_online != zones_online or last_zones_playing != zones_playing:
+                missing_control_zone = control_zone not in zones_online
+                stopped_control_zone = control_zone not in zones_playing
+                if control_zone not in last_zones_online and control_zone in zones_online:
+                    upcoming_control_zone = control_zone # zone is online again
+                last_zones_online = zones_online
+                last_zones_playing = zones_playing
+                flexprint('[bold red]Roonmatrix => Coverplayer.setZones (roon build_output) => zones online: ' + str(zones_online) + ', control_zone: ' + str(control_zone) + ', control_id: ' + str(control_id) + ', missing_control_zone: ' + str(missing_control_zone) + ', stopped_control_zone: ' + str(stopped_control_zone) + ', upcoming_control_zone: ' + str(upcoming_control_zone) + '[/bold red]')
+                if stopped_control_zone or missing_control_zone:
+                    cover_text_line_parts = []
+                    cover_text_line_parts.append(get_message('Zone') + ': ' + control_zone)
+                    cover_text_line_parts.append('[offline]' if missing_control_zone else '[inactive]')
+                else:
+                    cover_text_line_parts = None
+                Coverplayer.setZones(zones_online, cover_text_line_parts, zone_selection)    
+    except Exception as e:
+        if errorlog is True: flexprint('[red]build_output (display_cover part) error: ' + str(e) + '[/red]')
 
     buildstr = ''
     buildlines = []
@@ -5260,24 +5561,26 @@ def build_output():
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> build output error: [/red]', str(e))
-            flexprint(traceback.format_exc())
+            #flexprint(traceback.format_exc())
 
-    build_seconds = ceil((datetime.now() - build_start).total_seconds())
+    try:
+        build_seconds = ceil((datetime.now() - build_start).total_seconds())
 
-    flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
-    flexprint('')
-
-    if vertical_output == True and len(buildlines) == 0:
-        prepared_displaystr = ''
-    else:
-        to_update = str(buildlines) if vertical_output == True else buildstr
-        prepared_displaystr = to_update
-        flexprint('### buildstr update: ' + str(app_displaystr != to_update))
-        if app_displaystr != to_update:
-            app_displaystr = to_update
-            data_changed = True
-    prepared_vert_strlines = buildlines
-    fetch_output_done = True
+        if vertical_output == True and len(buildlines) == 0:
+            prepared_displaystr = ''
+        else:
+            to_update = str(buildlines) if vertical_output == True else buildstr
+            prepared_displaystr = to_update
+            flexprint('### buildstr update: ' + str(app_displaystr != to_update))
+            if app_displaystr != to_update:
+                app_displaystr = to_update
+                data_changed = True
+        prepared_vert_strlines = buildlines
+        fetch_output_done = True
+        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
+        flexprint('')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]build_output (end part) error: ' + str(e) + '[/red]')
 
 # --- button setup ---
 # button left: play track before
@@ -5294,18 +5597,21 @@ def build_output():
 #     button top: leave zone control mode and switch to new selected zone (save control_id)
 
 if display_cover is False:
-    GPIO.setmode (GPIO.BCM)
-    GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-    GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+    try:
+        GPIO.setmode (GPIO.BCM)
+        GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-    GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
-    GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
-    GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
-    GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
-    GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+        GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
+        GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
+        GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
+        GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
+        GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]GPIO init error: ' + str(e) + '[/red]')
 
 # --- MAIN ---
 if display_cover is False:
@@ -5371,6 +5677,7 @@ try:
         job = executor.submit(start_restserver)
 
         while True:
+            flexprint('main loop playcount: ' + str(playcount) + ', now: ' + str(datetime.now()) + ', fetch_output_time: ' + str(fetch_output_time) + ', fetch_output_in_progress: ' + str(fetch_output_in_progress) + ', fetch_output_done: ' + str(fetch_output_done) + ', output_in_progress: ' + str(output_in_progress) + ', prepared_displaystr empty: ' + str(prepared_displaystr==''))
             if reboot is True:
                 job = executor.submit(do_reboot)
             if do_set_zone_control is True:
@@ -5385,8 +5692,8 @@ try:
             if clock_in_progress == False and fetch_output_in_progress == False and (fetch_output_time is None or datetime.now() > fetch_output_time):
                 # build output string at fetch_output_time
                 fetch_output_in_progress = True
-                job = executor.submit(build_output)
                 remove_completed_threads()
+                job = executor.submit(build_output)
                 jobcount += 1
                 jobs[job] = jobcount
 

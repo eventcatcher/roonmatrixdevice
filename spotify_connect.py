@@ -3,7 +3,7 @@
 #
 # SpotifyConnect Class - Roonmatrix extension to support Spotify Connect
 # Roonmatrix extension class
-# version 1.2.0, date: 08.11.2025
+# version 1.2.0, date: 06.12.2025
 #
 # control and play music via Spotify Connect
 #
@@ -27,21 +27,28 @@ class SpotifyConnect:
         self.spotify = None
         self.display_cover = display_cover
         self.log = log			# log infos on or off
-        self.scope = (
-            "user-read-playback-state "
-            "user-modify-playback-state "
-            "user-read-currently-playing "
-            "user-read-recently-played"
-        )
-        self.force_ipv4_only = force_ipv4_only
-        self.enable_spotify_connect = enable_spotify_connect
-        self.client_id = client_id
-        self.client_secret = client_secret
-        self.spotify_connect_auth_url_callback = spotify_connect_auth_url_callback
-        self.logger = logging.getLogger('spotify_connect')
-        self.spotify_connect_auth_success = False
+
+        self.errorlog = True	# log errors
+        self.debug = False		# log debug messages (variable information)        
         
-        self.auth()
+        try:
+            self.scope = (
+                "user-read-playback-state "
+                "user-modify-playback-state "
+                "user-read-currently-playing "
+                "user-read-recently-played"
+            )
+            self.force_ipv4_only = force_ipv4_only
+            self.enable_spotify_connect = enable_spotify_connect
+            self.client_id = client_id
+            self.client_secret = client_secret
+            self.spotify_connect_auth_url_callback = spotify_connect_auth_url_callback
+            self.logger = logging.getLogger('spotify_connect')
+            self.spotify_connect_auth_success = False
+        
+            self.auth()
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]init error:[/red] {e}")
 
     def flexprint(self, str, objStr = None):
         if self.log is True:
@@ -57,25 +64,24 @@ class SpotifyConnect:
                     self.logger.info(str, objStr)
 
     def check_token(self):
-        # Test: Verbindung prüfen
+        # check connection
         try:
             user = self.spotify.me()
             if user:
-                self.flexprint(f"✅ Spotify OAuth erfolgreich für {user['display_name']}\n")
+                self.flexprint(f"✅ Spotify OAuth successful for {user['display_name']}\n")
                 return True
             else:
-                self.flexprint("✅ Spotify ClientCredentials aktiv\n")
+                self.flexprint("✅ Spotify ClientCredentials active\n")
                 return False
         except Exception as e:
-            self.flexprint("Verbindungstest fehlgeschlagen:", e)
+            if self.errorlog is True: self.flexprint("Spotify Connect Connection test failed:", e)
             return False
     
     def auth(self):
-        """
-        Initializes Spotipy.
-        - enable_spotify_connect => True: use oAuth2 Spotify Connect, False: use ClientCredentials (read-only access)
-        - Forces IPv4 if desired (force_ipv4_only)
-        """
+        # Initializes Spotipy.
+        # - enable_spotify_connect => True: use oAuth2 Spotify Connect, False: use ClientCredentials (read-only access)
+        # Forces IPv4 if desired (force_ipv4_only)
+
         if not self.client_id or not self.client_secret:
             raise ValueError("Spotify credentials missing (client_id or client_secret).")
 
@@ -147,50 +153,60 @@ class SpotifyConnect:
     def get_spotify_connect_auth_state(self):
         return self.spotify_connect_auth_success
 
-    # Allgemeine Infos
     def devices(self):
-        if self.spotify is None:
+        try:
+            if self.spotify is None:
+                return []
+            devices = self.spotify.devices()
+            return devices.get("devices", []) if "devices" in devices else []
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect devices error:[/red] {e}")
             return []
-        devices = self.spotify.devices()
-        return devices.get("devices", []) if "devices" in devices else []
 
     def current_or_last_played_track(self):
-        if self.spotify is None:
-            return
-        item = None
-        playback = self.spotify.current_playback()
-        if not playback or not playback.get("item"):
-            recent = self.spotify.current_user_recently_played(limit=1)
-            if not recent or not recent.get("items"):
-                return None
+        try:
+            if self.spotify is None:
+                return
+            item = None
+            playback = self.spotify.current_playback()
+            if not playback or not playback.get("item"):
+                recent = self.spotify.current_user_recently_played(limit=1)
+                if not recent or not recent.get("items"):
+                    return None
+                else:
+                    item = recent["items"][0]["track"]
             else:
-                item = recent["items"][0]["track"]
-        else:
-            item = playback["item"]
-        if item is None:
-            return
+                item = playback["item"]
+            if item is None:
+                return
 
-        artist = ", ".join([a["name"] for a in item["artists"]])
-        cover = item['album']['images'][0]['url'] if ('album' in item and 'images' in item['album'] and len(item['album']['images']) > 0 and 'url' in item['album']['images'][0]) else ''
-        status = "playing" if (playback is not None and 'is_playing' in playback and playback['is_playing']) else "paused"
-        shuffle = "true" if (playback is not None and 'shuffle_state' in playback and playback['shuffle_state']) else "false"
-        repeat = "true" if (playback is not None and 'repeat_state' in playback and playback['repeat_state'] != 'off') else "false"
-        position = int(playback['progress_ms'] / 1000) if (playback is not None and 'progress_ms' in playback) else 0
-        total = int(item['duration_ms'] / 1000)
+            artist = ", ".join([a["name"] for a in item["artists"]])
+            cover = item['album']['images'][0]['url'] if ('album' in item and 'images' in item['album'] and len(item['album']['images']) > 0 and 'url' in item['album']['images'][0]) else ''
+            status = "playing" if (playback is not None and 'is_playing' in playback and playback['is_playing']) else "paused"
+            shuffle = "true" if (playback is not None and 'shuffle_state' in playback and playback['shuffle_state']) else "false"
+            repeat = "true" if (playback is not None and 'repeat_state' in playback and playback['repeat_state'] != 'off') else "false"
+            position = int(playback['progress_ms'] / 1000) if (playback is not None and 'progress_ms' in playback) else 0
+            total = int(item['duration_ms'] / 1000)
         
-        return {"zone": "SpotifyConnect", "status": status, "artist": artist, "album": item["album"]["name"], "track": item["name"], "shuffle": shuffle, "repeat": repeat, "position": position, "total": total, "sourcetype": "stream", "id": item['uri'], "cover": cover}
-
-    # Wiedergabe-Steuerung
-    def play(self, device_id=None, context_uri=None, uris=None, offset=None):
-        if self.spotify is None:
+            return {"zone": "SpotifyConnect", "status": status, "artist": artist, "album": item["album"]["name"], "track": item["name"], "shuffle": shuffle, "repeat": repeat, "position": position, "total": total, "sourcetype": "stream", "id": item['uri'], "cover": cover}
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect current or last played track error:[/red] {e}")
             return
-        self.flexprint('SpotifyConnect => play with device_id: ' + str(device_id))
-        if uris:
-            self.spotify.start_playback(device_id=device_id, uris=uris)
-        elif context_uri:
-            self.spotify.start_playback(device_id=device_id, context_uri=context_uri, offset=offset)
-        else:
-            self.spotify.start_playback(device_id=device_id)
+
+    # playback controls
+    def play(self, device_id=None, context_uri=None, uris=None, offset=None):
+        try:
+            if self.spotify is None:
+                return
+            self.flexprint('SpotifyConnect => play with device_id: ' + str(device_id))
+            if uris:
+                self.spotify.start_playback(device_id=device_id, uris=uris)
+            elif context_uri:
+                self.spotify.start_playback(device_id=device_id, context_uri=context_uri, offset=offset)
+            else:
+                self.spotify.start_playback(device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect play error:[/red] {e}")
 
     def transfer_playback(self, device_id=None, force_play = False):
         if self.spotify is None:
@@ -206,33 +222,51 @@ class SpotifyConnect:
         if self.spotify is None:
             return
         self.flexprint('SpotifyConnect => pause with device_id: ' + str(device_id))
-        self.spotify.pause_playback(device_id=device_id)
+        try:
+            self.spotify.pause_playback(device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect pause error:[/red] {e}")
 
     def next(self, device_id=None):
         if self.spotify is None:
             return
-        self.spotify.next_track(device_id=device_id)
+        try:
+            self.spotify.next_track(device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect next error:[/red] {e}")
 
     def previous(self, device_id=None):
         if self.spotify is None:
             return
-        self.spotify.previous_track(device_id=device_id)
+        try:
+            self.spotify.previous_track(device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect previous error:[/red] {e}")
 
     def set_volume(self, volume_percent, device_id=None):
         # volume_percent: 0–100
         if self.spotify is None:
             return
-        volume_percent = max(0, min(100, int(volume_percent)))
-        self.spotify.volume(volume_percent, device_id=device_id)
+        try:
+            volume_percent = max(0, min(100, int(volume_percent)))
+            self.spotify.volume(volume_percent, device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect set volume error:[/red] {e}")
 
     # Shuffle / Repeat
     def shuffle(self, state=True, device_id=None):
         if self.spotify is None:
             return
-        self.spotify.shuffle(state, device_id=device_id)
+        try:
+            self.spotify.shuffle(state, device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect shuffle error:[/red] {e}")
 
     def repeat(self, mode="context", device_id=None):
-        # mode: 'off', 'track' oder 'context'
+        # mode: 'off', 'track' or 'context'
         if self.spotify is None:
             return
-        self.spotify.repeat(mode, device_id=device_id)
+        try:
+            self.spotify.repeat(mode, device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect repeat error:[/red] {e}")
