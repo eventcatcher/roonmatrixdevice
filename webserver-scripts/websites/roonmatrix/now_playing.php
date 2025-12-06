@@ -28,6 +28,7 @@ try {
 	$search = isset($_POST['search']) ? $_POST['search'] : ''; 
 	$detail = isset($_POST['detail']) ? $_POST['detail'] : ''; 
 	$detail2 = isset($_POST['detail2']) ? $_POST['detail2'] : '';
+	$searchresult_maxlength = isset($_POST['searchresult_maxlength']) ? $_POST['searchresult_maxlength'] : 100;
 
     $playcontrols = [
     	'previous',
@@ -150,6 +151,7 @@ try {
 
                     on remove_duplicates(the_list)
                         set searchTerm to "$search"
+                        set maxResults to $searchresult_maxlength
                         set return_list to {}
                         repeat with artistName in the_list
                             if artistName is not missing value then
@@ -157,6 +159,7 @@ try {
                                     set artistName to my replaceText("\"", "[dq]", artistName)
                                     set artistStr to "\"" & artistName & "\""
                                     if return_list does not contain artistStr then set end of return_list to (contents of artistStr)
+                                    if (count of return_list) ≥ maxResults then exit repeat
                                 end if
                             end if
                         end repeat
@@ -171,6 +174,7 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                     	set searchTerm to "$search"
+                    	set maxResults to $searchresult_maxlength
                     	set foundPlaylists to {}
 
                         set allPlaylists to every playlist
@@ -182,6 +186,7 @@ try {
                     				set playlistStr to "\"" & playlistNameEscaped & "\""
                     				if playlistStr is not in foundPlaylists then
                     					set end of foundPlaylists to playlistStr
+                    					if (count of foundPlaylists) ≥ maxResults then exit repeat
                     				end if
                     			end if
                     		end if
@@ -198,6 +203,7 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                         set targetArtist to "$search"
+                        set maxResults to $searchresult_maxlength
                         set albumList to {}
                         set trackList to every track of library playlist 1 whose artist is targetArtist
 
@@ -207,6 +213,7 @@ try {
                             set albumStr to "\"" & albumName & "\""
                             if albumStr is not in albumList then
                                 set end of albumList to albumStr
+                                if (count of albumList) ≥ maxResults then exit repeat
                             end if
                         end repeat
 
@@ -271,12 +278,14 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                         set searchTerm to "$search"
+                        set maxResults to $searchresult_maxlength
                         set return_list to {}
                         set results to name of (every track of playlist 1 whose name contains searchTerm) as list
                         repeat with trackName in results
                             set trackName to my replaceText("\"", "[dq]", trackName)
                             set trackStr to "\"" & trackName & "\""
                             if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
+                            if (count of return_list) ≥ maxResults then exit repeat
                         end repeat
                         return return_list
                     end tell
@@ -289,6 +298,7 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                         set searchTerm to "$search"
+                        set maxResults to $searchresult_maxlength
                         set return_list to {}
                         repeat with obj in (every track of playlist 1 whose name contains searchTerm)
                             set trackName to name of obj
@@ -297,6 +307,7 @@ try {
                             set trackArtist to my replaceText("\"", "[dq]", trackArtist)
                             set trackStr to "\"" & trackName & "|" & trackArtist & "\""
                             if return_list does not contain trackStr then set end of return_list to (contents of trackStr)
+                            if (count of return_list) ≥ maxResults then exit repeat
                         end repeat
                         return return_list
                     end tell
@@ -309,6 +320,7 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                         set searchTerm to "$search"
+                        set maxResults to $searchresult_maxlength
                         if searchTerm = "" then
                             set allGenres to genre of every track of library playlist 1
                         else
@@ -320,6 +332,7 @@ try {
                             set genreStr to "\"" & mygenre & "\""
                             if mygenre is not "" and mygenre is not " " and genreStr is not in uniqueGenres then
                                 set end of uniqueGenres to genreStr
+                                if (count of uniqueGenres) ≥ maxResults then exit repeat
                             end if
                         end repeat
 
@@ -337,6 +350,7 @@ try {
 					$script = <<<EOD
                     tell application "$source"
                         set searchTerm to "$search"
+                        set maxResults to $searchresult_maxlength
                         set foundArtists to {}
 
                         set allTracks to every track of library playlist 1 whose genre starts with searchTerm
@@ -347,6 +361,7 @@ try {
                                 set artistStr to "\"" & artistName & "\""
                                 if artistStr is not in foundArtists then
                                     set end of foundArtists to artistStr
+                                    if (count of foundArtists) ≥ maxResults then exit repeat
                                 end if
                             end if
                         end repeat
@@ -539,17 +554,19 @@ try {
 
             $codes = [
             	'artists',
+            	'playlists',
             	'albums',
             	'albumtracks',
+            	'playlist-tracks',
             	'tracks',
             	'tracks-with-artist',
-            	'playlists',
-            	'playlist-tracks',
-            	'artist-and-album-by-track-id',
-            	'play-playlist-track',
             	'genres',
             	'artists-in-genre',
-            	'applemusic-play-url'
+            	'artist-and-album-by-track-id',
+            	'playtrack-with-id',
+            	'playtrack',
+            	'play-playlist-track',
+            	'applemusic-play-url',
             ];
 
             if (in_array($code,$codes) == true) {
@@ -562,10 +579,6 @@ try {
 		        header('Content-Type: application/json; charset=utf-8');
 		        echo $output;
 		    }
-            if ($code=='playtrack' || $code=='playtrack-id') {
-		        header('Content-Type: application/json; charset=utf-8');
-		        echo $cmd;
-            }
 		}
 	}
 
