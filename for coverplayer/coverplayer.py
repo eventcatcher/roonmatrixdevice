@@ -1470,7 +1470,11 @@ class Coverplayer:
                     if playpos is None:
                         if self.debug is True:
                             self.flexprint('[red]CoverPlayer: poll_queue setpos => playpos: is None[/red]')
-                    else:
+                    if (playpos is None and playlen == -1) or (playpos is not None and playpos == -1):
+                        self.playpos_next = -1
+                    if (playpos is None or is_radio is True) and playlen != -1:
+                        self.playpos_next = 0
+                    if playpos is not None or playlen != self.playlen:
                         self.update_playpos_next(func, self.playpos, playpos, is_radio)
                     self.set_playlen_text_or_remove_progressbar_if_changed_and_negative_set_endless_symbol_if_undefined(playpos, playlen)
 

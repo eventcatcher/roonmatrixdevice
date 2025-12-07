@@ -3373,7 +3373,11 @@ def spotify_get_artist_albums(artist_id):
         if isinstance(spotify, str):
             return spotify
 
-        results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album')
+        limit=searchresult_maxlength
+        if limit > 50:
+            limit = 50
+
+        results = spotify.artist_albums('spotify:artist:' + artist_id, album_type='album', limit=limit)	# limit not working here
         if 'items' not in results or len(results['items']) == 0:
             return []
 
@@ -3526,6 +3530,7 @@ def on_search(is_stream, value, zone, type):
                         meta = {"stream": is_stream, "zonetype": zonetype, "type": 'artists', 'search': value}
                         return [meta, artists]
                     artist = artists[0]
+                    value = artist['name']
                     albums = spotify_get_artist_albums(artist['id'])
                     if isinstance(albums, str):
                         return albums
@@ -3569,6 +3574,7 @@ def on_search(is_stream, value, zone, type):
                         return [meta, playlists]
                     playlists = list(map(lambda obj: {"name": obj['name'], "id": obj['id']}, playlists))
                     playlist = playlists[0]
+                    value = playlist['name']
                     tracks = spotify_get_playlist_tracks(playlist['id'])
                     if isinstance(tracks, str):
                         return tracks
@@ -3600,6 +3606,7 @@ def on_search(is_stream, value, zone, type):
                     artist = artists[0]
                     if is_stream is True:
                         albums = applemusic_get_albums_by_artist_name(artist['name'].replace('"','\\\"'))
+                        value = artist['name'].replace('"','\\\"')
                     else:
                         raw = send_webserver_zone_control(control_id, True, 'albums', artist)
                         value = artist.replace('"','\\\"')
@@ -3669,7 +3676,7 @@ def on_search(is_stream, value, zone, type):
                     else:
                         playlist_id = playlist
                         playlist_name = playlist.replace('"','\\\"')
-                        raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist)
+                        raw = send_webserver_zone_control(control_id, True, 'playlist-tracks', playlist_name)
                         flexprint('#applemusic raw: ' + str(raw))
                         if raw is None:
                             return [meta, []]
@@ -4837,7 +4844,7 @@ def roon_state_callback(event, changed_ids):
                     print('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
                     if state == 'playing':
                         if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
-                            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2)
+                            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
                             print('roon_state_callback => allowed: ' + str(allowed))
                             if allowed is True:
                                 flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
@@ -4871,7 +4878,7 @@ def check_webserver_for_playouts():
                 lines = get_playing_apple_or_spotify(webservers_zones,['force>'])
             else:
                 displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
-            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2)
+            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
 
             flexprint('[blue]### check_webserver_for_playouts done => allowed: ' + str(allowed) + ', output_in_progress: ' + str(output_in_progress) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None') + '[/blue]')
             if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
@@ -5161,7 +5168,7 @@ def get_zone_names():
                 if 'now_playing' in zone:
                     zones_playing.append(zone['display_name'])
 
-        items = channels.items()
+        items = [[x, y] for x, y in channels.items()]
         for id, name in items:
             if name == 'webserver':
                 zones_online.append(id)

@@ -36,8 +36,7 @@ class TouchTreeview(ttk.Treeview):
         self.ignore_select = False
         self.maxRowCount = 7 # too much rows and maxsize too big results in a exception: BadAlloc (insufficient resources for operation)
         self.rowheight = 90 # maxsize, for bigger height exception throws: BadAlloc (insufficient resources for operation)
-        #self.scroll_speed = 1.0 / ((self.rowheight * self.maxRowCount) / 0.7)
-        self.scroll_speed = 0.001111111
+        self.scroll_speed = 1.0 / ((self.rowheight * self.maxRowCount) / 0.7)
 
         self.bind("<ButtonPress-1>", self.on_touch_start)
         self.bind("<B1-Motion>", self.on_touch_scroll)
@@ -112,7 +111,7 @@ class ItemList:
             self.master = Tk()
             self.inpstr = StringVar()
             self.minLength = 3
-            self.maxRowCount = 6 # too much rows and maxsize too big results in a exception: BadAlloc (insufficient resources for operation)
+            self.maxRowCount = 7 # too much rows and maxsize too big results in a exception: BadAlloc (insufficient resources for operation)
             self.rowheight = 90 # maxsize, for bigger height exception throws: BadAlloc (insufficient resources for operation)
             self.fontSize = 24
             self.gray = "#383838"
@@ -245,7 +244,8 @@ class ItemList:
             listFrame = Frame(self.master, height=1)
             listFrame.rowconfigure(0, weight=1)
 
-            self.listbox = TouchTreeview(listFrame, style="mystyle.Treeview", show="tree", height=self.maxRowCount)
+            height = (self.maxRowCount - 1) if self.meta['listname'] is not None else self.maxRowCount
+            self.listbox = TouchTreeview(listFrame, style="mystyle.Treeview", show="tree", height=height)
                         
             self.listbox.pack(side="left", fill="both", expand=True)
             self.listbox.tag_configure("enabled_row", foreground="black")
