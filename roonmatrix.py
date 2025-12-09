@@ -45,7 +45,7 @@ import socket
 import ssl
 import urllib3
 from unidecode import unidecode
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from pydantic import BaseModel
 import uvicorn
 import subprocess
@@ -60,6 +60,7 @@ from functools import partial
 from pathlib import Path
 import hashlib
 from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
+import zlib
 
 from luma.led_matrix.device import max7219
 from luma.core.interface.serial import spi, noop
@@ -118,7 +119,7 @@ def flexprint(str, objStr = None):
             if sys.stdout.isatty() or logger is None:
                 print(str, objStr)
             else:
-                logger.info(str, objStr)
+                logger.info(f"{str} {objStr}")
 
 def force_ipv4_only():
     # IPv4-only patch (for DS-Lite as example)
@@ -1026,15 +1027,17 @@ async def rest_log(params: LogParams):
         hours = params.hours
         if display_cover is True:
             result = filter_lines_by_hours('/home/coverplayer/FTP/logs/roonmatrix.log', hours)
-            return result
+            cmpstr = zlib.compress(result.encode('utf-8'))
         else:
             cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
             flexprint('LOG CMD: ' + cmd)
             result = subprocess.run(shlex.split(cmd), capture_output=True)
-            return result.stdout
+            cmpstr = zlib.compress(result.stdout)
+            
+        return Response(content=cmpstr, media_type="application/octet-stream")
     except Exception as e:
         if errorlog is True: flexprint('[red]get log error: ' + str(e) + '[/red]')
-        return 'log error'
+        return Response(content=b'log error', media_type="text/plain")
 
 class SetupParams(BaseModel):
     data: str
@@ -2065,7 +2068,7 @@ def refresh_output_data(force = False):
 
     try:
         fetch_new = fetch_output_time is None or (fetch_output_time + timedelta(0,60)) < datetime.now()
-        print('refresh_output_data => force: ' + str(force) + ', fetch_new: ' + str(fetch_new))
+        flexprint('refresh_output_data => force: ' + str(force) + ', fetch_new: ' + str(fetch_new))
         if fetch_new is True or force is True:
             flexprint('fetched output data too old (' + (fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None') + ') => refresh')
             fetch_output_time = None
@@ -4841,11 +4844,11 @@ def roon_state_callback(event, changed_ids):
                         data_changed = True
 
                     # state variants: loading, playing, paused, stopped, not running
-                    print('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
+                    flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
                     if state == 'playing':
                         if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
                             allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
-                            print('roon_state_callback => allowed: ' + str(allowed))
+                            flexprint('roon_state_callback => allowed: ' + str(allowed))
                             if allowed is True:
                                 flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
                                 interrupt_message = True

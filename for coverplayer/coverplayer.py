@@ -49,7 +49,7 @@ class Coverplayer:
                 if sys.stdout.isatty():
                     print(str, objStr)
                 else:
-                    self.logger.info(str, objStr)
+                    self.logger.info(f"{str} {objStr}")
 
     def flexprint_list(self, mylist):
         if self.searchlog is True:
@@ -368,7 +368,7 @@ class Coverplayer:
     def _gui_loop(self):
         self.errorlog = True 	# log errors
         self.debug = False   	# log debug messages (memory and variable information)
-        self.searchlog = True 	# log search data
+        self.searchlog = False 	# log search data
         self.log = True      	# log infos on or off
 
         try:

@@ -61,7 +61,7 @@ class SpotifyConnect:
                 if sys.stdout.isatty():
                     print(str, objStr)
                 else:
-                    self.logger.info(str, objStr)
+                    self.logger.info(f"{str} {objStr}")
 
     def check_token(self):
         # check connection

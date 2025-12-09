@@ -103,7 +103,7 @@ class ItemList:
                 if sys.stdout.isatty():
                     print(str, objStr)
                 else:
-                    self.logger.info(str, objStr)
+                    self.logger.info(f"{str} {objStr}")
 
     def init(self):
         try:
