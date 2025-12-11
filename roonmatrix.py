@@ -32,7 +32,7 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system, environ, stat, remove, rename, getcwd
+from os import path, system, environ, stat, remove, rename, getcwd, makedirs
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -79,10 +79,14 @@ startlog = True # log start and config information
 errorlog = True # log errors
 log = True      # log infos on or off
 debug = False   # log debug messages (memory and variable information)
+logger = None
 
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 base_translations_path = '../FTP/translations/'
+
+TEMP_STATE_DIR = "/dev/shm/roonmatrix"
+TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
 
 def init_logging():
     max_size_in_mb = 10
@@ -132,6 +136,21 @@ def force_ipv4_only():
     except Exception as e:
         flexprint("Warning: IPv4 forcing failed:", e)
 
+def save_selected_zone_state(name: str):
+    if not path.exists(TEMP_STATE_DIR):
+        makedirs(TEMP_STATE_DIR, exist_ok=True)
+    with open(TEMP_STATE_FILE, "w") as f:
+        json.dump({"zone": name}, f)
+
+def load_selected_zone_state():
+    if not path.exists(TEMP_STATE_FILE):
+        return None
+    try:
+        with open(TEMP_STATE_FILE, "r") as f:
+            return json.load(f).get("zone")
+    except:
+        return None
+        
 base_path = '/usr/local/Roon/etc/'
 # core id and token files
 idfile = base_path + 'coreid.txt'
@@ -175,7 +194,6 @@ if display_cover is True:
     logger = logging.getLogger('main')
     serial = None
 else:
-    logger = None
     serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
 ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
@@ -623,6 +641,7 @@ internet_connection_url = config['SYSTEM']['internet_connection_url'] # url used
 separator = ' ' + config['SYSTEM']['separator'] + ' ' # string which is used to separate the different content messages
 zone_autoswitch = eval(config['SYSTEM']['zone_autoswitch']) if 'zone_autoswitch' in config['SYSTEM'] else True # true: switch to another zone if channel_id is lost (offline), false: switch zone only manually
 control_zone = config['SYSTEM']['control_zone'] # name of default roon or webserver zone (example: MacStudio-Spotify, which is a concatenation of webserver zone name, hyphen, and app name like Spotify or AppleMusic) the buttons will control (play, pause, next, track before, shuffle)
+restart_with_last_selected_zone = eval(config['SYSTEM']['restart_with_last_selected_zone']) if 'restart_with_last_selected_zone' in config['SYSTEM'] else True # if True, the actually selected zone will temporary saved into temp file in RAM filesystem to display the cover of last selected zone on script error, and is loaded after automatic script-restart.
 zone_control_map = literal_eval(config['SYSTEM']['zone_control_map']) # map names of control zones to shorter variant (for matrix with less modules)
 zone_control_timeout = int(config['SYSTEM']['zone_control_timeout']) # max time in seconds the zone control mode is displayed (before the message playout restarts)
 map_zone_control = eval(config['SYSTEM']['map_zone_control']) # true: map zone control names, false: no mapping
@@ -679,11 +698,15 @@ audioinfo_timer = int(config['CLOCK']['audioinfo_timer']) # time in seconds the 
 rss_show = eval(config['RSS']['rss_show']) # show rss feeds (true) or not (False)
 rss_feeds = literal_eval(config['RSS']['feeds']) # list of rss feeds (fields: name, count, url), count = number of messages to display
 
+new_control_zone = None
+if restart_with_last_selected_zone is True:
+    new_control_zone = load_selected_zone_state()
+
 if startlog is True:
     flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     flexprint('')
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
-    flexprint("[bold green4]default control zone (buttons): " + control_zone + '[/bold green4]')
+    flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
     flexprint('')
     flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
     flexprint('[green4]music_required: ' + str(music_required is True) + '[/green4]')
@@ -698,6 +721,11 @@ if startlog is True:
     flexprint('')
     flexprint('=======================================================================================')
     flexprint('')
+
+if new_control_zone is not None and len(new_control_zone) > 0:
+	control_zone = new_control_zone
+if restart_with_last_selected_zone is True:
+    save_selected_zone_state(control_zone)
 
 initialization_done = False # flag: initialization part is done (before threads are started)
 check_audioinfo = False # flag: automatic background check of zones is enabled or not while clock will be displayed
@@ -833,6 +861,7 @@ async def rest_config():
                             {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},                          
                             {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
                             {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                            {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
                             {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                             {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
@@ -920,6 +949,7 @@ async def rest_config():
                         {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
                         {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
                         {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                        {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
                         {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
                         {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
                         {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
@@ -1664,6 +1694,7 @@ def getInfoData():
 
     return {
         "name": hostName,
+        "countrycode": countrycode,
         "time": timeStr,
         "debug": debug,
         "startlog": startlog,
@@ -1680,8 +1711,11 @@ def getInfoData():
         "zone_control_timeout": zone_control_timeout,
         "map_zone_control": map_zone_control,
         "socket_timeout": socket_timeout,
+        "ipv4_only": ipv4_only,
         "screensaver_seconds": screensaver_seconds,
+        "zone_autoswitch": zone_autoswitch,
         "control_zone": control_zone,
+        "restart_with_last_selected_zone": restart_with_last_selected_zone,
         "playing_headline" : playing_headline,
         "exclusive_audio_mode": exclusive_audio_mode,
         "exclusive_active_zone": exclusive_active_zone,
@@ -2285,6 +2319,7 @@ def pressed_up(channel):
                 do_set_zone_control = False
                 control_id = control_id_update
                 control_zone = control_id
+                save_selected_zone_state(control_zone)
                 clear_display('pressed_up')
                 refresh_output_data(True)
                 flexprint('close zone control setup')
@@ -2421,6 +2456,7 @@ def pressed_enter(channel):
                 do_set_zone_control = False
                 control_id = control_id_update
                 control_zone = control_id
+                save_selected_zone_state(control_zone)
                 clear_display('pressed_enter')
                 refresh_output_data(True)
                 flexprint('close zone control setup')
@@ -2746,12 +2782,14 @@ def zone_selection(selection):
         if selection in channels.keys() and (channels[selection] == 'webserver' or channels[selection] == 'spotifyconnect'):
             control_id = selection
             control_zone = selection
+            save_selected_zone_state(control_zone)
         else:
             if selection in channels.values():
                 for id, name in channels.items():
                     if channels[id] != 'webserver' and channels[id] != 'spotifyconnect' and name == selection:
                         control_id = id
                         control_zone = name
+                        save_selected_zone_state(control_zone)
                         break
         is_playing_last = None
         shuffle_on_last = None
