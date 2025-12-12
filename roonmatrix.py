@@ -32,7 +32,7 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system, environ, stat, remove, rename, getcwd, makedirs
+from os import path, system, environ, stat, remove, rename, getcwd, makedirs, umask
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -51,6 +51,7 @@ import uvicorn
 import subprocess
 import shlex
 import crypt
+from builtins import print as rawprint
 from rich import print
 import traceback
 import logging
@@ -116,14 +117,26 @@ def flexprint(str, objStr = None):
     if log is True:
         if objStr is None:
             if sys.stdout.isatty() or logger is None:
-                print(str)
+                if display_cover is True:
+                    print(str) # output as colored text with rich (rich overrides original print)
+                else:
+                    if sys.stdout.isatty():
+                        print(str) # output as colored text with rich (rich overrides original print)
+                    else:
+                        rawprint(str) # output as raw text with rich like color and text style tags
             else:
-                logger.info(str)
+                logger.info(str) # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
         else:
             if sys.stdout.isatty() or logger is None:
-                print(str, objStr)
+                if display_cover is True:
+                    print(str, objStr) # output as colored text with rich (rich overrides original print)
+                else:
+                    if sys.stdout.isatty():
+                        print(str, objStr) # output as colored text with rich (rich overrides original print)
+                    else:
+                        rawprint(str, objStr) # output as raw text with rich like color and text style tags
             else:
-                logger.info(f"{str} {objStr}")
+                logger.info(f"{str} {objStr}") # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
 
 def force_ipv4_only():
     # IPv4-only patch (for DS-Lite as example)
@@ -138,6 +151,7 @@ def force_ipv4_only():
 
 def save_selected_zone_state(name: str):
     if not path.exists(TEMP_STATE_DIR):
+        umask(0)
         makedirs(TEMP_STATE_DIR, exist_ok=True)
     with open(TEMP_STATE_FILE, "w") as f:
         json.dump({"zone": name}, f)
@@ -183,10 +197,10 @@ try:
         root = tk.Tk()
         root.destroy()	# TODO muss wieder rein
 except EnvironmentError as e:
-    flexprint(f"[magenta][INFO] GUI not found (headless system): {e}[/magenta]")
+    flexprint(f"[magenta]GUI not found (headless system): {e}[/magenta]")
     display_cover = False
 except Exception as e:
-    flexprint(f"[magenta][ERROR] Error on import of packages to display cover image: {e}[/magenta]")
+    flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
     display_cover = False
 
 if display_cover is True:
@@ -823,9 +837,9 @@ if display_cover is True:
             environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
             environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
         except EnvironmentError as e:
-            flexprint(f"[magenta][INFO] error on set of env vars for Spotify: {e}[/magenta]")
+            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
         except Exception as e:
-            flexprint(f"[magenta][ERROR] error on set of env vars for Spotify: {e}[/magenta]")
+            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
 
 # --- REST SERVER START ---
 

@@ -95,12 +95,12 @@ class ItemList:
     def flexprint(self, str, objStr = None):
         if self.log is True:
             if objStr is None:
-                if sys.stdout.isatty():
+                if sys.stdout.isatty() or self.logger is None:
                     print(str)
                 else:
                     self.logger.info(str)
             else:
-                if sys.stdout.isatty():
+                if sys.stdout.isatty() or self.logger is None:
                     print(str, objStr)
                 else:
                     self.logger.info(f"{str} {objStr}")

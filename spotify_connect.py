@@ -15,6 +15,7 @@
 
 import requests
 import ssl
+from builtins import print as rawprint
 from rich import print
 import sys
 import logging
@@ -56,14 +57,26 @@ class SpotifyConnect:
         if self.log is True:
             if objStr is None:
                 if sys.stdout.isatty() or self.logger is None:
-                    print(str)
+                    if self.display_cover is True:
+                        print(str) # output as colored text with rich (rich overrides original print)
+                    else:
+                        if sys.stdout.isatty():
+                            print(str) # output as colored text with rich (rich overrides original print)
+                        else:
+                            rawprint(str) # output as raw text with rich like color and text style tags
                 else:
-                    self.logger.info(str)
+                    self.logger.info(str) # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
             else:
                 if sys.stdout.isatty() or self.logger is None:
-                    print(str, objStr)
+                    if self.display_cover is True:
+                        print(str, objStr) # output as colored text with rich (rich overrides original print)
+                    else:
+                        if sys.stdout.isatty():
+                            print(str, objStr) # output as colored text with rich (rich overrides original print)
+                        else:
+                            rawprint(str, objStr) # output as raw text with rich like color and text style tags
                 else:
-                    self.logger.info(f"{str} {objStr}")
+                    self.logger.info(f"{str} {objStr}") # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
 
     def check_token(self):
         # check connection
@@ -232,6 +245,7 @@ class SpotifyConnect:
     def next(self, device_id=None):
         if self.spotify is None:
             return
+        self.flexprint('SpotifyConnect => next with device_id: ' + str(device_id))
         try:
             self.spotify.next_track(device_id=device_id)
         except Exception as e:
@@ -240,6 +254,7 @@ class SpotifyConnect:
     def previous(self, device_id=None):
         if self.spotify is None:
             return
+        self.flexprint('SpotifyConnect => previous with device_id: ' + str(device_id))
         try:
             self.spotify.previous_track(device_id=device_id)
         except Exception as e:
@@ -249,6 +264,7 @@ class SpotifyConnect:
         # volume_percent: 0–100
         if self.spotify is None:
             return
+        self.flexprint('SpotifyConnect => set volume with ' + str(volume_percent) + ' percent and device_id: ' + str(device_id))
         try:
             volume_percent = max(0, min(100, int(volume_percent)))
             self.spotify.volume(volume_percent, device_id=device_id)
@@ -259,6 +275,7 @@ class SpotifyConnect:
     def shuffle(self, state=True, device_id=None):
         if self.spotify is None:
             return
+        self.flexprint('SpotifyConnect => shuffle with state: ' + str(state) + ' and device_id: ' + str(device_id))
         try:
             self.spotify.shuffle(state, device_id=device_id)
         except Exception as e:
@@ -268,6 +285,7 @@ class SpotifyConnect:
         # mode: 'off', 'track' or 'context'
         if self.spotify is None:
             return
+        self.flexprint('SpotifyConnect => repeat with mode: ' + str(mode) + ' and device_id: ' + str(device_id))
         try:
             self.spotify.repeat(mode, device_id=device_id)
         except Exception as e:
