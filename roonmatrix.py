@@ -2555,7 +2555,7 @@ def send_webserver_zone_control(control_id, do_async, code, search = '', detail 
                         return result
                     playcontrols = ['previous','next','stop','play','shuffle','noshuffle','repeat','norepeat']
                     if code in playcontrols:
-                        flexprint('playcontrol result: ' + str(result))
+                        flexprint('[bold magenta]playcontrol result: [/bold magenta]' + str(result))
                         get_webserver_results_and_fast_updating_of_coverplayer_and_app(name_parts[0],url,result)
                     return result
                 else:
@@ -2818,7 +2818,7 @@ def zone_selection(selection):
     return [is_playing, shuffle_on, repeat_on, track_id]
 
 def on_control_click(action):
-    flexprint("on_control_click:", action)
+    flexprint("[bold magenta]on_control_click:[/bold magenta]", action)
     try:
         if action=='backward':
             play_previous(control_id)
@@ -3543,12 +3543,13 @@ def replace_escaped_list(items):
 
 def is_json_str(raw):
     try:
-        not_valid = isinstance(raw, str) is False or len(raw)<2 or (raw[0:1] != '{' and raw[0:1] != '[') or (raw[-1:] != '}' and raw[-1:] != ']')
+        trimmed_raw = raw.strip() if isinstance(raw, str) else raw
+        not_valid = isinstance(raw, str) is False or len(trimmed_raw)<2 or (trimmed_raw[0:1] != '{' and trimmed_raw[0:1] != '[') or (trimmed_raw[-1:] != '}' and trimmed_raw[-1:] != ']')
         if not_valid is True:
             if raw is None or isinstance(raw, str) is False:
                 flexprint('json string not valid => is None: ' + str(raw is None) + ', is string: ' + str(isinstance(raw, str)) + ', str: ' + str(raw))
             else:
-                flexprint('json string not valid => len: ' + str(len(raw)) + ', first char: ' + raw[0:1] + ', last char: ' + raw[-1:])
+                flexprint('json string not valid => len: ' + str(len(trimmed_raw)) + ', first char: ' + trimmed_raw[0:1] + ', last char: ' + trimmed_raw[-1:])
         return not_valid is False
     except Exception as e:
         if errorlog is True: flexprint('[red]is json str error: ' + str(e) + '[/red]')
@@ -4784,7 +4785,7 @@ def roon_state_callback(event, changed_ids):
 
     try:
         matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
-        coverplayer_allowed = display_cover is True and initialization_done is True and fetch_output_in_progress is False and output_in_progress is True
+        coverplayer_allowed = display_cover is True and initialization_done is True
         flexprint('[bold blue]roon_state_callback start @ ' + datetime.now().strftime("%H:%M:%S") + '=> matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + ', event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids) + '[/bold blue]')
         if matrix_allowed is True or coverplayer_allowed is True:
             update_roon_channels() # TODO: should this be enabled here too?
@@ -4875,6 +4876,9 @@ def roon_state_callback(event, changed_ids):
                             flexprint('[bold red]Roonmatrix => Coverplayer.setpos (roon_state_callback) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
                             Coverplayer.setpos(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
 
+                coverplayer_allowed = display_cover is True and initialization_done is True and fetch_output_in_progress is False and output_in_progress is True
+                if matrix_allowed is False and coverplayer_allowed is False:
+                    return # update Coverplayer metadata but update displaystr only if output is in progress
 
                 if name not in channels.values():
                     playing = '{"status": "not running"}'
@@ -5130,7 +5134,7 @@ def get_new_control_id_by_webserver_control_zone():
                     flexprint('[bold magenta]set control_id to webserver control-zone: ' + str(control_zone) + '[/bold magenta]')
                 else:
                     if debug is True:
-                        flexprint('[bold magenta]set control_id to webserver control-zone: => skip[/bold magenta]')
+                        flexprint('set control_id to webserver control-zone => skip')
     except Exception as e:
         if errorlog is True: flexprint('[red]get new control id by webserver control zone error: ' + str(e) + '[/red]')
 
@@ -5152,7 +5156,8 @@ def get_new_control_id_by_webserver_zone_online():
                                 control_id = key
                                 flexprint('[bold magenta]set control_id to online webserver player zone: ' + key + '[/bold magenta]')
                             else: 
-                                flexprint('[bold magenta]set control_id to online webserver player zone: => skip[/bold magenta]')                        
+                                if debug is True:
+                                    flexprint('set control_id to online webserver player zone => skip')                        
                         break
     except Exception as e:
         if errorlog is True: flexprint('[red]get new control id by webserver zone online error: ' + str(e) + '[/red]')
@@ -5176,7 +5181,8 @@ def get_new_control_id_by_roon_control_zone():
                                 control_id = key
                                 flexprint('[bold magenta]set control_id to roon control-zone: ' + str(control_zone) + '[/bold magenta]')
                             else:
-                                flexprint('[bold magenta]set control_id to roon control-zone: => skip[/bold magenta]')                        
+                                if debug is True:
+                                    flexprint('set control_id to roon control-zone => skip')                        
                         break
     except Exception as e:
         if errorlog is True: flexprint('[red]get new control id by roon control zone error: ' + str(e) + '[/red]')
@@ -5203,7 +5209,8 @@ def get_new_control_id_by_roon_zone_playing():
                                     control_id = id
                                     flexprint('[bold magenta]set control_id to roon playing zone: ' + name + '[/bold magenta]')
                                 else:
-                                    flexprint('[bold magenta]set control_id to roon playing zone: => skip[/bold magenta]')
+                                    if debug is True:
+                                        flexprint('set control_id to roon playing zone => skip')
                             return
     except Exception as e:
         if errorlog is True: flexprint('[red]get new control id by roon zone playing error: ' + str(e) + '[/red]')
@@ -5262,7 +5269,8 @@ def get_new_control_id_by_roon_zone_online():
                                 control_id = key
                                 flexprint('[bold magenta]set control_id to roon online zone: ' + channels[key] + '[/bold magenta]')
                             else:
-                                flexprint('[bold magenta]set control_id to roon online zone: => skip[/bold magenta]')                        
+                                if debug is True:
+                                    flexprint('set control_id to roon online zone => skip')                        
                         break
     except Exception as e:
         if errorlog is True: flexprint('[red]get new control id by roon zone online error: ' + str(e) + '[/red]')
@@ -5293,7 +5301,8 @@ def remove_completed_threads():
     if do_set_zone_control is False:
         try:
             for job in as_completed(jobs):
-                flexprint('delete job ' + str(jobs[job]))
+                if debug is True:
+                    flexprint('delete job ' + str(jobs[job]))
                 del jobs[job]
                 if debug is True:
                     get_ram_info()
@@ -5739,7 +5748,8 @@ try:
         job = executor.submit(start_restserver)
 
         while True:
-            flexprint('main loop playcount: ' + str(playcount) + ', now: ' + str(datetime.now()) + ', fetch_output_time: ' + str(fetch_output_time) + ', fetch_output_in_progress: ' + str(fetch_output_in_progress) + ', fetch_output_done: ' + str(fetch_output_done) + ', output_in_progress: ' + str(output_in_progress) + ', prepared_displaystr empty: ' + str(prepared_displaystr==''))
+            if debug is True:
+                flexprint('main loop playcount: ' + str(playcount) + ', now: ' + str(datetime.now()) + ', fetch_output_time: ' + str(fetch_output_time) + ', fetch_output_in_progress: ' + str(fetch_output_in_progress) + ', fetch_output_done: ' + str(fetch_output_done) + ', output_in_progress: ' + str(output_in_progress) + ', prepared_displaystr empty: ' + str(prepared_displaystr==''))
             if reboot is True:
                 job = executor.submit(do_reboot)
             if do_set_zone_control is True:

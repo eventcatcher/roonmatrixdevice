@@ -1315,7 +1315,7 @@ class Coverplayer:
                             zone = self.text[0].split(':')[1].strip()
                             self.set_tracklist_button(zone)
                         else:
-                            self.switch_button_state(self.tracklist_btn, False)                                
+                            self.switch_button_state(self.tracklist_btn, False)               
                     self.set_search_button()
         except Exception as e:
             if self.errorlog is True: self.flexprint("[red]wakeup error:[/red]", e)
