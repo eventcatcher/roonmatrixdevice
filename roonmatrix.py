@@ -1517,6 +1517,8 @@ def get_librespot_devicemap():
 
 def set_librespot_device(device):
     flexprint('set_librespot_device: ' + str(device))
+    if device is None or device == '':
+        return 
     try:
         temp_path = '/var/tmp/librespot_device_temp.txt'
 
@@ -1571,6 +1573,8 @@ def set_librespot_format(fmt):
 
 def set_shairport_device(device):
     flexprint('set_shairport_device: ' + str(device))
+    if device is None or device == '':
+        return 
     try:
         temp_path = '/var/tmp/shairport_device_temp.txt'
 
