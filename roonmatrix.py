@@ -617,12 +617,18 @@ webcheck_update_interval = int(config['WEBSERVERS']['webcheck_update_interval'])
 webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
 webserver_head_request_timeout = int(config['WEBSERVERS']['webserver_head_request_timeout']) # time in seconds a webserver should send a response to head request (onlinecheck)
 webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
-spotify_client_id = config['WEBSERVERS']['spotify_client_id'] if 'spotify_client_id' in config['WEBSERVERS'] else '' # spotify web api client id
-spotify_client_secret = config['WEBSERVERS']['spotify_client_secret'] if 'spotify_client_secret' in config['WEBSERVERS'] else '' # spotify web api client secret
-enable_spotify_connect = eval(config['WEBSERVERS']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
-applemusic_team_id = config['WEBSERVERS']['applemusic_team_id'] if 'applemusic_team_id' in config['WEBSERVERS'] else '' # applemusic web api team id
-applemusic_key_id = config['WEBSERVERS']['applemusic_key_id'] if 'applemusic_key_id' in config['WEBSERVERS'] else '' # applemusic web api key id
-applemusic_secret_key = config['WEBSERVERS']['applemusic_secret_key'] if 'applemusic_secret_key' in config['WEBSERVERS'] else '' # applemusic web api secret key
+
+spotify_client_id = config['STREAMING']['spotify_client_id'] if 'spotify_client_id' in config['STREAMING'] else '' # spotify web api client id
+spotify_client_secret = config['STREAMING']['spotify_client_secret'] if 'spotify_client_secret' in config['STREAMING'] else '' # spotify web api client secret
+enable_spotify_connect = eval(config['STREAMING']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
+applemusic_team_id = config['STREAMING']['applemusic_team_id'] if 'applemusic_team_id' in config['STREAMING'] else '' # applemusic web api team id
+applemusic_key_id = config['STREAMING']['applemusic_key_id'] if 'applemusic_key_id' in config['STREAMING'] else '' # applemusic web api key id
+applemusic_secret_key = config['STREAMING']['applemusic_secret_key'] if 'applemusic_secret_key' in config['STREAMING'] else '' # applemusic web api secret key
+
+librespot_device = config['AUDIO']['librespot_device'] if 'librespot_device' in config['AUDIO'] else 'plughw:0,0' # Spotify Connect (librespot) audio device name
+librespot_bitrate = int(config['AUDIO']['librespot_bitrate']) if 'librespot_bitrate' in config['AUDIO'] else 320 # Spotify Connect (librespot) audio device bitrate (96, 160, or 320)
+librespot_format = config['AUDIO']['librespot_format'] if 'librespot_format' in config['AUDIO'] else 'S16' # Spotify Connect (librespot) audio device format (F64, F32, S32, S24, S24_3, S16)
+shairport_device = config['AUDIO']['shairport_device'] if 'shairport_device' in config['AUDIO'] else 'plughw:0,0' # Airport 2 (shareport) audio device name
 
 roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
 force_roon_update = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
@@ -804,6 +810,7 @@ active_spotify_connect_zone = None
 spotify_devices = []
 webcheck_timer = None
 weather_timer = None
+callbacks_initialized = False
 
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
@@ -860,6 +867,7 @@ async def rest_info():
 
 @app.get("/config/")
 async def rest_config():
+    devicemap = get_librespot_devicemap()
     if display_cover is True:
         return {
             "config": config,
@@ -922,13 +930,27 @@ async def rest_config():
                             {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
                             {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
                             {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
-                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']},
-                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['WEBSERVERS']['enable_spotify_connect']},
-                            {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['WEBSERVERS']['applemusic_team_id']},
-                            {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['WEBSERVERS']['applemusic_key_id']},
-                            {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['WEBSERVERS']['applemusic_secret_key']}
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        ]
+                    },
+                    {
+                        "name": "STREAMING",
+                        "items": [
+                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']},
+                            {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['STREAMING']['applemusic_team_id']},
+                            {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['STREAMING']['applemusic_key_id']},
+                            {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['STREAMING']['applemusic_secret_key']}
+                        ]
+                    },
+                    {
+                        "name": "AUDIO",
+                        "items": [
+                            {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
+                            {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
+                            {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                            
+                            {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
                         ]
                     },
                 ]
@@ -1012,10 +1034,24 @@ async def rest_config():
                         {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
                         {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
                         {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                        {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']},
-                        {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['WEBSERVERS']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                        {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['WEBSERVERS']['spotify_client_secret']},
-                        {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['WEBSERVERS']['enable_spotify_connect']}
+                        {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                    ]
+                },
+                {
+                    "name": "STREAMING",
+                    "items": [
+                        {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                        {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                        {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
+                    ]
+                },
+                {
+                    "name": "AUDIO",
+                    "items": [
+                        {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
+                        {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
+                        {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                          
+                        {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
                     ]
                 },
                 {
@@ -1088,7 +1124,7 @@ class SetupParams(BaseModel):
 
 @app.post("/setup/")
 async def rest_setup(params: SetupParams):
-    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device
     
     try:
         jsonObj = json.loads(params.data)
@@ -1130,6 +1166,22 @@ async def rest_setup(params: SetupParams):
                     config[areaKey][fieldKey] = fieldValue
                     ipv4_only = eval(fieldValue)
                     set_ipv4_only(ipv4_only)
+                if areaKey=='AUDIO' and fieldKey=='librespot_device' and fieldValue!=str(librespot_device):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_device = str(fieldValue)
+                    set_librespot_device(librespot_device)
+                if areaKey=='AUDIO' and fieldKey=='librespot_bitrate' and fieldValue!=str(librespot_bitrate):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_bitrate = str(fieldValue)
+                    set_librespot_bitrate(librespot_bitrate)
+                if areaKey=='AUDIO' and fieldKey=='librespot_format' and fieldValue!=str(librespot_format):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_format = str(fieldValue)
+                    set_librespot_format(librespot_format)
+                if areaKey=='AUDIO' and fieldKey=='shairport_device' and fieldValue!=str(shairport_device):
+                    config[areaKey][fieldKey] = fieldValue
+                    shairport_device = str(fieldValue)
+                    set_shairport_device(shairport_device)
                 if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
                     config[areaKey][fieldKey] = fieldValue
                     alternative_layout = eval(fieldValue)
@@ -1146,7 +1198,7 @@ async def rest_setup(params: SetupParams):
         fileinfo = translation_exist(countrycode, False)
         exist = fileinfo[0]
         if exist:
-            flexprint('translation file ' + countrycode + 'exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
+            flexprint('translation file ' + countrycode + ' exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
             if updateHash!='':
                 config['LANGUAGE']['translation_hash'] = updateHash
 
@@ -1442,6 +1494,98 @@ def set_ipv4_only(enable):
         subprocess.run(["sudo", "sysctl", "-p"], check=True)	# reload kernel settings
     except Exception as e:
         flexprint('[red]set_ipv4_only error: ' + str(e) + '[/red]')
+
+def get_librespot_devicemap():
+    cmd = '/usr/bin/cat /proc/asound/cards'
+    response = subprocess.run(shlex.split(cmd), capture_output=True)
+    result = [x for x in response.stdout.decode('utf8').splitlines(True)]
+    
+    devicemap = {}
+    for idx,line in enumerate(result):
+        if '[' in line and ':' in line:
+            pos = line.find('[')
+            if pos == -1:
+                continue
+            key = 'plughw:' + line[:pos].strip() + ',0'
+            pos = line.find(':')
+            if pos == -1:
+                continue
+            name = line[1 + pos:].strip()
+            devicemap[key] = name
+    flexprint('get_librespot_devicemap: ' + str(devicemap))   
+    return devicemap
+
+def set_librespot_device(device):
+    flexprint('set_librespot_device: ' + str(device))
+    try:
+        temp_path = '/var/tmp/librespot_device_temp.txt'
+
+        with open('/etc/raspotify/conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "LIBRESPOT_DEVICE=" in data[idx]:
+                data[idx] = 'LIBRESPOT_DEVICE="' + str(device) + '"' + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+
+        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+    except Exception as e:
+        flexprint('[red]set_librespot_device error: ' + str(e) + '[/red]')
+
+def set_librespot_bitrate(bitrate):
+    flexprint('set_librespot_bitrate: ' + str(bitrate))
+    try:
+        temp_path = '/var/tmp/librespot_device_temp.txt'
+
+        with open('/etc/raspotify/conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "LIBRESPOT_BITRATE=" in data[idx]:
+                data[idx] = 'LIBRESPOT_BITRATE=' + str(bitrate) + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+
+        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+    except Exception as e:
+        flexprint('[red]set_librespot_bitrate error: ' + str(e) + '[/red]')
+
+def set_librespot_format(fmt):
+    flexprint('set_librespot_format: ' + str(fmt))
+    try:
+        temp_path = '/var/tmp/librespot_device_temp.txt'
+
+        with open('/etc/raspotify/conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "LIBRESPOT_FORMAT=" in data[idx]:
+                data[idx] = 'LIBRESPOT_FORMAT="' + str(fmt) + '"' + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+
+        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+    except Exception as e:
+        flexprint('[red]set_librespot_format error: ' + str(e) + '[/red]')
+
+def set_shairport_device(device):
+    flexprint('set_shairport_device: ' + str(device))
+    try:
+        temp_path = '/var/tmp/shairport_device_temp.txt'
+
+        with open('/etc/shairport-sync.conf', 'r') as file:
+            data = file.readlines()
+        for idx,line in enumerate(data):
+            if "output_device =" in data[idx]:
+                data[idx] = '        output_device = "' + str(device) + '";' + "\n"
+        with open(temp_path, 'w') as file:
+            file.writelines( data )
+        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/shairport-sync.conf"], check=True)
+
+        subprocess.run(["sudo", "systemctl", "restart", "shairport-sync"], check=True)	# restart shairport sync
+    except Exception as e:
+        flexprint('[red]set_shairport_device error: ' + str(e) + '[/red]')
 
 def filter_lines_by_hours(base_filepath, hours_back):
     try:
@@ -1753,6 +1897,10 @@ def getInfoData():
         "webserver_head_request_timeout": webserver_head_request_timeout,
         "webserver_url_request_timeout": webserver_url_request_timeout,
         "enable_spotify_connect": enable_spotify_connect,
+        "librespot_device": librespot_device,
+        "librespot_bitrate": librespot_bitrate,
+        "librespot_format": librespot_format,
+        "shairport_device": shairport_device,
         "weather_show": weather_show,
         "location": location,
         "weather_update_interval": weather_update_interval,
@@ -1947,9 +2095,22 @@ def is_port_on_ip_open(ip,port):
 
 def is_roon_server_active(ip,port):
     global roon_servers
-
-    active = is_port_on_ip_open(ip,port)
+    
+    active = False
+    for test in range (1, 10):
+        active = is_port_on_ip_open(ip,port)
+        if active is True:
+            flexprint('[green]roon server active: True[/green]')
+            if len(roon_servers) == 0:
+                flexprint('[green]roon server reactivation after scan failure (ip: ' + str(ip) + ', port: ' + str(port) + ')[/green]')
+                roon_servers = [ip, int(port)] # set it again (after not active state)
+            break
+        else:
+            flexprint('[red]roon server active (test ' + str(test) + '): False[/red]')
+            time.sleep(1)
+        
     if active is False:
+        flexprint('[bold red]roon server active (result): False[/bold red]')
         roon_servers = []
     return active
 
@@ -2211,10 +2372,12 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
                         if enable is True:
                             shufflemode[control_id] = 'shuffle'
                             if send is True:
+                                flexprint('[bold magenta]set roon shuffle: True[/bold magenta]')
                                 roonapi.shuffle(control_id, True)
                         else:
                             shufflemode[control_id] = 'noshuffle'
                             if send is True:
+                                flexprint('[bold magenta]set roon shuffle: False[/bold magenta]')
                                 roonapi.shuffle(control_id, False)
         if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
             data_changed = True
@@ -2259,10 +2422,12 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
                         if enable is True:
                             repeatmode[control_id] = 'repeat'
                             if send is True:
+                                flexprint('[bold magenta]set roon repeat: loop[/bold magenta]')
                                 roonapi.repeat(control_id, 'loop')	# loop, loop_one, disabled
                         else:
                             repeatmode[control_id] = 'norepeat'
                             if send is True:
+                                flexprint('[bold magenta]set roon repeat: disabled[/bold magenta]')
                                 roonapi.repeat(control_id, 'disabled')
         if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
             data_changed = True
@@ -4271,6 +4436,7 @@ def set_data_changed_and_web_playouts_raw(result, name):
         if errorlog is True: flexprint('[red]set data changed and web playouts raw error: ' + str(e) + '[/red]')
 
 def webserver_zone_not_running_coverplayer_updates(result, name, obj):
+    global callbacks_initialized
     if name == '-SpotifyConnect' and obj is None:
         return
     try:
@@ -4296,6 +4462,7 @@ def webserver_zone_not_running_coverplayer_updates(result, name, obj):
                 track_id = ''
                 flexprint('[bold red]Roonmatrix => Coverplayer.update (web): not running[/bold red]')
                 Coverplayer.update(-1, -1, None, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+                callbacks_initialized = True
     except Exception as e:
         if errorlog is True: flexprint('[red]webserver zone not running coverplayer updates error: ' + str(e) + '[/red]')
 
@@ -4336,7 +4503,7 @@ def add_separator(displaystr, playprops):
     return displaystr
 
 def webserver_zone_running_coverplayer_updates(obj, playprops):
-    global last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last
+    global callbacks_initialized, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last
     try:
         playpos = int(obj['position'])
         playlen = int(obj['total'])
@@ -4370,6 +4537,7 @@ def webserver_zone_running_coverplayer_updates(obj, playprops):
                 zones_playing = zonestatus_list[1]
                 flexprint('[bold red]Roonmatrix => Coverplayer.update (web) => cover: ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
                 Coverplayer.update(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+                callbacks_initialized = True
             else:
                 flexprint('[bold red]Roonmatrix => Coverplayer.setpos (web): ' + cover_str + ', playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle_on: ' + str(shuffle_on) + ', repeat_on: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')            
                 Coverplayer.setpos(playpos, playlen, cover_str, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts)
@@ -4784,6 +4952,11 @@ def roon_state_callback(event, changed_ids):
     global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
 
     try:
+        if len(roon_servers) == 0:
+            is_roon_server_active(core_ip, core_port)
+        if callbacks_initialized is False:
+            return
+        
         matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
         coverplayer_allowed = display_cover is True and initialization_done is True
         flexprint('[bold blue]roon_state_callback start @ ' + datetime.now().strftime("%H:%M:%S") + '=> matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + ', event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids) + '[/bold blue]')
@@ -5369,7 +5542,7 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
     return roon_zones
 
 def build_output():
-    global prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
+    global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
 
     try:
@@ -5492,6 +5665,7 @@ def build_output():
                                     
                                     flexprint('[bold red]Roonmatrix => Coverplayer.update (roon build_output) => playpos: ' + str(playpos) + ', playlen: ' + str(playlen) + ', is_playing: ' + str(is_playing) + ', shuffle: ' + str(shuffle_on) + ', repeat: ' + str(repeat_on) + ', track_id: ' + str(track_id) + '[/bold red]')
                                     Coverplayer.update(playpos, playlen, cover_url, is_playing, sourcetype, is_radio, shuffle_on, repeat_on, track_id, cover_text_line_parts, zones_online, zone_selection, on_control_click, on_search, on_itemclick)
+                                    callbacks_initialized = True
 
                     if zone["display_name"] not in channels.values():
                         playing = '{"status": "not running"}'
@@ -5650,6 +5824,8 @@ def build_output():
         fetch_output_done = True
         flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
         flexprint('')
+        if display_cover is False:
+            callbacks_initialized = True
     except Exception as e:
         if errorlog is True: flexprint('[red]build_output (end part) error: ' + str(e) + '[/red]')
 
