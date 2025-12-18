@@ -1851,6 +1851,7 @@ def getInfoData():
     nowStr = str(datetime.now())
     lastIdleTimeStr = last_idle_time.strftime("%Y-%m-%d %H:%M:%S") if last_idle_time is not None else 'None'
     zoneControlLastUpdateTimeStr = zone_control_last_update_time.strftime("%Y-%m-%d %H:%M:%S") if zone_control_last_update_time is not None else 'None'
+    spotify_connect_auth_success = False
     if enable_spotify_connect is True and spotify_connect is not None:
         spotify_connect_auth_success = spotify_connect.get_spotify_connect_auth_state()
 
@@ -1975,8 +1976,13 @@ def getInfoData():
         "repeat_on": repeat_on,
         "track_id": track_id,
         "clients": list(map(lambda obj: str(obj.client), clients)),
-        "spotify_auth_url": '*' if spotify_connect_auth_success is True else spotify_auth_url
+        "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success)
     }
+
+def get_spotify_auth_url(spotify_connect_auth_success):
+    if enable_spotify_connect is False:
+        return '*'
+    return '*' if spotify_connect_auth_success is True else spotify_auth_url
 
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
     try:
