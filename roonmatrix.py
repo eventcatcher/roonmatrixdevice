@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.2.0, date: 06.12.2025
+# version 1.2.3, date: 10.01.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.2.0, date: 06.12.2025'
+scriptVersion = '1.2.3, date: 10.01.2026'
 
 from threading import Timer
 from datetime import datetime, timedelta, timezone
@@ -821,6 +821,28 @@ def spotify_connect_web_auth(url):
     spotify_auth_url = url
     data_changed = True
 
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: list[WebSocket] = []
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.append(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.remove(websocket)
+
+    async def send_json(self, data: dict, websocket: WebSocket):
+        await websocket.send_json(data)
+
+    async def send_text(self, message: str, websocket: WebSocket):
+        await websocket.send_text(message)
+
+    async def broadcast(self, data: str):
+        for connection in self.active_connections:
+            await connection.send_json(data)
+
+ws_manager = ConnectionManager()
 spotify_connect = None
 if spotify_client_id!='' and spotify_client_secret!='':
     try:
@@ -1344,26 +1366,33 @@ async def rest_live_control(params: LiveControlParams):
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     global data_changed
+    ws_ping_seconds = 15
+    last_ping = datetime.now()
     try:
-        await websocket.accept()
-        clients.add(websocket)
-        flexprint(f"websocket client connected: {websocket.client}")
+        await ws_manager.connect(websocket)
+        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client connected: {websocket.client}")
         
         while True:
             await asyncio.sleep(1)
             if data_changed is True:
                 data_changed = False
                 data = getInfoData()
-                flexprint('websocket sending info data')
-                await websocket.send_json(data)
+                flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] sending info data to: {websocket.client}")
+                await ws_manager.send_json(data, websocket)
+                message = await websocket.receive_text()
+                flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] received from {websocket.client}: {message}")
+            else:
+                if (last_ping + timedelta(0,ws_ping_seconds)) < datetime.now():
+                    last_ping = datetime.now()
+                    flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] ping client: {websocket.client}")
+                    await ws_manager.send_text('ping', websocket) # send ping every x seconds (ws_ping_seconds)
     except WebSocketDisconnect:
-        flexprint(f"websocket client disconnected: {websocket.client}")
+        ws_manager.disconnect(websocket)
+        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client disconnected: {websocket.client}")
     except Exception as e:
         if errorlog is True:
-            flexprint(f"websocket error: {e}")
+            flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} error[/bold red]: {e}")
             flexprint(str(data))
-    finally:
-        clients.discard(websocket)
 
 def start_restserver():
     try:
@@ -2322,6 +2351,7 @@ def set_play_mode(control_id, enable, send, do_async=True):
                 playmode[control_id] = 'stop'
             if control_id in playmode and playmode_last != playmode[control_id]:
                 data_changed = True
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playmode changed => set data_changed: True')
 
             if send is True:
                 if channels[control_id]=='webserver':
@@ -2391,6 +2421,7 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
                                 roonapi.shuffle(control_id, False)
         if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
             data_changed = True
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => shufflemode changed => set data_changed: True')
     except Exception as e:
         if errorlog is True: flexprint('[red]set shuffle mode error: ' + str(e) + '[/red]')                
 
@@ -2441,6 +2472,7 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
                                 roonapi.repeat(control_id, 'disabled')
         if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
             data_changed = True
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => repeatmode changed => set data_changed: True')
     except Exception as e:
         if errorlog is True: flexprint('[red]set repeat mode error: ' + str(e) + '[/red]')                
 
@@ -4438,6 +4470,7 @@ def set_data_changed_and_web_playouts_raw(result, name):
         playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
         if playout_changed is True:
             data_changed = True
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => web playout changed => set data_changed: True')
         if result is not None:
             web_playouts_raw[name] = result
         else:
@@ -5070,6 +5103,7 @@ def roon_state_callback(event, changed_ids):
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
                         data_changed = True
+                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts changed (callback, not running) => set data_changed: True')
                     continue
                 else:
                     if cover_url and len(cover_url) > 0:
@@ -5081,6 +5115,7 @@ def roon_state_callback(event, changed_ids):
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
                         data_changed = True
+                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (callback, running) changed => set data_changed: True')
 
                     # state variants: loading, playing, paused, stopped, not running
                     flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
@@ -5684,6 +5719,7 @@ def build_output():
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
                             data_changed = True
+                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, not running) changed => set data_changed: True')
                         continue
                     else:
                         flexprint('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
@@ -5704,6 +5740,7 @@ def build_output():
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
                             data_changed = True
+                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, running) changed => set data_changed: True')
 
                         if state == "playing":
                             roonstr = ''
@@ -5830,6 +5867,7 @@ def build_output():
             if app_displaystr != to_update:
                 app_displaystr = to_update
                 data_changed = True
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => to_update changed (build output) => set data_changed: True')
         prepared_vert_strlines = buildlines
         fetch_output_done = True
         flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')
