@@ -801,7 +801,6 @@ last_zones_playing = [] # list of zone names of all playing zones (backup to che
 last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
 playpos_last = -1 # play position of active zone (backup to check for changes)
 playlen_last = -1 # play length of active zone (backup to check for changes)
-data_changed = False # switch to true if data has changed (playmode,shufflemode,repeatmode,cover,artist,album, or title)
 roon_zones = [] # list of actual roon zones
 spotify_auth_url = ''
 spotify_auth_redirect_url = ''
@@ -811,15 +810,58 @@ spotify_devices = []
 webcheck_timer = None
 weather_timer = None
 callbacks_initialized = False
+ws_update_queue = {}
+infodata_props_to_check = {
+    "control_id",
+    "playmode",
+    "shufflemode",
+    "repeatmode",
+    "channels",
+    "roon_playouts_raw",
+    "web_playouts_raw",
+    "app_displaystr",
+    "spotify_auth_url" 
+}
 
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
+def add_changed_data_to_websocket_queue():
+    global ws_update_queue
+    data = getInfoData()
+    keys = list(ws_update_queue.keys())
+    flexprint('[bold magenta]websocket add_changed_data_to_websocket_queue, keys: ' + str(keys) + '[/bold magenta]')
+    for ip in keys:
+        try:
+            queue = list(ws_update_queue[ip])
+            flexprint('[bold magenta]websocket add_changed_data_to_websocket_queue, ip: ' + str(ip) + ', len: ' + str(len(queue)) + '[/bold magenta]')
+            matched = False
+            for item in queue:
+                matched = True
+                for prop in infodata_props_to_check:
+                    if item[prop] != data[prop]:
+                        matched = False
+                        break
+                if matched == True:
+                    break
+    
+            if matched == False and data['app_displaystr'] != '':
+                flexprint('[bold magenta]websocket add item to queue for device with ip ' + str(ip) + '[/bold magenta]: ' + data['app_displaystr'])
+                queue.append(data)
+                if len(queue) > 3:
+                    ws_update_queue[ip] = queue[-3:]
+                else:
+                    ws_update_queue[ip] = queue
+            else:
+                flexprint('[bold magenta]websocket ignore item to add to ws_update_queue[/bold magenta] => ip: ' + str(ip) + ', matched: ' + str(matched) + ', queue length: ' + str(len(ws_update_queue[ip])) + ', app_displaystr: ' + data['app_displaystr'])
+        except Exception as e:
+            flexprint('[bold red]websocket error on update of ws_update_queue for device with ip ' + str(ip) + '[/bold red], error: ' + str(e))
+
 def spotify_connect_web_auth(url):
     global spotify_auth_url
     spotify_auth_url = url
-    data_changed = True
+    add_changed_data_to_websocket_queue()
 
 class ConnectionManager:
     def __init__(self):
@@ -828,9 +870,12 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         await websocket.accept()
         self.active_connections.append(websocket)
+        clients = list(map(lambda websocket: websocket.client, self.active_connections))
+        flexprint(f"[bold magenta]websocket ConnectionManager @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] len: {len(self.active_connections)} , connections: {clients}")
 
     def disconnect(self, websocket: WebSocket):
         self.active_connections.remove(websocket)
+        flexprint(f"[bold magenta]websocket ConnectionManager @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client disconnected: {websocket.client}")
 
     async def send_json(self, data: dict, websocket: WebSocket):
         await websocket.send_json(data)
@@ -873,7 +918,6 @@ if display_cover is True:
 # --- REST SERVER START ---
 
 app = FastAPI()
-clients = set()
 
 @app.get("/")
 async def rest_index():
@@ -1365,22 +1409,29 @@ async def rest_live_control(params: LiveControlParams):
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    global data_changed
+    global ws_update_queue
     ws_ping_seconds = 15
     last_ping = datetime.now()
     try:
         await ws_manager.connect(websocket)
-        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client connected: {websocket.client}")
+        ip = websocket.client.host
+        data = getInfoData()
+        ws_update_queue[ip] = [data]
+
+        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client connected: {websocket.client}, clients: {','.join(ws_update_queue.keys())}")
         
         while True:
             await asyncio.sleep(1)
-            if data_changed is True:
-                data_changed = False
-                data = getInfoData()
-                flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] sending info data to: {websocket.client}")
+            flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] clients: {','.join(ws_update_queue.keys())}, ")
+            if ip in ws_update_queue and len(ws_update_queue[ip]) > 0:
+                data = ws_update_queue[ip][0]
+                flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] sending info data to: {websocket.client}, app_displaystr: {data['app_displaystr']}")
                 await ws_manager.send_json(data, websocket)
                 message = await websocket.receive_text()
                 flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] received from {websocket.client}: {message}")
+                if message == 'received' and len(ws_update_queue[ip]) > 0:
+                    ws_update_queue[ip].pop(0)
+                    flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] pop queue from {websocket.client}, rest: {len(ws_update_queue[ip])}")
             else:
                 if (last_ping + timedelta(0,ws_ping_seconds)) < datetime.now():
                     last_ping = datetime.now()
@@ -1388,10 +1439,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     await ws_manager.send_text('ping', websocket) # send ping every x seconds (ws_ping_seconds)
     except WebSocketDisconnect:
         ws_manager.disconnect(websocket)
-        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client disconnected: {websocket.client}")
     except Exception as e:
         if errorlog is True:
-            flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} error[/bold red]: {e}")
+            flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} websocket_endpoint error[/bold red]: {e}")
             flexprint(str(data))
 
 def start_restserver():
@@ -2004,7 +2054,6 @@ def getInfoData():
         "shuffle_on": shuffle_on,
         "repeat_on": repeat_on,
         "track_id": track_id,
-        "clients": list(map(lambda obj: str(obj.client), clients)),
         "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success)
     }
 
@@ -2341,7 +2390,7 @@ def getPlaystateFromPlaymode(control_id):
         return False
 
 def set_play_mode(control_id, enable, send, do_async=True):
-    global data_changed, active_spotify_connect_zone
+    global active_spotify_connect_zone
     if control_id is not None and control_id in channels.keys():
         try:
             playmode_last = playmode[control_id] if control_id in playmode else None
@@ -2350,8 +2399,8 @@ def set_play_mode(control_id, enable, send, do_async=True):
             else:
                 playmode[control_id] = 'stop'
             if control_id in playmode and playmode_last != playmode[control_id]:
-                data_changed = True
-                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playmode changed => set data_changed: True')
+                add_changed_data_to_websocket_queue()
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playmode changed => add to websocket update queue')
 
             if send is True:
                 if channels[control_id]=='webserver':
@@ -2381,7 +2430,7 @@ def getShufflestateFromPlaymode(control_id):
         return False
 
 def set_shuffle_mode(control_id, enable, send, do_async=True):
-    global data_changed, active_spotify_connect_zone
+    global active_spotify_connect_zone
     
     try:
         shufflemode_last = shufflemode[control_id] if control_id in shufflemode else None
@@ -2420,8 +2469,8 @@ def set_shuffle_mode(control_id, enable, send, do_async=True):
                                 flexprint('[bold magenta]set roon shuffle: False[/bold magenta]')
                                 roonapi.shuffle(control_id, False)
         if control_id in shufflemode and shufflemode_last != shufflemode[control_id]:
-            data_changed = True
-            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => shufflemode changed => set data_changed: True')
+            add_changed_data_to_websocket_queue()
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => shufflemode changed => add to websocket update queue')
     except Exception as e:
         if errorlog is True: flexprint('[red]set shuffle mode error: ' + str(e) + '[/red]')                
 
@@ -2432,7 +2481,7 @@ def getRepeatstateFromPlaymode(control_id):
         return False
 
 def set_repeat_mode(control_id, enable, send, do_async=True):
-    global data_changed, active_spotify_connect_zone
+    global active_spotify_connect_zone
     
     try:
         repeatmode_last = repeatmode[control_id] if control_id in repeatmode else None
@@ -2471,8 +2520,8 @@ def set_repeat_mode(control_id, enable, send, do_async=True):
                                 flexprint('[bold magenta]set roon repeat: disabled[/bold magenta]')
                                 roonapi.repeat(control_id, 'disabled')
         if control_id in repeatmode and repeatmode_last != repeatmode[control_id]:
-            data_changed = True
-            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => repeatmode changed => set data_changed: True')
+            add_changed_data_to_websocket_queue()
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => repeatmode changed => add to websocket update queue')
     except Exception as e:
         if errorlog is True: flexprint('[red]set repeat mode error: ' + str(e) + '[/red]')                
 
@@ -4462,15 +4511,15 @@ def get_force_mode(displaystr):
         force = True
     return force
 
-def set_data_changed_and_web_playouts_raw(result, name):
-    global data_changed, web_playouts_raw
+def update_websocket_queue_and_web_playouts_raw(result, name):
+    global web_playouts_raw
     try:
         if result.startswith('[') is False:
             result = "[" + result + "]"
         playout_changed = name not in web_playouts_raw or web_playouts_raw[name] != result
         if playout_changed is True:
-            data_changed = True
-            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => web playout changed => set data_changed: True')
+            add_changed_data_to_websocket_queue()
+            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => web playout changed => add to websocket update queue')
         if result is not None:
             web_playouts_raw[name] = result
         else:
@@ -4484,7 +4533,7 @@ def webserver_zone_not_running_coverplayer_updates(result, name, obj):
         return
     try:
         if log is True and obj is not None: flexprint('Webserver ' + name + ' (zone: ' + obj["zone"] + ') in status: ' + obj["status"])
-        set_data_changed_and_web_playouts_raw(result, name)
+        update_websocket_queue_and_web_playouts_raw(result, name)
         if display_cover is True and control_id is not None and control_id in channels.keys() and (channels[control_id]=='webserver' or channels[control_id]=='spotifyconnect') and obj is not None:
             name_parts = control_id.split('-')
             zone = name_parts[1]
@@ -4627,7 +4676,7 @@ def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,resu
                     props = get_name_zone_and_controlled_marker(name, obj, playprops)
 
                     if name not in web_playouts_raw or web_playouts_raw[name] != result:
-                        set_data_changed_and_web_playouts_raw(result, name)
+                        update_websocket_queue_and_web_playouts_raw(result, name)
 
             web_playouts[name] = resultJson
         else:
@@ -4718,7 +4767,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                     has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
                                     if has_changed:
                                         flexprint('webserver ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
-                                        set_data_changed_and_web_playouts_raw(result, name)
+                                        update_websocket_queue_and_web_playouts_raw(result, name)
 
                                         active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='webserver' and name == props['name'] and obj["zone"] == props['zone'])
                                         if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
@@ -4764,7 +4813,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                     has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
                     if has_changed:
                         flexprint('spotify connect zone ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
-                        set_data_changed_and_web_playouts_raw(result, name)
+                        update_websocket_queue_and_web_playouts_raw(result, name)
 
                         active = (control_id is not None and control_id in channels.keys() and channels[control_id]=='spotifyconnect' and name == props['name'] and obj["zone"] == props['zone'])
                         if (force_webserver_update is True and force == True  and (force_active_webserver_zone_only is False or active is True)):
@@ -4992,7 +5041,7 @@ def set_default_zone():
         if errorlog is True: flexprint('[red]set default zone error: ' + str(e) + '[/red]')
 
 def roon_state_callback(event, changed_ids):
-    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, data_changed
+    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last
 
     try:
         if len(roon_servers) == 0:
@@ -5102,8 +5151,8 @@ def roon_state_callback(event, changed_ids):
                     if name not in roon_playouts_raw or roon_playouts_raw[name] != playing:
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
-                        data_changed = True
-                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts changed (callback, not running) => set data_changed: True')
+                        add_changed_data_to_websocket_queue()
+                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts changed (callback, not running) => add to websocket update queue')
                     continue
                 else:
                     if cover_url and len(cover_url) > 0:
@@ -5114,8 +5163,8 @@ def roon_state_callback(event, changed_ids):
                     if playing_data_has_changed is True:            
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
-                        data_changed = True
-                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (callback, running) changed => set data_changed: True')
+                        add_changed_data_to_websocket_queue()
+                        flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (callback, running) changed => add to websocket update queue')
 
                     # state variants: loading, playing, paused, stopped, not running
                     flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
@@ -5587,7 +5636,7 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
     return roon_zones
 
 def build_output():
-    global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, data_changed, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
+    global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
 
     try:
@@ -5718,8 +5767,8 @@ def build_output():
                         if zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
-                            data_changed = True
-                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, not running) changed => set data_changed: True')
+                            add_changed_data_to_websocket_queue()
+                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, not running) changed => add to websocket update queue')
                         continue
                     else:
                         flexprint('actual control_id: ' + str(control_id) + ', control_zone: ' + str(control_zone))
@@ -5739,8 +5788,8 @@ def build_output():
                         if playing_data_has_changed:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
-                            data_changed = True
-                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, running) changed => set data_changed: True')
+                            add_changed_data_to_websocket_queue()
+                            flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (build output, running) changed => add to websocket update queue')
 
                         if state == "playing":
                             roonstr = ''
@@ -5866,8 +5915,8 @@ def build_output():
             flexprint('### buildstr update: ' + str(app_displaystr != to_update))
             if app_displaystr != to_update:
                 app_displaystr = to_update
-                data_changed = True
-                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => to_update changed (build output) => set data_changed: True')
+                add_changed_data_to_websocket_queue()
+                flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => to_update changed (build output) => add to websocket update queue')
         prepared_vert_strlines = buildlines
         fetch_output_done = True
         flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => build output end [time: ' + str(build_seconds) + ' sec]')

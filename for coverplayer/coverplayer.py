@@ -1462,7 +1462,7 @@ class Coverplayer:
                     text_changed = '|'.join(self.text) != '|'.join(text)
                     path_changed = self.path != path
                     if path_changed is True:
-                        self.flexprint('>>>>> >>>> >>> path_changed: ' + str(path_changed) + ', path: ' + str(path) + 'self.path: ' + str(self.path))
+                        self.flexprint('>>>>> >>>> >>> path_changed: ' + str(path_changed) + ', path: ' + str(path) + ', self.path: ' + str(self.path))
                     playing_changed = self.is_playing != is_playing 
 
                     if self.debug is True:
