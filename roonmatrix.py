@@ -5083,6 +5083,8 @@ def roon_state_callback(event, changed_ids):
                     playing = state == "playing"
                     shuffle = zone["settings"]["shuffle"]
                     repeat = zone["settings"]["loop"] != 'disabled'
+                    playpos = zone.get("seek_position")
+                    playlen = zone["now_playing"].get("length")                                   
                     set_play_mode(zone_id, playing, False)
                     set_shuffle_mode(zone_id, shuffle, False)
                     set_repeat_mode(zone_id, repeat, False)
@@ -5105,9 +5107,6 @@ def roon_state_callback(event, changed_ids):
                             cover_text_line_parts.append(get_message('Album') + ': ' + albumFiltered[1:-1] if (len(albumFiltered) > 1 and albumFiltered[0:1]=='"' and albumFiltered[-1:]=='"') else albumFiltered)
                         if trackFiltered != '':
                             cover_text_line_parts.append(get_message('Track') + ': ' + trackFiltered[1:-1] if (len(trackFiltered) > 1 and trackFiltered[0:1]=='"' and trackFiltered[-1:]=='"') else trackFiltered)
-
-                        playpos = zone.get("seek_position")
-                        playlen = zone["now_playing"].get("length")                                   
 
                         cover_changed = cover_url != last_cover_url
                         text_changed = last_cover_text_line_parts != '|'.join(cover_text_line_parts)
@@ -5156,9 +5155,9 @@ def roon_state_callback(event, changed_ids):
                     continue
                 else:
                     if cover_url and len(cover_url) > 0:
-                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
+                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
                     else:
-                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
+                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
                     playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
                     if playing_data_has_changed is True:            
                         roon_playouts_raw[name] = playing
@@ -5714,6 +5713,8 @@ def build_output():
                         playing = state == "playing"
                         shuffle = zone["settings"]["shuffle"]
                         repeat = zone["settings"]["loop"] != 'disabled'
+                        playpos = zone.get("seek_position")
+                        playlen = zone["now_playing"].get("length")                                   
                         zone_id = zone['zone_id']
                         set_play_mode(zone_id, state == "playing", False)
                         set_shuffle_mode(zone_id, shuffle, False)
@@ -5743,8 +5744,6 @@ def build_output():
                                     upcoming_control_zone = None
                                     last_cover_url = cover_url
                                     last_cover_text_line_parts = '|'.join(cover_text_line_parts)
-                                    playpos = zone.get("seek_position")
-                                    playlen = zone["now_playing"].get("length")                                   
                                     playpos_last = playpos
                                     playlen_last = playlen
                                     is_playing_last = is_playing
@@ -5779,9 +5778,9 @@ def build_output():
                         zone_name += zone["display_name"]
 
                         if cover_url and len(cover_url) > 0:
-                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "cover": "' + cover_url + '"}'
+                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
                         else:
-                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + '}'
+                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
                         flexprint('### playing: ' + str(playing))
 
                         playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing

@@ -736,12 +736,14 @@ class Coverplayer:
             control_frame.pack(side = 'bottom', anchor = 'center')
 
             # control buttons close together
-            self.backward_btn = Button(control_frame, image = self.control_icons["backward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("backward"), takefocus = 0)
+            skip_enabled = (self.get_zonetype()=="Roon" and self.playlen is None) == False
+            bg = self.ctrl_btn_bgcolor if skip_enabled else self.btn_disabled_color
+            self.backward_btn = Button(control_frame, image = self.control_icons["backward"], bg = bg, activebackground = bg, bd = 0, command = lambda: self._control("backward") if skip_enabled else lambda: None, takefocus = 0)
             self.backward_btn.pack(side = "left", padx = (5, 5), ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
             icon = self.control_icons["pause"] if self.is_playing else self.control_icons["play"]
             self.play_btn = Button(control_frame, image = icon, bg = self.ctrl_btn_bgcolor, takefocus = 0, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = self._toggle_play)
             self.play_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
-            self.forward_btn = Button(control_frame, image = self.control_icons["forward"], bg = self.ctrl_btn_bgcolor, activebackground = self.ctrl_btn_bgcolor, bd = 0, command = lambda: self._control("forward"), takefocus = 0)
+            self.forward_btn = Button(control_frame, image = self.control_icons["forward"], bg = bg, activebackground = bg, bd = 0, command = lambda: self._control("forward") if skip_enabled else lambda: None, takefocus = 0)
             self.forward_btn.pack(side = "left", padx = 5, ipadx = ctrl_btn_ipad, ipady = ctrl_btn_ipad)
             self.set_play_control()
 
@@ -837,13 +839,18 @@ class Coverplayer:
             else:
                 icon = self.control_icons[action]
 
-            if action == 'backward':
-                self.backward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
-
-            if action == 'forward':
-                self.forward_btn.config(image = icon, bg=self.pending_btn_bgcolor, activebackground=self.pending_btn_bgcolor)
-
             switch_enabled = self.is_radio is False and self.playlen is not None and self.playlen!=-1
+            skip_enabled = (self.get_zonetype()=="Roon" and self.playlen is None) == False
+
+            if skip_enabled and action == 'backward':
+                bg = self.pending_btn_bgcolor if skip_enabled else self.btn_disabled_color
+                self.backward_btn.config(image = icon, command = lambda: self._control("backward") if skip_enabled else lambda: None, bg=bg, activebackground=bg)
+
+            if skip_enabled and action == 'forward':
+                bg = self.pending_btn_bgcolor if skip_enabled else self.btn_disabled_color
+                self.forward_btn.config(image = icon, command = lambda: self._control("forward") if skip_enabled  else lambda: None, bg=bg, activebackground=bg)
+
+ 
             if switch_enabled and (action == 'shuffle_off' or action == 'shuffle_on'):
                 bg = self.pending_btn_small_bgcolor if switch_enabled else self.btn_disabled_color
                 self.shuffle_btn.config(image = icon, command = self._toggle_shuffle if switch_enabled else lambda: None, bg=bg, activebackground=bg)
@@ -863,9 +870,11 @@ class Coverplayer:
                 #self._set_playmode(is_playing)
                 #self.is_playing = is_playing
                 if action == 'backward':
-                    self.backward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
+                    bg = self.ctrl_btn_bgcolor if skip_enabled else self.btn_disabled_color
+                    self.backward_btn.config(image = icon, bg=bg, activebackground=bg)
                 if action == 'forward':
-                    self.forward_btn.config(image = icon, bg=self.ctrl_btn_bgcolor, activebackground=self.ctrl_btn_bgcolor)
+                    bg = self.ctrl_btn_bgcolor if skip_enabled else self.btn_disabled_color
+                    self.forward_btn.config(image = icon, bg=bg, activebackground=bg)
                 #self._set_shufflemode(shuffle_on, playlen)
                 #self.shuffle_on = shuffle_on
                 #self._set_repeatmode(repeat_on, playlen)
@@ -905,6 +914,17 @@ class Coverplayer:
                 self.flexprint('[bold red]CoverPlayer: set_shufflemode: '+ str(mode) + '[/bold red]')
         except Exception as e:
             if self.errorlog is True: self.flexprint(f"[red]set shufflemode error:[/red] {e}")
+
+    def _set_skipmode(self, playlen):
+        try:
+            if self.in_menu_mode is True and self.backward_btn is not None and self.forward_btn is not None:
+                skip_enabled = (self.get_zonetype()=="Roon" and playlen is None) == False
+                bg = self.ctrl_btn_bgcolor if skip_enabled else self.btn_disabled_color
+                self.backward_btn.config(command = lambda: self._control("backward") if skip_enabled else lambda: None, bg=bg, activebackground=bg)
+                self.forward_btn.config(command = lambda: self._control("forward") if skip_enabled else lambda: None, bg=bg, activebackground=bg)
+                self.flexprint('[bold red]CoverPlayer: _set_skipmode (enabled): '+ str(skip_enabled) + '[/bold red]')
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]set skipmode error:[/red] {e}")
 
     def _toggle_repeat(self):
         try:
@@ -1372,10 +1392,11 @@ class Coverplayer:
         try:
             zone_type = (self.zone.split('-')[1].strip()) if (self.zone is not None and len(self.zone.split('-'))==2 and (self.zone.endswith('-Apple Music') or self.zone.endswith('-Spotify') or self.zone.endswith('-SpotifyConnect'))) else 'Roon'
             switch_enabled = self.zone is not None and (zone_type == 'Spotify' or zone_type == 'Apple Music' or (self.missing_zone is False and self.stopped_zone is False))
+            skip_enabled = (self.get_zonetype()=="Roon" and self.playlen is None) == False
 
-            self.switch_playcontrol_button_state(self.backward_btn, lambda: self._control("backward"), switch_enabled)      
+            self.switch_playcontrol_button_state(self.backward_btn, lambda: self._control("backward"), switch_enabled and skip_enabled)      
             self.switch_playcontrol_button_state(self.play_btn, self._toggle_play, switch_enabled)
-            self.switch_playcontrol_button_state(self.forward_btn, lambda: self._control("forward"), switch_enabled)
+            self.switch_playcontrol_button_state(self.forward_btn, lambda: self._control("forward"), switch_enabled and skip_enabled)
         except Exception as e:
             if self.errorlog is True: self.flexprint(f"[red]set play control error:[/red] {e}")
 
@@ -1410,6 +1431,7 @@ class Coverplayer:
 
                         self._set_shufflemode(shuffle_on, playlen)
                         self._set_repeatmode(repeat_on, playlen)
+                        self._set_skipmode(playlen)
 
                         self.is_playing = is_playing
                         self.sourcetype = sourcetype
@@ -1484,6 +1506,7 @@ class Coverplayer:
                     self._set_playmode(playmode)
                     self._set_shufflemode(shuffle_on, playlen)
                     self._set_repeatmode(repeat_on, playlen)
+                    self._set_skipmode(playlen)
                     
                     if self.text is not None and len(self.text) > 0 and (path_changed or text_changed or playing_changed):
                         self.flexprint('[bold red]setpos wakeup => path_changed: ' + str(path_changed) + ', text_changed: ' + str(text_changed) + ', playing_changed: ' + str(playing_changed) + '[/bold red]')
