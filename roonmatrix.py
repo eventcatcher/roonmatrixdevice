@@ -1037,8 +1037,8 @@ async def rest_config():
                         {"name": "led_block_orientation", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED Block Orientation", "unit": "", "value": config['SYSTEM']['led_block_orientation']},
                         {"name": "led_rotate", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED rotation", "unit": "", "value": config['SYSTEM']['led_rotate']},
                         {"name": "led_inreverse", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED in-reverse", "unit": "", "value": config['SYSTEM']['led_inreverse']},
-                        {"name": "led_scroll_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED scroll delay", "unit": "ms", "value": config['SYSTEM']['led_scroll_delay']},
-                        {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                        {"name": "led_scroll_delay", "editable": True, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50", "value": config['SYSTEM']['led_scroll_delay']},
+                        {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200", "value": config['SYSTEM']['led_vertical_scroll_delay']},
                         {"name": "led_contrast", "editable": True, "type": {"type": "int(1,255)", "structure": []}, "label": "LED contrast", "unit": "1-255", "value": config['SYSTEM']['led_contrast']},
                         {"name": "controlswitch_gpio_top", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button top", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_top']},
                         {"name": "controlswitch_gpio_down", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button down", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_down']},
@@ -1742,11 +1742,9 @@ def output():
             flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
 
             if vertical_output is True:
-                delaySec = led_vertical_scroll_delay/1000
-                show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
+                show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT))
             else:
-                delaySec = led_scroll_delay/1000
-                show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT), scroll_delay=delaySec)
+                show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT))
             flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
     except Exception as e:
         if errorlog is True: flexprint('[red]matrix output error: ' + str(e) + '[/red]')
@@ -2062,6 +2060,12 @@ def get_spotify_auth_url(spotify_connect_auth_success):
         return '*'
     return '*' if spotify_connect_auth_success is True else spotify_auth_url
 
+def get_next_fetch_output_time_relative(estimated_seconds):
+    running_start = datetime.now()
+    estimated_end = running_start + timedelta(0,estimated_seconds)
+    fetch_output_time = estimated_end - timedelta(0,build_seconds * 2)
+    return fetch_output_time
+
 def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
     try:
         font = font or DEFAULT_FONT
@@ -2088,16 +2092,19 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
         if errorlog is True: flexprint('[red]get next fetch output time error: ' + str(e) + '[/red]')
         return None
 
-def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, scroll_delay=0.03):
-    global interrupt_message
+def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None):
+    global interrupt_message, fetch_output_time
 
     if display_cover is True:
         interrupt_message = False
         return
 
     try:
-        fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
+        scroll_delay = led_scroll_delay/1000
+        led_scroll_delay_active = led_scroll_delay
+        fps = 0 if scroll_delay == 0 else (1.0 / scroll_delay)
         regulator = framerate_regulator(fps)
+
         font = font or DEFAULT_FONT
         with canvas(device) as draw:
             w, h = textsize(msg, font)
@@ -2114,6 +2121,16 @@ def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, sc
             with regulator:
                 virtual.set_position((i, 0))
                 i += 1
+            
+            if led_scroll_delay_active != led_scroll_delay:
+                led_scroll_delay_active = led_scroll_delay
+                scroll_delay = led_scroll_delay/1000
+                fps = 0 if scroll_delay == 0 else (1.0 / scroll_delay)
+                regulator = framerate_regulator(fps)
+                dots_rest = 1 + w + x - i
+                estimated_seconds = ceil(dots_rest/fps)
+                fetch_output_time = get_next_fetch_output_time_relative(estimated_seconds)
+
         interrupt_message = False
 
         if do_set_zone_control is True:
@@ -2121,18 +2138,20 @@ def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None, sc
     except Exception as e:
         if errorlog is True: flexprint('[red]show message interruptable error: ' + str(e) + '[/red]')
 
-def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None, scroll_delay=0.03):
-    global interrupt_message
+def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None):
+    global interrupt_message, fetch_output_time
 
     if display_cover is True:
         interrupt_message = False
         return
 
     try:
-        fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
+        scroll_delay = led_vertical_scroll_delay/1000
+        led_vertical_scroll_delay_active = led_vertical_scroll_delay
+        fps = 0 if scroll_delay == 0 else (1.0 / scroll_delay)
         regulator = framerate_regulator(fps)
+        
         font = font or DEFAULT_FONT
-
         virtual = viewport(device, width=device.width, height=device.height * (len(lines) + 2))
 
         with canvas(virtual) as draw:
@@ -2149,6 +2168,17 @@ def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, fo
                 with regulator:
                     virtual.set_position((0, y))
                     y += 1
+
+                if led_vertical_scroll_delay_active != led_vertical_scroll_delay:
+                    led_vertical_scroll_delay_active = led_vertical_scroll_delay
+                    scroll_delay = led_vertical_scroll_delay/1000
+                    fps = 0 if scroll_delay == 0 else (1.0 / scroll_delay)
+                    regulator = framerate_regulator(fps)
+                    lines_rest = len(lines) + 1 - row
+                    dots_rest = 1 + (len(lines) + 1) * device.height - y
+                    estimated_seconds = lines_rest * vertical_scroll_delay + ceil(dots_rest/fps)
+                    fetch_output_time = get_next_fetch_output_time_relative(estimated_seconds)
+
             time.sleep(vertical_scroll_delay)
             if interrupt_message is True:
                 break
