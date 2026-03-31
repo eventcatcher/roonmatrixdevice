@@ -4717,7 +4717,7 @@ def get_webserver_results_and_fast_updating_of_coverplayer_and_app(name,url,resu
     flexprint('get webserver results and fast updating of coverplayer and app => end')
     flexprint('')
 
-def compare_filtered_zonedata_is_equal(old_raw, new_raw):
+def compare_filtered_web_zonedata_is_equal(old_raw, new_raw):
     try:
         old = json.loads(old_raw)
         new = json.loads(new_raw)
@@ -4726,26 +4726,63 @@ def compare_filtered_zonedata_is_equal(old_raw, new_raw):
             return False
 
         for idx,zone in enumerate(new,0):
-            if 'shuffle' in new[idx]:
+            keys = zone.keys()
+            if 'shuffle' in keys:
                 del new[idx]['shuffle']
-            if 'repeat' in new[idx]:
+            if 'repeat' in keys:
                 del new[idx]['repeat']
-            if 'position' in new[idx]:
+            if 'position' in keys:
                 del new[idx]['position']
-            if 'shuffle' in old[idx]:
+
+        for idx,zone in enumerate(old,0):
+            keys = zone.keys()
+            if 'shuffle' in keys:
                 del old[idx]['shuffle']
-            if 'repeat' in old[idx]:
+            if 'repeat' in keys:
                 del old[idx]['repeat']
-            if 'position' in old[idx]:
+            if 'position' in keys:
                 del old[idx]['position']
      
-        old_raw = json.dumps(old)
-        old_new = json.dumps(new)
-        if old_raw != old_new:
+        json_str_old = json.dumps(old)
+        json_str_new = json.dumps(new)
+        if json_str_old != json_str_new:
             equal = False
+            
         return equal
     except Exception as e:
-        if errorlog is True: flexprint('[red]compare filtered zonedata is equal error: ' + str(e) + '[/red]')
+        if errorlog is True: flexprint('[red]compare filtered web zonedata is equal error: ' + str(e) + '[/red]')
+        return False
+
+def compare_filtered_roon_zonedata_is_equal(old_raw, new_raw):
+    try:
+        old = json.loads(old_raw)
+        new = json.loads(new_raw)
+        equal = True
+
+        keys = new.keys()
+        if 'shuffle' in keys:
+            del new['shuffle']
+        if 'repeat' in keys:
+            del new['repeat']
+        if 'position' in keys:
+            del new['position']
+
+        keys = old.keys()
+        if 'shuffle' in keys:
+            del old['shuffle']
+        if 'repeat' in keys:
+            del old['repeat']
+        if 'position' in keys:
+            del old['position']
+     
+        json_str_old = json.dumps(old)
+        json_str_new = json.dumps(new)
+        if json_str_old != json_str_new:
+            equal = False
+            
+        return equal
+    except Exception as e:
+        if errorlog is True: flexprint('[red]compare filtered roon zonedata is equal error: ' + str(e) + '[/red]')
         return False
 
 def get_spotify_connect_name_from_channels():
@@ -4795,7 +4832,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                                     if playprops['playing'] is True:
                                         displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                                    has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                                    has_changed = name not in web_playouts_raw or compare_filtered_web_zonedata_is_equal(web_playouts_raw[name],result) is False
                                     if has_changed:
                                         flexprint('webserver ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
                                         update_websocket_queue_and_web_playouts_raw(result, name)
@@ -4841,7 +4878,7 @@ def get_playing_apple_or_spotify(webservers_zones,displaystr):
                     if playprops['playing'] is True:
                         displaystr = transform_zone_data_to_string(displaystr, name, props['controlled'], obj)
 
-                    has_changed = name not in web_playouts_raw or compare_filtered_zonedata_is_equal(web_playouts_raw[name],result) is False
+                    has_changed = name not in web_playouts_raw or compare_filtered_web_zonedata_is_equal(web_playouts_raw[name],result) is False
                     if has_changed:
                         flexprint('spotify connect zone ' + name + ' => [red]has_changed[/red]: ' + str(has_changed))
                         update_websocket_queue_and_web_playouts_raw(result, name)
@@ -5189,7 +5226,7 @@ def roon_state_callback(event, changed_ids):
                         playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
                     else:
                         playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
-                    playing_data_has_changed = name not in roon_playouts_raw or roon_playouts_raw[name] != playing
+                    playing_data_has_changed = name not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[name], playing) is False
                     if playing_data_has_changed is True:            
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
@@ -5814,7 +5851,7 @@ def build_output():
                             playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
                         flexprint('### playing: ' + str(playing))
 
-                        playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or roon_playouts_raw[zone["display_name"]] != playing
+                        playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[zone["display_name"]], playing) is False
                         if playing_data_has_changed:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
