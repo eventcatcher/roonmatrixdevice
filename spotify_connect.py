@@ -145,11 +145,15 @@ class SpotifyConnect:
                 return
         else:
             self.flexprint("🧩 Using Client Credentials (read-only access)")
-            self.auth_manager = oauth2.SpotifyClientCredentials(
-                client_id=self.client_id,
-                client_secret=self.client_secret,
-                cache_path=cache_path,
-            )
+            try:
+                self.auth_manager = oauth2.SpotifyClientCredentials(
+                    client_id=self.client_id,
+                    client_secret=self.client_secret
+                )
+                self.flexprint("✅ Spotify Client Credentials authentication successfully done")
+            except Exception as e:
+                self.flexprint("⚠️ Invalid Spotify credentials authentification:", e)
+                return
 
         self.spotify = spotipy.Spotify(auth_manager=self.auth_manager, requests_session=session)
         return self.spotify
