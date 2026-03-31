@@ -1916,9 +1916,8 @@ def get_roon_api():
                     f.close()
                 
                 set_default_zone()
-                if force_roon_update is True:
-                    flexprint('register roonapi state callback')
-                    roonapi.register_state_callback(roon_state_callback)
+                flexprint('register roonapi state callback')
+                roonapi.register_state_callback(roon_state_callback)
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> get roon api error: [/red]', str(e))
@@ -5202,8 +5201,8 @@ def roon_state_callback(event, changed_ids):
                     if state == 'playing':
                         if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
                             allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
-                            flexprint('roon_state_callback => allowed: ' + str(allowed))
-                            if allowed is True:
+                            flexprint('roon_state_callback => allowed: ' + str(allowed) + ', force_roon_update: ' + str(force_roon_update))
+                            if allowed is True and force_roon_update is True:
                                 flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
                                 interrupt_message = True
                                 time.sleep(1)
