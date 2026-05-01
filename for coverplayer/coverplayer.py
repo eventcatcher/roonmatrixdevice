@@ -583,48 +583,48 @@ class Coverplayer:
             if self.errorlog is True: self.flexprint(f"[red]on long press error:[/red] {e}")
 
     def _load_control_icons(self):
-        #from tkinter import PhotoImage
-        from PIL import Image, ImageTk
+        from tkinter import PhotoImage
+        #from PIL import Image, ImageTk
         try:
-            #self.control_icons = {
-            #    "play": PhotoImage(file = self.scriptpath + "icons/play.png"),
-            #    "pause": PhotoImage(file = self.scriptpath + "icons/pause.png"),
-            #    "forward": PhotoImage(file = self.scriptpath + "icons/forward.png"),
-            #    "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
-            #    "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
-            #    "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
-            #    "stream_on": PhotoImage(file = self.scriptpath + "icons/stream-on.png"),
-            #    "stream_off": PhotoImage(file = self.scriptpath + "icons/stream-off.png"),
-            #    "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
-            #    "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
-            #    "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
-            #    "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
-            #    "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
-            #    "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
-            #    "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
-            #    "spotify-connect": PhotoImage(file = self.scriptpath + "icons/spotify-connect.png"),
-            #    "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
-            #}
-
             self.control_icons = {
-                "play": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
-                "pause": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
-                "forward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/forward.png")),
-                "backward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/backward.png")),
-                "shuffle_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-on.png")),
-                "shuffle_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-off.png")),
-                "stream_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-on.png")),
-                "stream_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-off.png")),
-                "repeat_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-on.png")),
-                "repeat_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-off.png")),
-                "close": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/close.png")),
-                "keyb": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/keyb.png")),
-                "tracklist": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/tracklist.png")),
-                "applemusic": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/applemusic.png")),
-                "spotify": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify.png")),
-                "spotify-connect": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify-connect.png")),
-                "roon": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/roon.png")),
+                "play": PhotoImage(file = self.scriptpath + "icons/play.png"),
+                "pause": PhotoImage(file = self.scriptpath + "icons/pause.png"),
+                "forward": PhotoImage(file = self.scriptpath + "icons/forward.png"),
+                "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
+                "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
+                "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
+                "stream_on": PhotoImage(file = self.scriptpath + "icons/stream-on.png"),
+                "stream_off": PhotoImage(file = self.scriptpath + "icons/stream-off.png"),
+                "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
+                "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
+                "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
+                "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
+                "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
+                "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
+                "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
+                "spotify-connect": PhotoImage(file = self.scriptpath + "icons/spotify-connect.png"),
+                "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
             }
+
+            #self.control_icons = {
+            #    "play": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
+            #    "pause": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
+            #    "forward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/forward.png")),
+            #    "backward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/backward.png")),
+            #    "shuffle_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-on.png")),
+            #    "shuffle_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-off.png")),
+            #    "stream_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-on.png")),
+            #    "stream_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-off.png")),
+            #    "repeat_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-on.png")),
+            #    "repeat_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-off.png")),
+            #    "close": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/close.png")),
+            #    "keyb": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/keyb.png")),
+            #    "tracklist": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/tracklist.png")),
+            #    "applemusic": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/applemusic.png")),
+            #    "spotify": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify.png")),
+            #    "spotify-connect": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify-connect.png")),
+            #    "roon": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/roon.png")),
+            #}
         except Exception as e:
             if self.errorlog is True: self.flexprint(f"[red]Icon loading error:[/red] {e}")
 
