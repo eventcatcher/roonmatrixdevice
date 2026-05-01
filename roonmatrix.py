@@ -18,6 +18,20 @@
 
 scriptVersion = '1.2.3, date: 10.01.2026'
 
+def is_running_on_raspberry_pi():
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            return 'Raspberry Pi' in f.read()
+    except Exception:
+        return False
+
+is_raspberry_pi = is_running_on_raspberry_pi()
+
+if is_raspberry_pi:
+    import RPi.GPIO as GPIO
+else:
+    GPIO = None
+    
 from threading import Timer
 from datetime import datetime, timedelta, timezone
 from dateutil import tz
@@ -25,7 +39,7 @@ import time
 import requests
 import requests.packages.urllib3.util.connection as urllib3_cn
 import argparse
-import RPi.GPIO as GPIO
+import tempfile
 from ast import literal_eval
 from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
@@ -86,15 +100,19 @@ display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 base_translations_path = '../FTP/translations/'
 
-TEMP_STATE_DIR = "/dev/shm/roonmatrix"
+APP_NAME = "roonmatrix"
+TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
+if is_raspberry_pi is False or path.exists("/dev/shm") is False:
+    TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
+print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
 
+logdir = ''
+ 
 def init_logging():
     max_size_in_mb = 10
-    fn = '/home/rmuser/FTP/logs/roonmatrix.log'
-    if display_cover is True:
-        fn = '/home/coverplayer/FTP/logs/roonmatrix.log'
-    
+    fn = logdir + 'roonmatrix.log'
+        
     rfh = logging.handlers.RotatingFileHandler(
         filename = fn, 
         mode = 'a',
@@ -117,7 +135,7 @@ def flexprint(str, objStr = None):
     if log is True:
         if objStr is None:
             if sys.stdout.isatty() or logger is None:
-                if display_cover is True:
+                if display_cover is True or is_raspberry_pi is False:
                     print(str) # output as colored text with rich (rich overrides original print)
                 else:
                     if sys.stdout.isatty():
@@ -128,7 +146,7 @@ def flexprint(str, objStr = None):
                 logger.info(str) # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
         else:
             if sys.stdout.isatty() or logger is None:
-                if display_cover is True:
+                if display_cover is True or is_raspberry_pi is False:
                     print(str, objStr) # output as colored text with rich (rich overrides original print)
                 else:
                     if sys.stdout.isatty():
@@ -183,6 +201,8 @@ else:
 # init cover image viewer
 try:    
     # imports to display image on screen
+    if is_raspberry_pi is False:
+        display_cover = False
     if display_cover is True:
         environ["DISPLAY"] = ":0"
         if path.isdir('/sys/class/graphics/fb0') is False:
@@ -203,12 +223,19 @@ except Exception as e:
     flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
     display_cover = False
 
-if display_cover is True:
+logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
+if is_raspberry_pi is False:
+    current_path = path.dirname(path.abspath(__file__))
+    logdir = current_path + '/logs/'
+flexprint('logdir: ' + str(logdir))
+
+if display_cover is True or is_raspberry_pi is False:
     init_logging()
     logger = logging.getLogger('main')
     serial = None
 else:
-    serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
+    if is_raspberry_pi is True:
+        serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
 ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
 if ipv4_only is True:
@@ -726,6 +753,7 @@ if startlog is True:
     flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     flexprint('')
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is_raspberry_pi: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
     flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
     flexprint('')
     flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
@@ -933,7 +961,10 @@ async def rest_info():
 
 @app.get("/config/")
 async def rest_config():
-    devicemap = get_librespot_devicemap()
+    if is_raspberry_pi is True:
+        devicemap = get_librespot_devicemap()
+    else:
+        devicemap = []
     if display_cover is True:
         return {
             "config": config,
@@ -1025,6 +1056,114 @@ async def rest_config():
             }
         }    
     
+    if is_raspberry_pi is False:
+        return {
+            "config": config,
+            "definitions": {
+                "area": [
+                    {
+                        "name": "SYSTEM",
+                        "items": [
+                            {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
+                            {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
+                            {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                            {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                            {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
+                            {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
+                            {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                            {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
+                            {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
+                            {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
+                            {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
+                            {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
+                            {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
+                            {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
+                            {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
+                            {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
+                            {"name": "vertical_output", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Vertical output line by line", "unit": "", "value": config['SYSTEM']['vertical_output']},
+                            {"name": "vertical_scroll_delay", "editable": True, "type": {"type": "int(1,10)", "structure": []}, "label": "Scroll delay for vertical output", "unit": "1-10 s", "value": config['SYSTEM']['vertical_scroll_delay']},
+                            {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
+                            {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
+                            {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
+                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                        ]
+                    },
+                    {
+                        "name": "LANGUAGE",
+                        "items": [
+                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
+                            {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
+                            {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
+                            {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
+                            {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
+                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
+                        ]
+                    },
+                    {
+                        "name": "ROON",
+                        "items": [
+                            {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
+                            {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
+                            {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
+                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                            {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                            {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
+                        ]
+                    },
+                    {
+                        "name": "WEBSERVERS",
+                        "items": [
+                            {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
+                            {"name": "force_webserver_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force webserver updates", "unit": "", "value": config['WEBSERVERS']['force_webserver_update']},
+                            {"name": "force_active_webserver_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active webserver zone only", "unit": "", "value": config['WEBSERVERS']['force_active_webserver_zone_only']},
+                            {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
+                            {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
+                            {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        ]
+                    },
+                    {
+                        "name": "STREAMING",
+                        "items": [
+                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
+                        ]
+                    },
+                    {
+                        "name": "WEATHER",
+                        "items": [
+                            {"name": "weather_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show weather informations", "unit": "", "value": "", "value": config['WEATHER']['weather_show']},
+                            {"name": "location", "editable": True, "type": {"type": "string", "structure": []}, "label": "Location", "unit": "", "value": config['WEATHER']['location']},
+                            {"name": "weatherbit_api_key", "editable": True, "type": {"type": "string", "structure": []}, "label": "Weatherbit API key", "unit": "", "value": config['WEATHER']['weatherbit_api_key'], "link": "https://www.weatherbit.io/account/create"},
+                            {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
+                            {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
+                            {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
+                            {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
+                            {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
+                            {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
+                            {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
+                            {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
+                            {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
+                            {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
+                            {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
+                            {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
+                            {"name": "with_description", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with short weather description text", "unit": "", "value": config['WEATHER']['with_description']}
+                        ]
+                    },
+                    {
+                        "name": "RSS",
+                        "items": [
+                            {"name": "rss_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show RSS feeds", "unit": "", "value": config['RSS']['rss_show']},
+                            {"name": "feeds", "editable": True, "type":{"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "count", "type": "int(1,99)"},{"name": "url", "type": "url(http,https)"}]}, "label": "Feeds", "unit": "json list", "value": config['RSS']['feeds']}
+                        ]
+                    }
+                ]
+            }
+        }
+
     return {
         "config": config,
         "definitions": {
@@ -1173,8 +1312,8 @@ class LogParams(BaseModel):
 async def rest_log(params: LogParams):
     try:
         hours = params.hours
-        if display_cover is True:
-            result = filter_lines_by_hours('/home/coverplayer/FTP/logs/roonmatrix.log', hours)
+        if display_cover is True or is_raspberry_pi is False:
+            result = filter_lines_by_hours(logdir + 'roonmatrix.log', hours)
             cmpstr = zlib.compress(result.encode('utf-8'))
         else:
             cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
@@ -1224,7 +1363,7 @@ async def rest_setup(params: SetupParams):
                             doReboot = True
                 if areaKey!='SYSTEM' or fieldKey!='password':
                     flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
-                if areaKey=='SYSTEM' and fieldKey=='hostname' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
+                if areaKey=='SYSTEM' and fieldKey=='hostname' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
                     setHostname(config[areaKey][fieldKey])
                 if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
                     config[areaKey][fieldKey] = fieldValue
@@ -1254,7 +1393,7 @@ async def rest_setup(params: SetupParams):
                     config[areaKey][fieldKey] = fieldValue
                     alternative_layout = eval(fieldValue)
                     Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-                if areaKey=='SYSTEM' and fieldKey=='password' and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
+                if areaKey=='SYSTEM' and fieldKey=='password' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
                     if display_cover is True:
                         setUserPassword('coverplayer',config[areaKey][fieldKey])
                     else:
@@ -1274,7 +1413,7 @@ async def rest_setup(params: SetupParams):
             config.write(fileRes)
 
         config['SYSTEM']['password'] = pwbackup
-        if doReboot is True:
+        if doReboot is True and is_raspberry_pi is True:
             flexprint('successfully write of config file => do reboot now')
             reboot = True
         else:
@@ -1455,222 +1594,233 @@ def start_restserver():
 # --- REST SERVER END ---
 
 def do_reboot():
-    try:
-        time.sleep(3)
-        subprocess.run(["sudo", "/usr/sbin/reboot", "-f"], check=True)
-    except Exception as e:
-        if errorlog is True: flexprint('[red]do reboot error: ' + str(e) + '[/red]')    
+    if is_raspberry_pi is True:
+        try:
+            time.sleep(3)
+            subprocess.run(["sudo", "/usr/sbin/reboot", "-f"], check=True)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]do reboot error: ' + str(e) + '[/red]')    
 
 def setHostname(newhostname):
-    flexprint('setHostname: ' + newhostname)
-    try:
-        temp_path = '/var/tmp/roonmatrix_temp.txt'
-        with open('/etc/hosts', 'r') as file:
-            data = file.readlines()
-        data[5] = '127.0.1.1       ' + newhostname
+    if is_raspberry_pi is True:
+        flexprint('setHostname: ' + newhostname)
+        try:
+            temp_path = '/var/tmp/roonmatrix_temp.txt'
+            with open('/etc/hosts', 'r') as file:
+                data = file.readlines()
+            data[5] = '127.0.1.1       ' + newhostname
 
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
 
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hosts"], check=True)
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hosts"], check=True)
 
-        with open('/etc/hostname', 'r') as file:
-            data = file.readlines()
-        data[0] = newhostname
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
+            with open('/etc/hostname', 'r') as file:
+                data = file.readlines()
+            data[0] = newhostname
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
 
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hostname"], check=True)
-        subprocess.run(["sudo", "/usr/bin/hostnamectl", "set-hostname", newhostname], check=True)
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/hostname"], check=True)
+            subprocess.run(["sudo", "/usr/bin/hostnamectl", "set-hostname", newhostname], check=True)
 
-        with open('/etc/raspotify/conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "LIBRESPOT_NAME=" in data[idx]:
-                data[idx] = 'LIBRESPOT_NAME="' + newhostname + '"' + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
+            with open('/etc/raspotify/conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "LIBRESPOT_NAME=" in data[idx]:
+                    data[idx] = 'LIBRESPOT_NAME="' + newhostname + '"' + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
 
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
-    except Exception as e:
-        flexprint('[red]setHostname error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+        except Exception as e:
+            flexprint('[red]setHostname error: ' + str(e) + '[/red]')
 
 def setUserPassword(login,password):
-    flexprint('setUserPassword')
-    try:
-        shadow_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
+    if is_raspberry_pi is True:
+        flexprint('setUserPassword')
+        try:
+            shadow_password = crypt.crypt(password, crypt.mksalt(crypt.METHOD_SHA512))
 
-        r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
-        if r != 0:
-            flexprint('[red]error changing password[/red]')
-    except Exception as e:
-        flexprint('[red]setUserPassword error: ' + str(e) + '[/red]')
+            r = subprocess.call(['sudo', '/usr/sbin/usermod', '-p', shadow_password, login])
+            if r != 0:
+                flexprint('[red]error changing password[/red]')
+        except Exception as e:
+            flexprint('[red]setUserPassword error: ' + str(e) + '[/red]')
 
 def setScreensaver(seconds):
-    flexprint('setScreensaver: ' + str(seconds))
-    autostart_path = '/home/coverplayer/.config/autostart/xset.desktop'
-    data = []
-    data.append('[Desktop Entry]\n')
-    data.append('Type=Application\n')
-    try:
-        if int(seconds) == 0:
-            cmd = "export DISPLAY=:0; xset s off; xset -dpms"
-            subprocess.run(["sh", "-c", cmd], check=True)
-            data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
-            data.append('Name=Disable DPMS\n')
-            data.append('Comment=Disables DPMS and screen blanking\n')
-        else:
-            cmd = f"export DISPLAY=:0; xset s off; xset +dpms; xset dpms 0 0 {seconds}"
-            subprocess.run(["sh", "-c", cmd], check=True)
-            data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
-            data.append('Name=Enable DPMS\n')
-            data.append('Comment=Enables DPMS with custom timeout\n')
+    if is_raspberry_pi is True:
+        flexprint('setScreensaver: ' + str(seconds))
+        autostart_path = '/home/coverplayer/.config/autostart/xset.desktop'
+        data = []
+        data.append('[Desktop Entry]\n')
+        data.append('Type=Application\n')
+        try:
+            if int(seconds) == 0:
+                cmd = "export DISPLAY=:0; xset s off; xset -dpms"
+                subprocess.run(["sh", "-c", cmd], check=True)
+                data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
+                data.append('Name=Disable DPMS\n')
+                data.append('Comment=Disables DPMS and screen blanking\n')
+            else:
+                cmd = f"export DISPLAY=:0; xset s off; xset +dpms; xset dpms 0 0 {seconds}"
+                subprocess.run(["sh", "-c", cmd], check=True)
+                data.append(f'Exec=sh -c "sleep 5; {cmd}"\n')
+                data.append('Name=Enable DPMS\n')
+                data.append('Comment=Enables DPMS with custom timeout\n')
 
-        data.append('Hidden=false\n')
-        data.append('NoDisplay=false\n')
-        data.append('X-GNOME-Autostart-enabled=true\n')
+            data.append('Hidden=false\n')
+            data.append('NoDisplay=false\n')
+            data.append('X-GNOME-Autostart-enabled=true\n')
  
-        with open(autostart_path, 'w') as file:
-            file.writelines( data )
-    except Exception as e:
-        if errorlog is True: flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
+            with open(autostart_path, 'w') as file:
+                file.writelines( data )
+        except Exception as e:
+            if errorlog is True: flexprint('[red]setScreensaver error: ' + str(e) + '[/red]')
 
 def set_ipv4_only(enable):
-    flexprint('set_ipv4_only: ' + str(enable))
-    try:
-        temp_path = '/var/tmp/ipv4_temp.txt'
+    if is_raspberry_pi is True:
+        flexprint('set_ipv4_only: ' + str(enable))
+        try:
+            temp_path = '/var/tmp/ipv4_temp.txt'
 
-        with open('/etc/avahi/avahi-daemon.conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "use-ipv6" in data[idx]:
-                data[idx] = 'use-ipv6=' + ('no' if enable is True else 'yes') + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/avahi/avahi-daemon.conf"], check=True)
+            with open('/etc/avahi/avahi-daemon.conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "use-ipv6" in data[idx]:
+                    data[idx] = 'use-ipv6=' + ('no' if enable is True else 'yes') + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/avahi/avahi-daemon.conf"], check=True)
 
-        with open('/etc/raspotify/conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "LIBRESPOT_DISABLE_IPV6=" in data[idx]:
-                data[idx] = 'LIBRESPOT_DISABLE_IPV6="' + ('true' if enable is True else 'false') + '"' + "\n"
-            if "OPTIONS=" in data[idx]:
-                data[idx] = 'OPTIONS="' + ('--disable-ipv6' if enable is True else '--enable-ipv6') + '"' + "\n"                
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+            with open('/etc/raspotify/conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "LIBRESPOT_DISABLE_IPV6=" in data[idx]:
+                    data[idx] = 'LIBRESPOT_DISABLE_IPV6="' + ('true' if enable is True else 'false') + '"' + "\n"
+                if "OPTIONS=" in data[idx]:
+                    data[idx] = 'OPTIONS="' + ('--disable-ipv6' if enable is True else '--enable-ipv6') + '"' + "\n"                
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
 
-        with open('/etc/sysctl.conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "net.ipv6.conf.wlan0.disable_ipv6" in data[idx]:
-                data[idx] = 'net.ipv6.conf.wlan0.disable_ipv6 = ' + ('1' if enable is True else '0') + "\n"		# run wlan0 with ipv4 only
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/sysctl.conf"], check=True)
+            with open('/etc/sysctl.conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "net.ipv6.conf.wlan0.disable_ipv6" in data[idx]:
+                    data[idx] = 'net.ipv6.conf.wlan0.disable_ipv6 = ' + ('1' if enable is True else '0') + "\n"		# run wlan0 with ipv4 only
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/sysctl.conf"], check=True)
 
-        subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)	# reload systemd services
-        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
-        subprocess.run(["sudo", "systemctl", "restart", "avahi-daemon"], check=True)	# restart avahi daemon
-        subprocess.run(["sudo", "sysctl", "-p"], check=True)	# reload kernel settings
-    except Exception as e:
-        flexprint('[red]set_ipv4_only error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "systemctl", "daemon-reload"], check=True)	# reload systemd services
+            subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+            subprocess.run(["sudo", "systemctl", "restart", "avahi-daemon"], check=True)	# restart avahi daemon
+            subprocess.run(["sudo", "sysctl", "-p"], check=True)	# reload kernel settings
+        except Exception as e:
+            flexprint('[red]set_ipv4_only error: ' + str(e) + '[/red]')
 
 def get_librespot_devicemap():
-    cmd = '/usr/bin/cat /proc/asound/cards'
-    response = subprocess.run(shlex.split(cmd), capture_output=True)
-    result = [x for x in response.stdout.decode('utf8').splitlines(True)]
-    
     devicemap = {}
-    for idx,line in enumerate(result):
-        if '[' in line and ':' in line:
-            pos = line.find('[')
-            if pos == -1:
-                continue
-            key = 'plughw:' + line[:pos].strip() + ',0'
-            pos = line.find(':')
-            if pos == -1:
-                continue
-            name = line[1 + pos:].strip()
-            devicemap[key] = name
-    flexprint('get_librespot_devicemap: ' + str(devicemap))   
+    
+    if is_raspberry_pi is True:
+        cmd = '/usr/bin/cat /proc/asound/cards'
+        response = subprocess.run(shlex.split(cmd), capture_output=True)
+        result = [x for x in response.stdout.decode('utf8').splitlines(True)]
+    
+        for idx,line in enumerate(result):
+            if '[' in line and ':' in line:
+                pos = line.find('[')
+                if pos == -1:
+                    continue
+                key = 'plughw:' + line[:pos].strip() + ',0'
+                pos = line.find(':')
+                if pos == -1:
+                    continue
+                name = line[1 + pos:].strip()
+                devicemap[key] = name
+        flexprint('get_librespot_devicemap: ' + str(devicemap))   
     return devicemap
 
 def set_librespot_device(device):
-    flexprint('set_librespot_device: ' + str(device))
-    if device is None or device == '':
-        return 
-    try:
-        temp_path = '/var/tmp/librespot_device_temp.txt'
+    if is_raspberry_pi is True:
+        flexprint('set_librespot_device: ' + str(device))
+        if device is None or device == '':
+            return 
+        try:
+            temp_path = '/var/tmp/librespot_device_temp.txt'
 
-        with open('/etc/raspotify/conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "LIBRESPOT_DEVICE=" in data[idx]:
-                data[idx] = 'LIBRESPOT_DEVICE="' + str(device) + '"' + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+            with open('/etc/raspotify/conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "LIBRESPOT_DEVICE=" in data[idx]:
+                    data[idx] = 'LIBRESPOT_DEVICE="' + str(device) + '"' + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
 
-        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
-    except Exception as e:
-        flexprint('[red]set_librespot_device error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+        except Exception as e:
+            flexprint('[red]set_librespot_device error: ' + str(e) + '[/red]')
 
 def set_librespot_bitrate(bitrate):
-    flexprint('set_librespot_bitrate: ' + str(bitrate))
-    try:
-        temp_path = '/var/tmp/librespot_device_temp.txt'
+    if is_raspberry_pi is True:
+        flexprint('set_librespot_bitrate: ' + str(bitrate))
+        try:
+            temp_path = '/var/tmp/librespot_device_temp.txt'
 
-        with open('/etc/raspotify/conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "LIBRESPOT_BITRATE=" in data[idx]:
-                data[idx] = 'LIBRESPOT_BITRATE=' + str(bitrate) + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+            with open('/etc/raspotify/conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "LIBRESPOT_BITRATE=" in data[idx]:
+                    data[idx] = 'LIBRESPOT_BITRATE=' + str(bitrate) + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
 
-        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
-    except Exception as e:
-        flexprint('[red]set_librespot_bitrate error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+        except Exception as e:
+            flexprint('[red]set_librespot_bitrate error: ' + str(e) + '[/red]')
 
 def set_librespot_format(fmt):
-    flexprint('set_librespot_format: ' + str(fmt))
-    try:
-        temp_path = '/var/tmp/librespot_device_temp.txt'
+    if is_raspberry_pi is True:
+        flexprint('set_librespot_format: ' + str(fmt))
+        try:
+            temp_path = '/var/tmp/librespot_device_temp.txt'
 
-        with open('/etc/raspotify/conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "LIBRESPOT_FORMAT=" in data[idx]:
-                data[idx] = 'LIBRESPOT_FORMAT="' + str(fmt) + '"' + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
+            with open('/etc/raspotify/conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "LIBRESPOT_FORMAT=" in data[idx]:
+                    data[idx] = 'LIBRESPOT_FORMAT="' + str(fmt) + '"' + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/raspotify/conf"], check=True)
 
-        subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
-    except Exception as e:
-        flexprint('[red]set_librespot_format error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "systemctl", "restart", "raspotify"], check=True)	# restart raspotify
+        except Exception as e:
+            flexprint('[red]set_librespot_format error: ' + str(e) + '[/red]')
 
 def set_shairport_device(device):
-    flexprint('set_shairport_device: ' + str(device))
-    if device is None or device == '':
-        return 
-    try:
-        temp_path = '/var/tmp/shairport_device_temp.txt'
+    if is_raspberry_pi is True:
+        flexprint('set_shairport_device: ' + str(device))
+        if device is None or device == '':
+            return 
+        try:
+            temp_path = '/var/tmp/shairport_device_temp.txt'
 
-        with open('/etc/shairport-sync.conf', 'r') as file:
-            data = file.readlines()
-        for idx,line in enumerate(data):
-            if "output_device =" in data[idx]:
-                data[idx] = '        output_device = "' + str(device) + '";' + "\n"
-        with open(temp_path, 'w') as file:
-            file.writelines( data )
-        subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/shairport-sync.conf"], check=True)
+            with open('/etc/shairport-sync.conf', 'r') as file:
+                data = file.readlines()
+            for idx,line in enumerate(data):
+                if "output_device =" in data[idx]:
+                    data[idx] = '        output_device = "' + str(device) + '";' + "\n"
+            with open(temp_path, 'w') as file:
+                file.writelines( data )
+            subprocess.run(["sudo", "/usr/bin/mv", temp_path, "/etc/shairport-sync.conf"], check=True)
 
-        subprocess.run(["sudo", "systemctl", "restart", "shairport-sync"], check=True)	# restart shairport sync
-    except Exception as e:
-        flexprint('[red]set_shairport_device error: ' + str(e) + '[/red]')
+            subprocess.run(["sudo", "systemctl", "restart", "shairport-sync"], check=True)	# restart shairport sync
+        except Exception as e:
+            flexprint('[red]set_shairport_device error: ' + str(e) + '[/red]')
 
 def filter_lines_by_hours(base_filepath, hours_back):
     try:
@@ -1713,7 +1863,7 @@ def filter_lines_by_hours(base_filepath, hours_back):
 def init_matrix():
     global serial
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return None
 
     try:
@@ -1743,10 +1893,11 @@ def output():
         if (vertical_output == False and displaystr is not None and displaystr != '') or (vertical_output == True and len(vert_strlines) > 0):
             flexprint('Output => ' + str(vert_strlines) if vertical_output == True else displaystr)
 
-            if vertical_output is True:
-                show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT))
-            else:
-                show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT))
+            if is_raspberry_pi is True:
+                if vertical_output is True:
+                    show_message_vertical_interruptable(device, vert_strlines, fill="white", font=proportional(CP437_FONT))
+                else:
+                    show_message_interruptable(device, displaystr, fill="white", font=proportional(CP437_FONT))
             flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => playout done')
     except Exception as e:
         if errorlog is True: flexprint('[red]matrix output error: ' + str(e) + '[/red]')
@@ -1755,7 +1906,7 @@ def output():
 
 def clear_display(type):
     if debug is True: flexprint('clear display, called from [' + type + ']')
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -1935,6 +2086,7 @@ def getInfoData():
 
     return {
         "name": hostName,
+        "is_raspberry_pi": is_raspberry_pi,
         "countrycode": countrycode,
         "time": timeStr,
         "debug": debug,
@@ -2075,7 +2227,7 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
             estimated_seconds = (2 + len(msg)) * (vertical_scroll_delay + 1/1000 * led_vertical_scroll_delay * 8)
         else:
             fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-            if display_cover is True:
+            if display_cover is True or is_raspberry_pi is False:
                 estimated_seconds = 20 # fake time to limit api calls in display_cover mode
             else:
                 with canvas(device) as draw:
@@ -2096,7 +2248,7 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
 def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None):
     global interrupt_message, fetch_output_time
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         interrupt_message = False
         return
 
@@ -2142,7 +2294,7 @@ def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None):
 def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None):
     global interrupt_message, fetch_output_time
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         interrupt_message = False
         return
 
@@ -2601,7 +2753,7 @@ def play_next(control_id, do_async=True):
 def pressed_up(channel):
     global do_set_zone_control, zone_control_last_update_time, clock_in_progress, control_id, control_id_update, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -2646,7 +2798,7 @@ def pressed_up(channel):
 def pressed_down(channel):
     global do_set_zone_control
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -2674,7 +2826,7 @@ def pressed_down(channel):
 def pressed_left(channel):
     global control_id_update, zone_control_last_update_time
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -2710,7 +2862,7 @@ def pressed_left(channel):
 def pressed_right(channel):
     global control_id_update, zone_control_last_update_time
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -2746,7 +2898,7 @@ def pressed_right(channel):
 def pressed_enter(channel):
     global playmode, do_set_zone_control, control_id, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
 
     try:
@@ -4912,7 +5064,7 @@ def set_control_zone(waiting = True):
                 channel_name = channel_name.replace(' ','')
 
         if debug is True: flexprint('set_control_zone message')
-        if display_cover is False:
+        if display_cover is False and is_raspberry_pi is True:
             with canvas(device) as draw:
                 text(draw, (0, 0), get_message('control zone') + get_zone_control_shortname(': ') + get_zone_control_shortname(channel_name), fill="white", font=proportional(CP437_FONT))
 
@@ -4937,7 +5089,7 @@ def set_fetch_time_before_clock_ends():
 def show_clock():
     global last_idle_time, check_audioinfo, audioinfo_available
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
     try:
         time_start = datetime.now()
@@ -4991,7 +5143,7 @@ def split_word(word,lines):
     return lines
 
 def vertical_longtext_split_and_append(text,lines):
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return lines
     try:
         font = proportional(CP437_FONT)
@@ -5299,7 +5451,7 @@ def check_webserver_for_playouts():
 def force_custom_message():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines
 
-    if display_cover is True:
+    if display_cover is True or is_raspberry_pi is False:
         return
     try:
         if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
@@ -6007,7 +6159,7 @@ def build_output():
 #     button enter: leave zone control mode and switch to new selected zone (save control_id)
 #     button top: leave zone control mode and switch to new selected zone (save control_id)
 
-if display_cover is False:
+if display_cover is False and is_raspberry_pi is True:
     try:
         GPIO.setmode (GPIO.BCM)
         GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
@@ -6025,7 +6177,7 @@ if display_cover is False:
         if errorlog is True: flexprint('[red]GPIO init error: ' + str(e) + '[/red]')
 
 # --- MAIN ---
-if display_cover is False:
+if display_cover is False and is_raspberry_pi is True:
     device = init_matrix()
 
 while True:

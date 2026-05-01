@@ -29,10 +29,13 @@ from threading import Timer
 from rich import print
 import sys
 import logging
+from pathlib import Path
 import freetype
 import asyncio
 from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
 from unidecode import unidecode
+
+#print("Main thread:", threading.current_thread())
 
 class Coverplayer:
     _instance = None
@@ -105,6 +108,7 @@ class Coverplayer:
     def _ensure_running(cls):
         if cls._instance is None:
             cls._instance = cls()
+            print("GUI thread:", threading.current_thread())
             threading.Thread(target = cls._instance._gui_loop, daemon = True).start()
 
     @classmethod
@@ -365,6 +369,13 @@ class Coverplayer:
             if errorlog is True: flexprint(f"[red]Error on image loading:[/red] {e}")
             return None
 
+    def is_running_on_raspberry_pi(self):
+        try:
+            with open('/proc/device-tree/model', 'r') as f:
+                return 'Raspberry Pi' in f.read()
+        except Exception:
+            return False
+
     def _gui_loop(self):
         self.errorlog = True 	# log errors
         self.debug = False   	# log debug messages (memory and variable information)
@@ -377,11 +388,23 @@ class Coverplayer:
             self.logger = logging.getLogger('coverplayer')
             self.font_size = 24
 
-            self.FONT_PATHS = {
-                "latin": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-                "cjk": "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
-                "emoji": "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
-            }
+            self.is_raspberry_pi = self.is_running_on_raspberry_pi()
+            self.flexprint('is_raspberry_pi: ' + str(self.is_raspberry_pi))
+
+            if self.is_raspberry_pi is True:
+                self.FONT_PATHS = {
+                    "latin": "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+                    "cjk": "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                    "emoji": "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"
+                }
+            else:
+                home = Path.home()
+                self.FONT_PATHS = {
+                    "latin": home + "/Library/Fonts/DejaVuSans-Bold.ttf",
+                    "cjk": home + "/Library/Fonts/NotoSansCJKsc-Bold.otf",
+                    "emoji": home + "/Library/Fonts/NotoColorEmoji-Regular.ttf"
+                }
+     
             self.fonts = {k: ImageFont.truetype(path, (109 if k=='emoji' else self.font_size)) for k, path in self.FONT_PATHS.items()}        
             self.faces = {k: freetype.Face(path) for k, path in self.FONT_PATHS.items()}
 
@@ -481,6 +504,7 @@ class Coverplayer:
 
             self._poll_queue()
             self.root.mainloop()
+
         except Exception as e:
             self.flexprint(f"[red]gui loop error:[/red] {e}")
 
@@ -508,14 +532,17 @@ class Coverplayer:
         self.just_woke_up = False
     
     def is_screen_on(self):
-        try:
-            output = subprocess.check_output(['xset', '-q']).decode()
-            for line in output.splitlines():
-                if "Monitor is" in line:
-                    return "On" in line
-        except Exception as e:
-            if self.errorlog is True: self.flexprint(f"[red]Error with xset:[/red] {e}")
-        return False
+        if self.is_raspberry_pi is True:
+            try:
+                output = subprocess.check_output(['xset', '-q']).decode()
+                for line in output.splitlines():
+                    if "Monitor is" in line:
+                        return "On" in line
+            except Exception as e:
+                if self.errorlog is True: self.flexprint(f"[red]Error with xset:[/red] {e}")
+            return False
+        else:
+            return True
 
     def _on_click_start(self, event):
         try:
@@ -556,27 +583,48 @@ class Coverplayer:
             if self.errorlog is True: self.flexprint(f"[red]on long press error:[/red] {e}")
 
     def _load_control_icons(self):
-        from tkinter import PhotoImage
+        #from tkinter import PhotoImage
+        from PIL import Image, ImageTk
         try:
+            #self.control_icons = {
+            #    "play": PhotoImage(file = self.scriptpath + "icons/play.png"),
+            #    "pause": PhotoImage(file = self.scriptpath + "icons/pause.png"),
+            #    "forward": PhotoImage(file = self.scriptpath + "icons/forward.png"),
+            #    "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
+            #    "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
+            #    "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
+            #    "stream_on": PhotoImage(file = self.scriptpath + "icons/stream-on.png"),
+            #    "stream_off": PhotoImage(file = self.scriptpath + "icons/stream-off.png"),
+            #    "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
+            #    "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
+            #    "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
+            #    "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
+            #    "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
+            #    "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
+            #    "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
+            #    "spotify-connect": PhotoImage(file = self.scriptpath + "icons/spotify-connect.png"),
+            #    "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
+            #}
+
             self.control_icons = {
-                "play": PhotoImage(file = self.scriptpath + "icons/play.png"),
-                "pause": PhotoImage(file = self.scriptpath + "icons/pause.png"),
-                "forward": PhotoImage(file = self.scriptpath + "icons/forward.png"),
-                "backward": PhotoImage(file = self.scriptpath + "icons/backward.png"),
-                "shuffle_on": PhotoImage(file = self.scriptpath + "icons/shuffle-on.png"),
-                "shuffle_off": PhotoImage(file = self.scriptpath + "icons/shuffle-off.png"),
-                "stream_on": PhotoImage(file = self.scriptpath + "icons/stream-on.png"),
-                "stream_off": PhotoImage(file = self.scriptpath + "icons/stream-off.png"),
-                "repeat_on": PhotoImage(file = self.scriptpath + "icons/repeat-on.png"),
-                "repeat_off": PhotoImage(file = self.scriptpath + "icons/repeat-off.png"),
-                "close": PhotoImage(file = self.scriptpath + "icons/close.png"),
-                "keyb": PhotoImage(file = self.scriptpath + "icons/keyb.png"),
-                "tracklist": PhotoImage(file = self.scriptpath + "icons/tracklist.png"),
-                "applemusic": PhotoImage(file = self.scriptpath + "icons/applemusic.png"),
-                "spotify": PhotoImage(file = self.scriptpath + "icons/spotify.png"),
-                "spotify-connect": PhotoImage(file = self.scriptpath + "icons/spotify-connect.png"),
-                "roon": PhotoImage(file = self.scriptpath + "icons/roon.png"),
-        }
+                "play": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
+                "pause": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/pause.png")),
+                "forward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/forward.png")),
+                "backward": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/backward.png")),
+                "shuffle_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-on.png")),
+                "shuffle_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/shuffle-off.png")),
+                "stream_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-on.png")),
+                "stream_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/stream-off.png")),
+                "repeat_on": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-on.png")),
+                "repeat_off": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/repeat-off.png")),
+                "close": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/close.png")),
+                "keyb": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/keyb.png")),
+                "tracklist": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/tracklist.png")),
+                "applemusic": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/applemusic.png")),
+                "spotify": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify.png")),
+                "spotify-connect": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/spotify-connect.png")),
+                "roon": ImageTk.PhotoImage(Image.open(self.scriptpath + "icons/roon.png")),
+            }
         except Exception as e:
             if self.errorlog is True: self.flexprint(f"[red]Icon loading error:[/red] {e}")
 
