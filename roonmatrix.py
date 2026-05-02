@@ -98,13 +98,15 @@ logger = None
 
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
-base_translations_path = '../FTP/translations/'
+current_path = path.dirname(path.abspath(__file__)) + '/'
+base_translations_path = current_path + 'translations/'
 
 APP_NAME = "roonmatrix"
 TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
 if is_raspberry_pi is False or path.exists("/dev/shm") is False:
     TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
+print('current_path: ' + current_path)
 print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
 
 logdir = ''
@@ -137,6 +139,8 @@ def flexprint(str, objStr = None):
             if sys.stdout.isatty() or logger is None:
                 if display_cover is True or is_raspberry_pi is False:
                     print(str) # output as colored text with rich (rich overrides original print)
+                    if is_raspberry_pi is False and logger is not None:
+                        logger.info(str)
                 else:
                     if sys.stdout.isatty():
                         print(str) # output as colored text with rich (rich overrides original print)
@@ -148,6 +152,8 @@ def flexprint(str, objStr = None):
             if sys.stdout.isatty() or logger is None:
                 if display_cover is True or is_raspberry_pi is False:
                     print(str, objStr) # output as colored text with rich (rich overrides original print)
+                    if is_raspberry_pi is False and logger is not None:
+                        logger.info(f"{str} {objStr}")
                 else:
                     if sys.stdout.isatty():
                         print(str, objStr) # output as colored text with rich (rich overrides original print)
@@ -225,8 +231,7 @@ except Exception as e:
 
 logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
 if is_raspberry_pi is False:
-    current_path = path.dirname(path.abspath(__file__))
-    logdir = current_path + '/logs/'
+    logdir = current_path + 'logs/'
 flexprint('logdir: ' + str(logdir))
 
 if display_cover is True or is_raspberry_pi is False:
@@ -434,16 +439,14 @@ def creation_date(path_to_file):
 
 def translation_exist(cc, update):
     try:
-        current_path = Path(__file__).parent
         fileName = 'translations_' + cc + '.ini'
-        relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+        full_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
     
-        file_path = str((current_path / relative_path).resolve())
-        exist = Path(file_path).is_file()
+        exist = Path(full_path).is_file()
         if exist is False:
             return [exist]
     
-        creationDate = creation_date(file_path)
+        creationDate = creation_date(full_path)
         creationDate = datetime.fromtimestamp(creationDate)
         if debug is True:
             flexprint('creationDate_' + ('update' if update is True else 'main') + ': ' + str(format(creationDate.isoformat())))
@@ -455,22 +458,20 @@ def translation_exist(cc, update):
 
 def translation_fileinfo(cc, update):
     try:
-        current_path = Path(__file__).parent
         fileName = 'translations_' + cc + '.ini'
-        relative_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
+        full_path = base_translations_path + (('update_' + fileName) if update is True else fileName)
     
-        file_path = str((current_path / relative_path).resolve())
-        exist = Path(file_path).is_file()
+        exist = Path(full_path).is_file()
     
         if exist is True:
-            creationDate = creation_date(file_path)
+            creationDate = creation_date(full_path)
             creationDate = datetime.fromtimestamp(creationDate)
 
-            with open(file_path, 'r') as fileRead:
+            with open(full_path, 'r') as fileRead:
                 langdata = fileRead.read()
             hash = hashlib.md5(langdata.encode()).hexdigest()
 
-            return [exist, creationDate, hash, file_path]
+            return [exist, creationDate, hash, full_path]
         else:
             return [exist]
     except Exception as e:
@@ -478,34 +479,26 @@ def translation_fileinfo(cc, update):
         return [False]
 
 def get_translation_path(cc):
-    current_path = Path(__file__).parent
-    relative_path = base_translations_path + 'translations_' + cc + '.ini'
+    full_path = base_translations_path + 'translations_' + cc + '.ini'
     
-    file_path = (current_path / relative_path).resolve()
-    return file_path
+    return full_path
 
 def delete_translation(cc, update):
     try:
-        current_path = Path(__file__).parent
         filename = 'translations_' + cc + '.ini'
         local_filename = ('update_' + filename) if update is True else filename
-        relative_path = base_translations_path + local_filename
-        file_path = str((current_path / relative_path).resolve())
-        remove(file_path)
+        full_path = base_translations_path + local_filename
+        remove(full_path)
     except Exception as e:
         if errorlog is True: flexprint('[red]delete translation error: ' + str(e) + '[/red]')
 
 def update_translation(cc):
     try:
-        current_path = Path(__file__).parent
-        relative_path_old = base_translations_path + 'update_translations_' + cc + '.ini'
-        relative_path_new = base_translations_path + 'translations_' + cc + '.ini'
-
-        file_path_old = str((current_path / relative_path_old).resolve())
-        file_path_new = str((current_path / relative_path_new).resolve())
+        full_path_old = base_translations_path + 'update_translations_' + cc + '.ini'
+        full_path_new = base_translations_path + 'translations_' + cc + '.ini'
 
         delete_translation(cc, False)
-        rename(file_path_old, file_path_new)
+        rename(full_path_old, full_path_new)
     except Exception as e:
         if errorlog is True: flexprint('[red]delete translation error: ' + str(e) + '[/red]')
 
@@ -520,11 +513,9 @@ def download_translation(cc, update):
         if len(async_results) > 0 and 'error' not in async_results[0]:
             langdata = async_results[0]['text']
 
-            current_path = Path(__file__).parent
-            relative_path = base_translations_path + local_filename
+            full_path = base_translations_path + local_filename
     
-            file_path = str((current_path / relative_path).resolve())
-            with open(file_path, 'w') as fileRes:
+            with open(full_path, 'w') as fileRes:
                 fileRes.write(langdata)
             fileinfo = translation_exist(cc, update)
             exist = fileinfo[0]
@@ -532,7 +523,7 @@ def download_translation(cc, update):
                 creationDate = fileinfo[1]
                 hash = hashlib.md5(langdata.encode()).hexdigest()
 
-                return [exist, creationDate, hash, file_path]
+                return [exist, creationDate, hash, full_path]
             else:
                 return [exist]
         else:
