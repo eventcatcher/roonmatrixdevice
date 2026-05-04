@@ -765,7 +765,10 @@ if startlog is True:
     flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     flexprint('')
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is_app_embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
     flexprint('[bold deep_sky_blue4]is_raspberry_pi: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]with_restserver: ' + str(with_restserver) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]with_async_request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
     flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
     flexprint('')
     flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
@@ -4647,7 +4650,7 @@ def textsize_width(txt, font=None):
 
 def transform_zone_data_to_string(displaystr, name, controlled, obj):
     try:
-        if is_app_embedded is True:
+        if is_app_embedded is True or display_cover is True:
             hw_width = led_modules * 8
         else:
             hw_width = device.width
