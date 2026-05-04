@@ -235,6 +235,38 @@ class Coverplayer:
 
                 return await asyncio.gather(*tasks)
 
+        def rounded_rectangle_corners(draw, box, radius, fill, top_left=True, top_right=True, bottom_left=True, bottom_right=True):
+            x1, y1, x2, y2 = box
+
+            # Mittelrechtecke (immer zeichnen)
+            draw.rectangle([x1 + radius, y1, x2 - radius, y2], fill=fill)
+            draw.rectangle([x1, y1 + radius, x2, y2 - radius], fill=fill)
+
+            # Ecken behandeln
+            # Oben links
+            if top_left:
+                draw.pieslice([x1, y1, x1 + 2*radius, y1 + 2*radius], 180, 270, fill=fill)
+            else:
+                draw.rectangle([x1, y1, x1 + radius, y1 + radius], fill=fill)
+
+            # Oben rechts
+            if top_right:
+                draw.pieslice([x2 - 2*radius, y1, x2, y1 + 2*radius], 270, 360, fill=fill)
+            else:
+                draw.rectangle([x2 - radius, y1, x2, y1 + radius], fill=fill)
+
+            # Unten links
+            if bottom_left:
+                draw.pieslice([x1, y2 - 2*radius, x1 + 2*radius, y2], 90, 180, fill=fill)
+            else:
+                draw.rectangle([x1, y2 - radius, x1 + radius, y2], fill=fill)
+
+            # Unten rechts
+            if bottom_right:
+                draw.pieslice([x2 - 2*radius, y2 - 2*radius, x2, y2], 0, 90, fill=fill)
+            else:
+                draw.rectangle([x2 - radius, y2 - radius, x2, y2], fill=fill)
+        
         def prepare_image(img):
             try:
                 img = img.resize((maxpx, maxpx), Image.ANTIALIAS)
@@ -252,15 +284,20 @@ class Coverplayer:
                     icon_img = icon_img.resize((size, size), Image.ANTIALIAS)
                     pos = round((maxpx - size) / 2)
                     img.paste(icon_img, (pos, pos), mask = icon_img)
-
+                
                 img = img.convert("RGBA") # convert img to RGBA mode
                 draw = ImageDraw.Draw(img)
+
+                overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+                overlay_draw = ImageDraw.Draw(overlay)
 
                 if text:
                     line_space = 5
 
                     max_width = img.width - 40  # max width of text
                     lines_all_items = 0
+                    max_width_found = 0
+                    max_height_found = 0
                 
                     for text_part in text:
                         sep = text_part.split(':')
@@ -270,13 +307,20 @@ class Coverplayer:
                         if notfound is True:
                             text_part = convert_special_chars(text_part)                
                         lines = cls._wrap_text(text_part, font, max_width)
-                        lines_all_items += len(lines)
+                        lines_all_items += len(lines)	# number of text lines
+                        for line in lines:
+                            text_width, text_height = draw.textsize(line, font = font)
+                            if text_width > max_width_found:
+                                max_width_found = text_width
+                            if text_height > max_height_found:
+                                max_height_found = text_height
                     
                     border_space = 20
                     text_x = border_space
-                    text_y = img.height - border_space - lines_all_items * (font_size + line_space)
+                    text_y = img.height - border_space - lines_all_items * (max_height_found + line_space) + 4
                 
                     background = (0, 0, 0, 255)  # RGB + Alpha (0-255)
+                    linecount = 0
                 
                     for text_part in text:
                         sep = text_part.split(':')
@@ -288,18 +332,36 @@ class Coverplayer:
                         else:
                             lines = cls._wrap_text(text_part, font, max_width)
                         for line in lines:
+                            linecount += 1
                             text_width, text_height = draw.textsize(line, font = font)
                             try:
-                                draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = background)
+                                if linecount == 1:
+                                   rounded_rectangle_corners(overlay_draw, [text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], radius=8, fill=background, top_left=True, top_right=True, bottom_left=False, bottom_right=False)
+                                elif linecount == lines_all_items:
+                                    rounded_rectangle_corners(overlay_draw, [text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], radius=8, fill=background, top_left=False, top_right=False, bottom_left=True, bottom_right=True)
+                                else:
+                                    overlay_draw.rectangle([text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], fill = background)
                             except Exception as e:
                                 try:
                                     flexprint('=> draw.rectangle fallback for grayscale image')
-                                    draw.rectangle([text_x - 5, text_y - line_space, text_x + text_width + 5, text_y + text_height + line_space], fill = 0) # fallback for grayscale images (not true color)
+                                    if linecount == 1:
+                                        rounded_rectangle_corners(overlay_draw, [text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], radius=8, fill=0, top_left=True, top_right=True, bottom_left=False, bottom_right=False)
+                                    elif linecount == lines_all_items:
+                                        rounded_rectangle_corners(overlay_draw, [text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], radius=8, fill=0, top_left=False, top_right=False, bottom_left=True, bottom_right=True)
+                                    else:
+                                        overlay_draw.rectangle([text_x - 5, text_y - line_space, text_x + max_width_found + 5, text_y + max_height_found + line_space], fill = 0) # fallback for grayscale images (not true color)
                                 except Exception as e:
                                     if errorlog is True: flexprint('draw.rectangle error: ' + str(e))
-                            draw.text((text_x, text_y), line, font = font, fill = "white")
-                            text_y += text_height + line_space  # line spacing
+                            overlay_draw.text((text_x, text_y), line, font = font, fill = "white")
+                            text_y += max_height_found + line_space  # line spacing
 
+                # set alpha-channel of overlay
+                opacity = 170  # 0 = completely transparent, 255 = opaque
+                r, g, b, a = overlay.split()
+                a = a.point(lambda v: int(v * (opacity / 255)))
+                overlay = Image.merge("RGBA", (r, g, b, a))
+
+                img = Image.alpha_composite(img, overlay)
                 image = ImageTk.PhotoImage(img)
                 if image:
                     obj.config(image = image)
