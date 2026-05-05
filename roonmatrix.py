@@ -4931,7 +4931,7 @@ def compare_filtered_web_zonedata_is_equal(old_raw, new_raw):
         if errorlog is True: flexprint('[red]compare filtered web zonedata is equal error: ' + str(e) + '[/red]')
         return False
 
-def compare_filtered_roon_zonedata_is_equal(old_raw, new_raw):
+def compare_filtered_roon_zonedata_is_equal(old_raw, new_raw, remove_position):
     try:
         old = json.loads(old_raw)
         new = json.loads(new_raw)
@@ -4942,7 +4942,7 @@ def compare_filtered_roon_zonedata_is_equal(old_raw, new_raw):
             del new['shuffle']
         if 'repeat' in keys:
             del new['repeat']
-        if 'position' in keys:
+        if remove_position is True and 'position' in keys:
             del new['position']
 
         keys = old.keys()
@@ -4950,7 +4950,7 @@ def compare_filtered_roon_zonedata_is_equal(old_raw, new_raw):
             del old['shuffle']
         if 'repeat' in keys:
             del old['repeat']
-        if 'position' in keys:
+        if remove_position is True and 'position' in keys:
             del old['position']
      
         json_str_old = json.dumps(old)
@@ -5340,6 +5340,7 @@ def roon_state_callback(event, changed_ids):
                 artistFiltered = ''
                 albumFiltered = ''
                 trackFiltered = ''
+                image_key = None
                 shuffle = False
 
                 if zone["state"] is None:
@@ -5369,7 +5370,7 @@ def roon_state_callback(event, changed_ids):
                     trackFiltered = filterIllegalChars(track.decode())
 
                     cover_url = ''
-                    image_key = zone["now_playing"].get("image_key")
+                    image_key = zone["now_playing"].get("image_key")                    
                     if image_key:
                         cover_url = roonapi.get_image(image_key)
 
@@ -5429,20 +5430,23 @@ def roon_state_callback(event, changed_ids):
                         flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts changed (callback, not running) => add to websocket update queue')
                     continue
                 else:
+                    hash_id = hashlib.md5(str((image_key if image_key is not None else '') + artistFiltered + albumFiltered + trackFiltered).encode()).hexdigest()
                     if cover_url and len(cover_url) > 0:
-                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
+                        playing = '{"hash": "' + hash_id + '", "status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
                     else:
-                        playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
-                    playing_data_has_changed = name not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[name], playing) is False
-                    if playing_data_has_changed is True:            
+                        playing = '{"hash": "' + hash_id + '", "status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
+                    flexprint('### playing (update): ' + str(playing))
+                    playing_data_with_position_has_changed = name not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[name], playing, False) is False
+                    if playing_data_with_position_has_changed is True:            
                         roon_playouts_raw[name] = playing
                         roon_playouts[name] = json.loads(playing)
                         add_changed_data_to_websocket_queue()
                         flexprint(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + ' => roon_playouts (callback, running) changed => add to websocket update queue')
 
                     # state variants: loading, playing, paused, stopped, not running
-                    flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
                     if state == 'playing':
+                        playing_data_has_changed = name not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[name], playing, True) is False
+                        flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
                         if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
                             allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
                             flexprint('roon_state_callback => allowed: ' + str(allowed) + ', force_roon_update: ' + str(force_roon_update))
@@ -5967,6 +5971,7 @@ def build_output():
                     artistFiltered = ''
                     albumFiltered = ''
                     trackFiltered = ''
+                    image_key = None
                     shuffle = False
                     
                     if zone["state"] is not None:
@@ -6052,14 +6057,15 @@ def build_output():
                             zone_name = ''
                         zone_name += zone["display_name"]
 
+                        hash_id = hashlib.md5(str((image_key if image_key is not None else '') + artistFiltered + albumFiltered + trackFiltered).encode()).hexdigest()
                         if cover_url and len(cover_url) > 0:
-                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
+                            playing = '{"hash": "' + str(hash_id) + '", "status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + ', "cover": "' + cover_url + '"}'
                         else:
-                            playing = '{"status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
+                            playing = '{"hash": "' + str(hash_id) + '", "status": "' + str(state) + '", "artist": ' + artistFiltered + ', "album": ' + albumFiltered + ', "track": ' + trackFiltered + ', "shuffle": ' + str(shuffle).lower() + ', "repeat": ' + str(repeat).lower() + ', "position": ' + str(playpos).replace('None','null') + ', "total": ' + str(playlen).replace('None','null') + '}'
                         flexprint('### playing: ' + str(playing))
 
-                        playing_data_has_changed = zone["display_name"] not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[zone["display_name"]], playing) is False
-                        if playing_data_has_changed:
+                        playing_data_with_position_has_changed = zone["display_name"] not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[zone["display_name"]], playing, False) is False
+                        if playing_data_with_position_has_changed:
                             roon_playouts_raw[zone["display_name"]] = playing
                             roon_playouts[zone["display_name"]] = json.loads(playing)
                             add_changed_data_to_websocket_queue()
