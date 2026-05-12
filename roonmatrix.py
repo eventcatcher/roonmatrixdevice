@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.2.3, date: 10.01.2026
+# version 1.3.0, date: 12.05.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.2.3, date: 10.01.2026'
+scriptVersion = '1.3.0, date: 12.05.2026'
 
 def is_running_on_raspberry_pi():
     try:
@@ -26,8 +26,10 @@ def is_running_on_raspberry_pi():
         return False
 
 is_app_embedded = False
+
+use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
 is_raspberry_pi = is_running_on_raspberry_pi()
-with_restserver = is_app_embedded is False
+with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
 with_async_request = is_app_embedded is False
 
 if is_raspberry_pi:
@@ -52,9 +54,13 @@ else:
     from aiohttp import ClientSession, ClientTimeout, ClientConnectorError # (codesign problem on app-embedded)
     ssl_ctx = None
 
-if with_restserver is True:
+if with_restserver_fastapi is True:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, Body # (codesign problem on app-embedded, on required pydantic too)
     import uvicorn # (codesign problem on app-embedded)
+else:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import websockets
+    from websockets.asyncio.server import broadcast
     
 from threading import Timer
 from datetime import datetime, timedelta, timezone
@@ -87,6 +93,7 @@ from builtins import print as rawprint
 from rich import print
 import traceback
 import logging
+from logging.handlers import RotatingFileHandler
 from collections import OrderedDict
 from operator import is_not
 from functools import partial
@@ -765,10 +772,11 @@ if startlog is True:
     flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
     flexprint('')
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is_app_embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is_raspberry_pi: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]with_restserver: ' + str(with_restserver) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]with_async_request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
+    flexprint('')
     flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
     flexprint('')
     flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
@@ -906,7 +914,7 @@ def spotify_connect_web_auth(url):
     spotify_auth_url = url
     add_changed_data_to_websocket_queue()
 
-if with_restserver is True:
+if with_restserver_fastapi is True:
     class ConnectionManager:
         def __init__(self):
             self.active_connections: list[WebSocket] = []
@@ -930,8 +938,30 @@ if with_restserver is True:
         async def broadcast(self, data: str):
             for connection in self.active_connections:
                 await connection.send_json(data)
+else:
+    class ConnectionManager:
+        def __init__(self):
+            self.active_connections = set()
 
-    ws_manager = ConnectionManager()
+        async def connect(self, websocket):
+            self.active_connections.add(websocket)
+            clients = list(map(lambda websocket: websocket.remote_address, self.active_connections))
+            flexprint(f"[bold magenta]websocket ConnectionManager @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] len: {len(self.active_connections)} , connections: {clients}")
+
+        def disconnect(self, websocket):
+            self.active_connections.remove(websocket)
+            flexprint(f"[bold magenta]websocket ConnectionManager @ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client disconnected: {websocket.remote_address}")
+
+        async def send_json(self, data: dict, websocket):
+            await websocket.send(json.dumps(data))
+
+        async def send_text(self, message: str, websocket):
+            await websocket.send(message)
+
+        async def broadcast(self, data: str):
+            broadcast(self.active_connections, json.dumps(data))
+
+ws_manager = ConnectionManager()
 
 spotify_connect = None
 if spotify_client_id!='' and spotify_client_secret!='':
@@ -962,8 +992,9 @@ if display_cover is True:
 
 # --- REST SERVER START ---
 
-if with_restserver is True:
+if with_restserver_fastapi is True:
     app = FastAPI()
+    wsapp = FastAPI()
 
     @app.get("/")
     async def rest_index():
@@ -979,348 +1010,7 @@ if with_restserver is True:
 
     @app.get("/config/")
     async def rest_config():
-        if is_raspberry_pi is True:
-            devicemap = get_librespot_devicemap()
-        else:
-            devicemap = []
-        if display_cover is True:
-            return {
-                "config": config,
-                "definitions": {
-                    "area": [
-                        {
-                            "name": "SYSTEM",
-                            "items": [
-                                {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
-                                {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
-                                {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
-                                {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
-                                {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
-                                {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                                {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},                          
-                                {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
-                                {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
-                                {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
-                                {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
-                                {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
-                                {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                                {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
-                                {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
-                                {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']},
-                                {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']},
-                                {"name": "searchresult_maxlength", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max items in search result (Roon, Webserver, Spotify, Apple Music)", "unit": "items", "value": config['SYSTEM']['searchresult_maxlength']}
-                            ]
-                        },
-                        {
-                            "name": "LANGUAGE",
-                            "items": [
-                                {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
-                                {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
-                                {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']},
-                                {"name": "coverplayer", "editable": True, "type": {"type": "list(13)", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Coverplayer", "unit": "json", "value": config['LANGUAGE']['coverplayer']},
-                                {"name": "row1keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row1", "unit": "", "value": config['LANGUAGE']['row1keyb']},
-                                {"name": "row2keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row2", "unit": "", "value": config['LANGUAGE']['row2keyb']},
-                                {"name": "row3keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row3", "unit": "", "value": config['LANGUAGE']['row3keyb']},
-                                {"name": "row4keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row4", "unit": "", "value": config['LANGUAGE']['row4keyb']},
-                                {"name": "row1keyb_shift", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Shift Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_shift']},
-                                {"name": "row2keyb_shift", "editable": True, "type": {"type": "list(1)", "structure": []}, "label": "Keyboard Shift Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_shift']},
-                                {"name": "row4keyb_shift", "editable": True, "type": {"type": "list(3)", "structure": []}, "label": "Keyboard Shift Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_shift']},
-                                {"name": "row1keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_alt']},
-                                {"name": "row2keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_alt']},
-                                {"name": "row3keyb_alt", "editable": True, "type": {"type": "list(9)", "structure": []}, "label": "Keyboard Alt Row3", "unit": "", "value": config['LANGUAGE']['row3keyb_alt']},
-                                {"name": "row4keyb_alt", "editable": True, "type": {"type": "list(10)", "structure": []}, "label": "Keyboard Alt Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_alt']}
-                            ]
-                        },
-                        {
-                            "name": "ROON",
-                            "items": [
-                                {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
-                                {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                                {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
-                                {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
-                            ]
-                        },
-                        {
-                            "name": "WEBSERVERS",
-                            "items": [
-                                {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
-                                {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
-                                {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
-                                {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                                {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
-                            ]
-                        },
-                        {
-                            "name": "STREAMING",
-                            "items": [
-                                {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                                {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
-                                {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']},
-                                {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['STREAMING']['applemusic_team_id']},
-                                {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['STREAMING']['applemusic_key_id']},
-                                {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['STREAMING']['applemusic_secret_key']}
-                            ]
-                        },
-                        {
-                            "name": "AUDIO",
-                            "items": [
-                                {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
-                                {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
-                                {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                            
-                                {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
-                            ]
-                        },
-                    ]
-                }
-            }    
-    
-        if is_raspberry_pi is False:
-            return {
-                "config": config,
-                "definitions": {
-                    "area": [
-                        {
-                            "name": "SYSTEM",
-                            "items": [
-                                {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
-                                {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
-                                {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
-                                {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                                {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
-                                {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
-                                {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
-                                {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
-                                {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
-                                {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
-                                {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
-                                {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
-                                {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
-                                {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
-                                {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
-                                {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
-                                {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
-                                {"name": "vertical_output", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Vertical output line by line", "unit": "", "value": config['SYSTEM']['vertical_output']},
-                                {"name": "vertical_scroll_delay", "editable": True, "type": {"type": "int(1,10)", "structure": []}, "label": "Scroll delay for vertical output", "unit": "1-10 s", "value": config['SYSTEM']['vertical_scroll_delay']},
-                                {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
-                                {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
-                                {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
-                                {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                                {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
-                            ]
-                        },
-                        {
-                            "name": "LANGUAGE",
-                            "items": [
-                                {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
-                                {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
-                                {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
-                                {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
-                                {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
-                                {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
-                            ]
-                        },
-                        {
-                            "name": "ROON",
-                            "items": [
-                                {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
-                                {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
-                                {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
-                                {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                                {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
-                                {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
-                            ]
-                        },
-                        {
-                            "name": "WEBSERVERS",
-                            "items": [
-                                {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
-                                {"name": "force_webserver_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force webserver updates", "unit": "", "value": config['WEBSERVERS']['force_webserver_update']},
-                                {"name": "force_active_webserver_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active webserver zone only", "unit": "", "value": config['WEBSERVERS']['force_active_webserver_zone_only']},
-                                {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
-                                {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
-                                {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                                {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
-                            ]
-                        },
-                        {
-                            "name": "STREAMING",
-                            "items": [
-                                {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                                {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
-                                {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
-                            ]
-                        },
-                        {
-                            "name": "WEATHER",
-                            "items": [
-                                {"name": "weather_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show weather informations", "unit": "", "value": "", "value": config['WEATHER']['weather_show']},
-                                {"name": "location", "editable": True, "type": {"type": "string", "structure": []}, "label": "Location", "unit": "", "value": config['WEATHER']['location']},
-                                {"name": "weatherbit_api_key", "editable": True, "type": {"type": "string", "structure": []}, "label": "Weatherbit API key", "unit": "", "value": config['WEATHER']['weatherbit_api_key'], "link": "https://www.weatherbit.io/account/create"},
-                                {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
-                                {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
-                                {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
-                                {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
-                                {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
-                                {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
-                                {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
-                                {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
-                                {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
-                                {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
-                                {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
-                                {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
-                                {"name": "with_description", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with short weather description text", "unit": "", "value": config['WEATHER']['with_description']}
-                            ]
-                        },
-                        {
-                            "name": "RSS",
-                            "items": [
-                                {"name": "rss_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show RSS feeds", "unit": "", "value": config['RSS']['rss_show']},
-                                {"name": "feeds", "editable": True, "type":{"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "count", "type": "int(1,99)"},{"name": "url", "type": "url(http,https)"}]}, "label": "Feeds", "unit": "json list", "value": config['RSS']['feeds']}
-                            ]
-                        }
-                    ]
-                }
-            }
-
-        return {
-            "config": config,
-            "definitions": {
-                "area": [
-                    {
-                        "name": "SYSTEM",
-                        "items": [
-                            {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
-                            {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
-                            {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
-                            {"name": "led_modules", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED modules", "unit": "", "value": config['SYSTEM']['led_modules']},
-                            {"name": "led_block_orientation", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED Block Orientation", "unit": "", "value": config['SYSTEM']['led_block_orientation']},
-                            {"name": "led_rotate", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED rotation", "unit": "", "value": config['SYSTEM']['led_rotate']},
-                            {"name": "led_inreverse", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED in-reverse", "unit": "", "value": config['SYSTEM']['led_inreverse']},
-                            {"name": "led_scroll_delay", "editable": True, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
-                            {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
-                            {"name": "led_contrast", "editable": True, "type": {"type": "int(0,255)", "structure": []}, "label": "LED contrast", "unit": "0-255", "value": config['SYSTEM']['led_contrast']},
-                            {"name": "controlswitch_gpio_top", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button top", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_top']},
-                            {"name": "controlswitch_gpio_down", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button down", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_down']},
-                            {"name": "controlswitch_gpio_left", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button left", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_left']},
-                            {"name": "controlswitch_gpio_center", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button center", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_center']},
-                            {"name": "controlswitch_gpio_right", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button right", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_right']},
-                            {"name": "controlswitch_bouncetime", "editable": True, "type": {"type": "int", "structure": []}, "label": "Button bounce time", "unit": "ms", "value": config['SYSTEM']['controlswitch_bouncetime']},
-                            {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
-                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
-                            {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
-                            {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
-                            {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
-                            {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
-                            {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
-                            {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
-                            {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
-                            {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
-                            {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
-                            {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
-                            {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
-                            {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
-                            {"name": "vertical_output", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Vertical output line by line", "unit": "", "value": config['SYSTEM']['vertical_output']},
-                            {"name": "vertical_scroll_delay", "editable": True, "type": {"type": "int(1,10)", "structure": []}, "label": "Scroll delay for vertical output", "unit": "1-10 s", "value": config['SYSTEM']['vertical_scroll_delay']},
-                            {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
-                            {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
-                            {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
-                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
-                        ]
-                    },
-                    {
-                        "name": "LANGUAGE",
-                        "items": [
-                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
-                            {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
-                            {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
-                            {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
-                            {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
-                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
-                        ]
-                    },
-                    {
-                        "name": "ROON",
-                        "items": [
-                            {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
-                            {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
-                            {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
-                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                            {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
-                            {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
-                        ]
-                    },
-                    {
-                        "name": "WEBSERVERS",
-                        "items": [
-                            {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
-                            {"name": "force_webserver_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force webserver updates", "unit": "", "value": config['WEBSERVERS']['force_webserver_update']},
-                            {"name": "force_active_webserver_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active webserver zone only", "unit": "", "value": config['WEBSERVERS']['force_active_webserver_zone_only']},
-                            {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
-                            {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
-                            {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
-                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
-                        ]
-                    },
-                    {
-                        "name": "STREAMING",
-                        "items": [
-                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
-                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
-                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
-                        ]
-                    },
-                    {
-                        "name": "AUDIO",
-                        "items": [
-                            {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
-                            {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
-                            {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                          
-                            {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
-                        ]
-                    },
-                    {
-                        "name": "WEATHER",
-                        "items": [
-                            {"name": "weather_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show weather informations", "unit": "", "value": "", "value": config['WEATHER']['weather_show']},
-                            {"name": "location", "editable": True, "type": {"type": "string", "structure": []}, "label": "Location", "unit": "", "value": config['WEATHER']['location']},
-                            {"name": "weatherbit_api_key", "editable": True, "type": {"type": "string", "structure": []}, "label": "Weatherbit API key", "unit": "", "value": config['WEATHER']['weatherbit_api_key'], "link": "https://www.weatherbit.io/account/create"},
-                            {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
-                            {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
-                            {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
-                            {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
-                            {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
-                            {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
-                            {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
-                            {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
-                            {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
-                            {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
-                            {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
-                            {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
-                            {"name": "with_description", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with short weather description text", "unit": "", "value": config['WEATHER']['with_description']}
-                        ]
-                    },
-                    {
-                        "name": "RSS",
-                        "items": [
-                            {"name": "rss_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show RSS feeds", "unit": "", "value": config['RSS']['rss_show']},
-                            {"name": "feeds", "editable": True, "type":{"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "count", "type": "int(1,99)"},{"name": "url", "type": "url(http,https)"}]}, "label": "Feeds", "unit": "json list", "value": config['RSS']['feeds']}
-                        ]
-                    },
-                    {
-                        "name": "CLOCK",
-                        "items": [
-                            {"name": "clock_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock", "unit": "", "value": config['CLOCK']['clock_show']},
-                            {"name": "clock_without_idle_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock always is no audio is played (in music_required mode only)", "unit": "", "value": config['CLOCK']['clock_without_idle_time']},
-                            {"name": "clock_refresh_per_second", "editable": True, "type": {"type": "int", "structure": []}, "label": "Display refresh rate", "unit": "frames/s", "value": config['CLOCK']['clock_refresh_per_second']},
-                            {"name": "max_idle_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max idle time from inactive output to next time to display clock", "unit": "minutes", "value": config['CLOCK']['max_idle_time']},
-                            {"name": "max_show_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max show time [automatically quit by activity of zones]", "unit": "minutes", "value": config['CLOCK']['max_show_time']},
-                            {"name": "audioinfo_timer", "editable": True, "type": {"type": "int", "structure": []}, "label": "Check audio zones refresh time", "unit": "seconds", "value": config['CLOCK']['audioinfo_timer']}
-                        ]
-                    }
-                ]
-            }
-        }
+        return getConfigData()
 
     @app.post("/log/")
     async def rest_log(payload: dict = Body(...)):
@@ -1342,210 +1032,28 @@ if with_restserver is True:
 
     @app.post("/setup/")
     async def rest_setup(payload: dict = Body(...)):
-        global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device
-    
-        try:
-            data = str(payload["data"])
-            jsonObj = json.loads(data)
-            doReboot = False
-    
-            noRebootOnPropChanges = [
-                'screensaver_seconds',
-                'alternative_layout',
-                'ipv4_only'
-            ]
-
-            for idx,areaKey in enumerate(jsonObj,1):
-                for idx,fieldKey in enumerate(jsonObj[areaKey],1):
-                    fieldValue = str(jsonObj[areaKey][fieldKey])
-                    if '%' in fieldValue and '%%' not in fieldValue: 
-                        fieldValue = fieldValue.replace('%','%%') # masking of percent char
-                    if '\\' in fieldValue and '\\\\' not in fieldValue: 
-                        fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
-                    if config[areaKey][fieldKey]!=fieldValue:
-                        if fieldKey not in noRebootOnPropChanges:
-                            config_str_masked = config[areaKey][fieldKey]
-                            if '%' in config_str_masked and '%%' not in config_str_masked: 
-                                config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
-                            if '\\' in config_str_masked and '\\\\' not in config_str_masked: 
-                                config_str_masked = config_str_masked.replace('\\','\\\\') # masking of percent char
-                            if config_str_masked!=fieldValue:
-                                config[areaKey][fieldKey] = fieldValue
-                                #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
-                                doReboot = True
-                    if areaKey!='SYSTEM' or fieldKey!='password':
-                        flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
-                    if areaKey=='SYSTEM' and fieldKey=='hostname' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
-                        setHostname(config[areaKey][fieldKey])
-                    if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
-                        config[areaKey][fieldKey] = fieldValue
-                        screensaver_seconds = int(fieldValue)
-                        setScreensaver(config[areaKey][fieldKey])
-                    if areaKey=='SYSTEM' and fieldKey=='ipv4_only' and fieldValue!=str(ipv4_only):
-                        config[areaKey][fieldKey] = fieldValue
-                        ipv4_only = eval(fieldValue)
-                        set_ipv4_only(ipv4_only)
-                    if areaKey=='AUDIO' and fieldKey=='librespot_device' and fieldValue!=str(librespot_device):
-                        config[areaKey][fieldKey] = fieldValue
-                        librespot_device = str(fieldValue)
-                        set_librespot_device(librespot_device)
-                    if areaKey=='AUDIO' and fieldKey=='librespot_bitrate' and fieldValue!=str(librespot_bitrate):
-                        config[areaKey][fieldKey] = fieldValue
-                        librespot_bitrate = str(fieldValue)
-                        set_librespot_bitrate(librespot_bitrate)
-                    if areaKey=='AUDIO' and fieldKey=='librespot_format' and fieldValue!=str(librespot_format):
-                        config[areaKey][fieldKey] = fieldValue
-                        librespot_format = str(fieldValue)
-                        set_librespot_format(librespot_format)
-                    if areaKey=='AUDIO' and fieldKey=='shairport_device' and fieldValue!=str(shairport_device):
-                        config[areaKey][fieldKey] = fieldValue
-                        shairport_device = str(fieldValue)
-                        set_shairport_device(shairport_device)
-                    if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
-                        config[areaKey][fieldKey] = fieldValue
-                        alternative_layout = eval(fieldValue)
-                        Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-                    if areaKey=='SYSTEM' and fieldKey=='password' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
-                        if display_cover is True:
-                            setUserPassword('coverplayer',config[areaKey][fieldKey])
-                        else:
-                            setUserPassword('rmuser',config[areaKey][fieldKey])
-
-            pwbackup = config['SYSTEM']['password']
-            del config['SYSTEM']['password']
-        
-            fileinfo = translation_exist(countrycode, False)
-            exist = fileinfo[0]
-            if exist:
-                flexprint('translation file ' + countrycode + ' exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
-                if updateHash!='':
-                    config['LANGUAGE']['translation_hash'] = updateHash
-
-            with open(configFile, 'w') as fileRes:
-                config.write(fileRes)
-
-            config['SYSTEM']['password'] = pwbackup
-            if doReboot is True and is_raspberry_pi is True:
-                flexprint('successfully write of config file => do reboot now')
-                reboot = True
-            else:
-                flexprint('successfully write of config file')
-            return True
-        except Exception as e:
-            if errorlog is True: flexprint('[red]setup configFile error: ' + str(e) + '[/red]')    
-            return False
+        return save_config(payload)
 
     @app.post("/zone_control/")
     async def rest_zone_control(payload: dict = Body(...)):
-        global control_id
-
-        try:
-            cid = str(payload["control_id"])
-            cmd = str(payload["cmd"])
-            enable = bool(payload["enable"])
-
-            msg = '[bold magenta]POST zone_control => control_id: ' + cid + ', cmd: ' + cmd
-            if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
-                msg += ', enable:' + str(enable)
-            msg += '[/bold magenta]'
-            flexprint(msg)
-
-            if cmd=='previous':
-                play_previous(cid, False)
-                return True
-            if cmd=="next":
-                play_next(cid, False)
-                return True
-            if cmd=="playmode":
-                set_play_mode(cid, enable, True, False)
-                return True
-            if cmd=="shufflemode":
-                set_shuffle_mode(cid, enable, True, False)
-                return True
-            if cmd=="repeatmode":
-                set_repeat_mode(cid, enable, True, False)
-                return True
-            if cmd=="switch":
-                control_id = cid
-                return True
-        except Exception as e:
-            if errorlog is True: flexprint('[red]zone control error: ' + str(e) + '[/red]')
-        return False
+        ret = set_zone_control(payload)
+        if ret == 500:
+            ret = False
+        return set_zone_control(payload)
 
     @app.post("/spotify_auth_redirect_url/")
     async def rest_set_spotify_auth_redirect_url(payload: dict = Body(...)):
-        global spotify_auth_redirect_url, spotify_connect_authorized
-        success = False
-
-        try:
-            spotify_auth_redirect_url = str(payload["url"])
-   
-            msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
-            flexprint(msg)
-
-            success = spotify_connect.auth_response(spotify_auth_redirect_url)
-            if success is True:
-                spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
-
-            flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
-        except Exception as e:
-            if errorlog is True: flexprint('[red]spotify auth redirect error: ' + str(e) + '[/red]')    
-        return success
+        return set_spotify_auth_redirect_url(payload)
 
     @app.post("/message/")
     async def rest_custom_message(payload: dict = Body(...)):
-        global custom_message, custom_message_option
-
-        try:
-            custom_message = str(payload["message"])
-            custom_message_option = str(payload["option"])
-            flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
-
-            if custom_message != ''  and custom_message_option != 'playout':
-                force_custom_message()
-            return True
-        except Exception as e:
-            if errorlog is True: flexprint('[red]set message error: ' + str(e) + '[/red]')
-            return False
+        return set_message(payload)
 
     @app.post("/livecontrol/")
     async def rest_live_control(payload: dict = Body(...)):
-        global led_scroll_delay, led_vertical_scroll_delay, vertical_scroll_delay, led_contrast, config
+        return set_livecontrol(payload)
 
-        try:
-            livecontrol_control = str(payload["control"])
-            livecontrol_value = str(payload["value"])
-            flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
-
-            if livecontrol_control != '' and livecontrol_value != '':
-                if livecontrol_control == 'led_scroll_delay':
-                    led_scroll_delay = float(livecontrol_value)
-                    config['SYSTEM']['led_scroll_delay'] = livecontrol_value
-                if livecontrol_control == 'vertical_scroll_delay':
-                    vertical_scroll_delay = int(livecontrol_value)
-                    config['SYSTEM']['vertical_scroll_delay'] = livecontrol_value
-                if livecontrol_control == 'led_vertical_scroll_delay':
-                    led_vertical_scroll_delay = float(livecontrol_value)
-                    config['SYSTEM']['led_vertical_scroll_delay'] = livecontrol_value
-                if livecontrol_control == 'led_contrast':
-                    led_contrast = int(livecontrol_value)
-                    config['SYSTEM']['led_contrast'] = livecontrol_value
-                    device.contrast(led_contrast)
-
-            config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
-            del config['SYSTEM']['password']
-
-            with open(configFile, 'w') as fileRes:
-                config.write(fileRes)
-            flexprint('successfully write of config file')
-
-            config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
-            return True
-        except Exception as e:
-            if errorlog is True: flexprint('[red]set livecontrol error: ' + str(e) + '[/red]')    
-            return False
-
-    @app.websocket("/ws")
+    @wsapp.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         global ws_update_queue
         ws_ping_seconds = 15
@@ -1581,12 +1089,190 @@ if with_restserver is True:
             if errorlog is True:
                 flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} websocket_endpoint error[/bold red]: {e}")
                 flexprint(str(data))
+else:
+    # REST-Webserver without fastAPI plugin (for inapp server)
 
+    class MyRestHandler(BaseHTTPRequestHandler):
+
+        def send_octet_stream(self, obj, status=200):
+            self.send_response(status)
+            self.send_header("Content-Type", 'application/octet-stream')
+            self.send_header("Content-Length", str(len(obj)))
+            self.end_headers()
+
+            self.wfile.write(obj)
+
+        def send_json(self, obj, status=200):
+            response = json.dumps(obj).encode("utf-8")
+
+            self.send_response(status)
+            self.send_header("Content-Type", 'application/json')
+            self.send_header("Content-Length", str(len(response)))
+            self.end_headers()
+
+            self.wfile.write(response)
+
+        def send_text(self, txt, status=200):
+            self.send_response(status)
+            self.send_header("Content-Type", 'text/plain')
+            self.send_header("Content-Length", str(len(txt)))
+            self.end_headers()
+
+            self.wfile.write(txt)
+
+        def do_GET(self):
+            if self.path == "/":
+                self.send_json({
+                    "type": 'coverplayer' if display_cover is True else 'roonmatrix',
+                    "name": hostName,
+                    "time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+                return
+            
+            if self.path == "/info/":
+                self.send_json(getInfoData())
+                return
+               
+            if self.path == "/config/":
+                self.send_json(getConfigData())
+                return
+        
+        def do_POST(self):
+            global control_id
+
+            content_length = int(self.headers["Content-Length"])
+            body = self.rfile.read(content_length)
+            payload = json.loads(body.decode("utf-8"))
+     
+            if self.path == "/log/":
+                try:
+                    hours = int(payload["hours"])
+                    if display_cover is True or is_raspberry_pi is False:
+                        result = filter_lines_by_hours(logdir + 'roonmatrix.log', hours)
+                        cmpstr = zlib.compress(result.encode('utf-8'))
+                    else:
+                        cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
+                        flexprint('LOG CMD: ' + cmd)
+                        result = subprocess.run(shlex.split(cmd), capture_output=True)
+                        cmpstr = zlib.compress(result.stdout)
+            
+                    self.send_octet_stream(cmpstr)
+                    return
+                except Exception as e:
+                    if errorlog is True: flexprint('[red]get log error: ' + str(e) + '[/red]')
+                    self.send_text('log error')
+                    return
+
+            if self.path == "/setup/":
+                self.send_json(save_config(payload))
+                return
+            
+            if self.path == "/zone_control/":
+                self.send_json(set_zone_control(payload))
+                return
+
+            if self.path == "/spotify_auth_redirect_url/":
+                self.send_json(set_spotify_auth_redirect_url(payload))
+                return
+
+            if self.path == "/message/":
+                self.send_json(set_message(payload))
+                return
+
+            if self.path == "/livecontrol/":
+                self.send_json(set_livecontrol(payload))
+                return
+
+    # ---------------------------------------------------------
+    # starting REST-Webserver (HTTPServer)
+    # ---------------------------------------------------------
+
+    def run_rest_server():
+        flexprint("REST Server runs on port 8000")
+        server.serve_forever()
+
+    server = ThreadingHTTPServer(("0.0.0.0", 8000), MyRestHandler)
+
+    thread = threading.Thread(target=run_rest_server, daemon=True)
+    thread.start()
+
+    # ---------------------------------------------------------
+    # Websocket-Server
+    # ---------------------------------------------------------
+
+    async def ws_handler(websocket):
+        global ws_update_queue
+        if websocket.path != "/ws":
+            flexprint("[bold magenta]websocket error: invalid path[/bold magenta]")
+            await websocket.close()
+            return
+            
+        ws_ping_seconds = 15
+        last_ping = datetime.now()
+        try:
+            #await ws_manager.connect(websocket)
+            ip = websocket.remote_address[0]
+            data = getInfoData()
+            ws_update_queue[ip] = [data]
+
+            flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] client connected: {websocket.remote_address}, clients: {','.join(ws_update_queue.keys())}")
+        
+            while True:
+                await asyncio.sleep(1)
+                flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] clients: {','.join(ws_update_queue.keys())}, ")
+                if ip in ws_update_queue and len(ws_update_queue[ip]) > 0:
+                    data = ws_update_queue[ip][0]
+                    flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] sending info data to: {websocket.remote_address}, app_displaystr: {data['app_displaystr']}")
+                    await ws_manager.send_json(data, websocket)
+                    message = await websocket.recv()
+                    flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] received from {websocket.remote_address}: {message}")
+                    if message == 'received' and len(ws_update_queue[ip]) > 0:
+                        ws_update_queue[ip].pop(0)
+                        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] pop queue from {websocket.remote_address}, rest: {len(ws_update_queue[ip])}")
+                else:
+                    if (last_ping + timedelta(0,ws_ping_seconds)) < datetime.now():
+                        last_ping = datetime.now()
+                        flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] ping client: {websocket.remote_address}")
+                        await ws_manager.send_text('ping', websocket) # send ping every x seconds (ws_ping_seconds)
+        except websockets.exceptions.ConnectionClosedError:
+            ws_manager.disconnect(websocket)
+        except Exception as e:
+            if errorlog is True:
+                flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} websocket_endpoint error[/bold red]: {e}")
+                flexprint(str(data))
+
+    def websocket_thread():
+        global ws_loop
+        ws_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(ws_loop)
+        server = websockets.serve(ws_handler, "0.0.0.0", 8100)
+        ws_loop.run_until_complete(server)
+        flexprint("WebSocket Server runs on port 8100")
+        ws_loop.run_forever()
+
+    # ---------------------------------------------------------
+    # starting Websocket Server (HTTPServer)
+    # ---------------------------------------------------------
+    
+    threading.Thread(target=websocket_thread, daemon=True).start()
+
+def run_rest():
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+def run_ws():
+    uvicorn.run(wsapp, host="0.0.0.0", port=8100)
+      
 def start_restserver():
     try:
-        uvicorn.run(app, host="0.0.0.0", port=8000)
+        threading.Thread(target=run_rest, daemon=True).start()
+        flexprint('[green]REST-Server started[/green]') 
     except Exception as e:
-        if errorlog is True: flexprint('[red]start restserver error: ' + str(e) + '[/red]')    
+        if errorlog is True: flexprint('[red]start REST-Server error: ' + str(e) + '[/red]')    
+    try:
+        threading.Thread(target=run_ws, daemon=True).start()
+        flexprint('[green]Websocket-Server started[/green]') 
+    except Exception as e:
+        if errorlog is True: flexprint('[red]start Websocket-Server error: ' + str(e) + '[/red]')    
 
 # --- REST SERVER END ---
 
@@ -2204,6 +1890,562 @@ def getInfoData():
         "track_id": track_id,
         "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success)
     }
+
+def convert_config_to_dict(config):
+    sections_dict = {}
+
+    for section in config.sections():
+        options = config[section]
+        temp_dict = {}
+        for option in options:
+            temp_dict[option] = config[section][option]
+        sections_dict[section] = temp_dict
+
+    return sections_dict
+
+def getConfigData():
+    if is_raspberry_pi is True:
+        devicemap = get_librespot_devicemap()
+    else:
+        devicemap = []
+    configDict = convert_config_to_dict(config)
+    if display_cover is True:
+        return {
+            "config": configDict,
+            "definitions": {
+                "area": [
+                    {
+                        "name": "SYSTEM",
+                        "items": [
+                            {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
+                            {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
+                            {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
+                            {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
+                            {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                            {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},                          
+                            {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
+                            {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                            {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
+                            {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
+                            {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
+                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                            {"name": "screensaver_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Screensaver timeout", "unit": "seconds", "value": config['SYSTEM']['screensaver_seconds']},
+                            {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']},
+                            {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']},
+                            {"name": "searchresult_maxlength", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max items in search result (Roon, Webserver, Spotify, Apple Music)", "unit": "items", "value": config['SYSTEM']['searchresult_maxlength']}
+                        ]
+                    },
+                    {
+                        "name": "LANGUAGE",
+                        "items": [
+                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
+                            {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
+                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']},
+                            {"name": "coverplayer", "editable": True, "type": {"type": "list(13)", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Coverplayer", "unit": "json", "value": config['LANGUAGE']['coverplayer']},
+                            {"name": "row1keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row1", "unit": "", "value": config['LANGUAGE']['row1keyb']},
+                            {"name": "row2keyb", "editable": True, "type": {"type": "list(12)", "structure": []}, "label": "Keyboard Row2", "unit": "", "value": config['LANGUAGE']['row2keyb']},
+                            {"name": "row3keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row3", "unit": "", "value": config['LANGUAGE']['row3keyb']},
+                            {"name": "row4keyb", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Row4", "unit": "", "value": config['LANGUAGE']['row4keyb']},
+                            {"name": "row1keyb_shift", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Shift Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_shift']},
+                            {"name": "row2keyb_shift", "editable": True, "type": {"type": "list(1)", "structure": []}, "label": "Keyboard Shift Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_shift']},
+                            {"name": "row4keyb_shift", "editable": True, "type": {"type": "list(3)", "structure": []}, "label": "Keyboard Shift Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_shift']},
+                            {"name": "row1keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row1", "unit": "", "value": config['LANGUAGE']['row1keyb_alt']},
+                            {"name": "row2keyb_alt", "editable": True, "type": {"type": "list(11)", "structure": []}, "label": "Keyboard Alt Row2", "unit": "", "value": config['LANGUAGE']['row2keyb_alt']},
+                            {"name": "row3keyb_alt", "editable": True, "type": {"type": "list(9)", "structure": []}, "label": "Keyboard Alt Row3", "unit": "", "value": config['LANGUAGE']['row3keyb_alt']},
+                            {"name": "row4keyb_alt", "editable": True, "type": {"type": "list(10)", "structure": []}, "label": "Keyboard Alt Row4", "unit": "", "value": config['LANGUAGE']['row4keyb_alt']}
+                        ]
+                    },
+                    {
+                        "name": "ROON",
+                        "items": [
+                            {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
+                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                            {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                            {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
+                        ]
+                    },
+                    {
+                        "name": "WEBSERVERS",
+                        "items": [
+                            {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
+                            {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
+                            {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
+                            {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        ]
+                    },
+                    {
+                        "name": "STREAMING",
+                        "items": [
+                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']},
+                            {"name": "applemusic_team_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API team id", "unit": "", "value": config['STREAMING']['applemusic_team_id']},
+                            {"name": "applemusic_key_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Apple Music Web API key id", "unit": "", "value": config['STREAMING']['applemusic_key_id']},
+                            {"name": "applemusic_secret_key", "editable": True, "noValidation": True, "type": {"type": "multiline-string", "structure": []}, "label": "Apple Music Web API secret key", "unit": "", "value": config['STREAMING']['applemusic_secret_key']}
+                        ]
+                    },
+                    {
+                        "name": "AUDIO",
+                        "items": [
+                            {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
+                            {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
+                            {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                            
+                            {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
+                        ]
+                    },
+                ]
+            }
+        }    
+    
+    if is_raspberry_pi is False:
+        return {
+            "config": configDict,
+            "definitions": {
+                "area": [
+                    {
+                        "name": "SYSTEM",
+                        "items": [
+                            {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
+                            {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
+                            {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                            {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
+                            {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                            {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
+                            {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
+                            {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                            {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
+                            {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
+                            {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
+                            {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
+                            {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
+                            {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
+                            {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
+                            {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
+                            {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
+                            {"name": "vertical_output", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Vertical output line by line", "unit": "", "value": config['SYSTEM']['vertical_output']},
+                            {"name": "vertical_scroll_delay", "editable": True, "type": {"type": "int(1,10)", "structure": []}, "label": "Scroll delay for vertical output", "unit": "1-10 s", "value": config['SYSTEM']['vertical_scroll_delay']},
+                            {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
+                            {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
+                            {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
+                            {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                        ]
+                    },
+                    {
+                        "name": "LANGUAGE",
+                        "items": [
+                            {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
+                            {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
+                            {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
+                            {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
+                            {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
+                            {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
+                        ]
+                    },
+                    {
+                        "name": "ROON",
+                        "items": [
+                            {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
+                            {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
+                            {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
+                            {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                            {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                            {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
+                        ]
+                    },
+                    {
+                        "name": "WEBSERVERS",
+                        "items": [
+                            {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
+                            {"name": "force_webserver_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force webserver updates", "unit": "", "value": config['WEBSERVERS']['force_webserver_update']},
+                            {"name": "force_active_webserver_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active webserver zone only", "unit": "", "value": config['WEBSERVERS']['force_active_webserver_zone_only']},
+                            {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
+                            {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
+                            {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
+                            {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                        ]
+                    },
+                    {
+                        "name": "STREAMING",
+                        "items": [
+                            {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                            {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                            {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
+                        ]
+                    },
+                    {
+                        "name": "WEATHER",
+                        "items": [
+                            {"name": "weather_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show weather informations", "unit": "", "value": "", "value": config['WEATHER']['weather_show']},
+                            {"name": "location", "editable": True, "type": {"type": "string", "structure": []}, "label": "Location", "unit": "", "value": config['WEATHER']['location']},
+                            {"name": "weatherbit_api_key", "editable": True, "type": {"type": "string", "structure": []}, "label": "Weatherbit API key", "unit": "", "value": config['WEATHER']['weatherbit_api_key'], "link": "https://www.weatherbit.io/account/create"},
+                            {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
+                            {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
+                            {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
+                            {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
+                            {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
+                            {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
+                            {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
+                            {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
+                            {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
+                            {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
+                            {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
+                            {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
+                            {"name": "with_description", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with short weather description text", "unit": "", "value": config['WEATHER']['with_description']}
+                        ]
+                    },
+                    {
+                        "name": "RSS",
+                        "items": [
+                            {"name": "rss_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show RSS feeds", "unit": "", "value": config['RSS']['rss_show']},
+                            {"name": "feeds", "editable": True, "type":{"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "count", "type": "int(1,99)"},{"name": "url", "type": "url(http,https)"}]}, "label": "Feeds", "unit": "json list", "value": config['RSS']['feeds']}
+                        ]
+                    }
+                ]
+            }
+        }
+
+    return {
+        "config": configDict,
+        "definitions": {
+            "area": [
+                {
+                    "name": "SYSTEM",
+                    "items": [
+                        {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
+                        {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
+                        {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
+                        {"name": "led_modules", "editable": True, "type": {"type": "int", "structure": []}, "label": "LED modules", "unit": "", "value": config['SYSTEM']['led_modules']},
+                        {"name": "led_block_orientation", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED Block Orientation", "unit": "", "value": config['SYSTEM']['led_block_orientation']},
+                        {"name": "led_rotate", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED rotation", "unit": "", "value": config['SYSTEM']['led_rotate']},
+                        {"name": "led_inreverse", "editable": False, "type": {"type": "int", "structure": []}, "label": "LED in-reverse", "unit": "", "value": config['SYSTEM']['led_inreverse']},
+                        {"name": "led_scroll_delay", "editable": True, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
+                        {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                        {"name": "led_contrast", "editable": True, "type": {"type": "int(0,255)", "structure": []}, "label": "LED contrast", "unit": "0-255", "value": config['SYSTEM']['led_contrast']},
+                        {"name": "controlswitch_gpio_top", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button top", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_top']},
+                        {"name": "controlswitch_gpio_down", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button down", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_down']},
+                        {"name": "controlswitch_gpio_left", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button left", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_left']},
+                        {"name": "controlswitch_gpio_center", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button center", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_center']},
+                        {"name": "controlswitch_gpio_right", "editable": False, "type": {"type": "int", "structure": []}, "label": "GPIO channel button right", "unit": "", "value": config['SYSTEM']['controlswitch_gpio_right']},
+                        {"name": "controlswitch_bouncetime", "editable": True, "type": {"type": "int", "structure": []}, "label": "Button bounce time", "unit": "ms", "value": config['SYSTEM']['controlswitch_bouncetime']},
+                        {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
+                        {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
+                        {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
+                        {"name": "zone_autoswitch", "editable": True, "type": {"type": "bool", "structure": []}, "label": "switch automatically to another zone if zone is lost (offline)", "unit": "", "value": config['SYSTEM']['zone_autoswitch']},
+                        {"name": "control_zone", "editable": True, "type": {"type": "string", "structure": []}, "label": "Default control zone", "unit": "", "value": config['SYSTEM']['control_zone']},
+                        {"name": "restart_with_last_selected_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display last selected zone after an auto-restart due to an error", "unit": "", "value": config['SYSTEM']['restart_with_last_selected_zone']},
+                        {"name": "zone_control_map", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Zone control conversion map", "unit": "json", "value": config['SYSTEM']['zone_control_map']},
+                        {"name": "zone_control_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Zone control timeout", "unit": "seconds", "value": config['SYSTEM']['zone_control_timeout']},
+                        {"name": "map_zone_control", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Zone control conversion", "unit": "", "value": config['SYSTEM']['map_zone_control']},
+                        {"name": "exclusive_audio_mode", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Exclusive audio mode", "unit": "", "value": config['SYSTEM']['exclusive_audio_mode']},
+                        {"name": "exclusive_active_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only the active_zone", "unit": "", "value": config['SYSTEM']['exclusive_active_zone']},
+                        {"name": "music_required", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Active music zone required", "unit": "", "value": config['SYSTEM']['music_required']},
+                        {"name": "show_zone", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show zone name", "unit": "", "value": config['SYSTEM']['show_zone']},
+                        {"name": "show_album", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show album name", "unit": "", "value": config['SYSTEM']['show_album']},
+                        {"name": "vertical_output", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Vertical output line by line", "unit": "", "value": config['SYSTEM']['vertical_output']},
+                        {"name": "vertical_scroll_delay", "editable": True, "type": {"type": "int(1,10)", "structure": []}, "label": "Scroll delay for vertical output", "unit": "1-10 s", "value": config['SYSTEM']['vertical_scroll_delay']},
+                        {"name": "show_vertical_music_label", "editable": True, "type": {"type": "bool", "structure": []}, "label": "show label (artist, album, track) in vertical scrolling mode", "unit": "", "value": config['SYSTEM']['show_vertical_music_label']},
+                        {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
+                        {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
+                        {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
+                        {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                    ]
+                },
+                {
+                    "name": "LANGUAGE",
+                    "items": [
+                        {"name": "playing_headline", "editable": True, "type": {"type": "string", "structure": []}, "label": "Playing headline text to display in front of audio informations", "unit": "", "value": config['LANGUAGE']['playing_headline']},
+                        {"name": "conversions", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Conversions", "unit": "", "value": config['LANGUAGE']['conversions']},
+                        {"name": "deg_to_compass", "editable": True, "type": {"type": "list(16)", "structure": []}, "label": "Degree to direction unit", "unit": "", "value": config['LANGUAGE']['deg_to_compass']},
+                        {"name": "weather_description", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather description [Weatherbit]", "unit": "json", "value": config['LANGUAGE']['weather_description']},
+                        {"name": "weather_properties", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Weather properties", "unit": "json", "value": config['LANGUAGE']['weather_properties']},
+                        {"name": "messages", "editable": True, "type": {"type": "list", "structure": [{"name": "key", "type": "string"},{"name": "val", "type": "string"}]}, "label": "Messages", "unit": "json", "value": config['LANGUAGE']['messages']}
+                    ]
+                },
+                {
+                    "name": "ROON",
+                    "items": [
+                        {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
+                        {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
+                        {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
+                        {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
+                        {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
+                        {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
+                    ]
+                },
+                {
+                    "name": "WEBSERVERS",
+                    "items": [
+                        {"name": "webservers_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show webserver zone informations", "unit": "", "value": config['WEBSERVERS']['webservers_show']},
+                        {"name": "force_webserver_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force webserver updates", "unit": "", "value": config['WEBSERVERS']['force_webserver_update']},
+                        {"name": "force_active_webserver_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active webserver zone only", "unit": "", "value": config['WEBSERVERS']['force_active_webserver_zone_only']},
+                        {"name": "webcheck_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Webcheck update interval", "unit": "seconds", "value": config['WEBSERVERS']['webcheck_update_interval']},
+                        {"name": "zones", "editable": True, "type": {"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "url", "type": "url(http,https)"}]}, "label": "Zones", "unit": "json list", "value": config['WEBSERVERS']['zones']},
+                        {"name": "webserver_head_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Head request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_head_request_timeout']},
+                        {"name": "webserver_url_request_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "URL request timeout", "unit": "seconds", "value": config['WEBSERVERS']['webserver_url_request_timeout']}
+                    ]
+                },
+                {
+                    "name": "STREAMING",
+                    "items": [
+                        {"name": "spotify_client_id", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API client id", "unit": "", "value": config['STREAMING']['spotify_client_id'], "link": "https://developer.spotify.com/documentation/web-api/concepts/apps"},
+                        {"name": "spotify_client_secret", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Spotify Web API secret key", "unit": "", "value": config['STREAMING']['spotify_client_secret']},
+                        {"name": "enable_spotify_connect", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Enable Spotify Connect", "unit": "", "value": config['STREAMING']['enable_spotify_connect']}
+                    ]
+                },
+                {
+                    "name": "AUDIO",
+                    "items": [
+                        {"name": "librespot_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Spotify Connect Audio Output", "unit": "", "value": config['AUDIO']['librespot_device']},
+                        {"name": "librespot_bitrate", "editable": True, "noValidation": True, "type": {"type": "int", "options": {"96":"96","160":"160","320":"320"}, "structure": []}, "label": "Spotify Connect Bitrate", "unit": "", "value": config['AUDIO']['librespot_bitrate']},
+                        {"name": "librespot_format", "editable": True, "noValidation": True, "type": {"type": "string", "options": {"F64":"F64","F32":"F32","S32":"S32","S24":"S24","S24_3":"S24_3","S16":"S16"}, "structure": []}, "label": "Spotify Connect Format", "unit": "", "value": config['AUDIO']['librespot_format']},                          
+                        {"name": "shairport_device", "editable": True, "noValidation": True, "type": {"type": "string", "options": devicemap, "structure": []}, "label": "Airplay 2 Audio Output (shairport)", "unit": "", "value": config['AUDIO']['shairport_device']}
+                    ]
+                },
+                {
+                    "name": "WEATHER",
+                    "items": [
+                        {"name": "weather_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show weather informations", "unit": "", "value": "", "value": config['WEATHER']['weather_show']},
+                        {"name": "location", "editable": True, "type": {"type": "string", "structure": []}, "label": "Location", "unit": "", "value": config['WEATHER']['location']},
+                        {"name": "weatherbit_api_key", "editable": True, "type": {"type": "string", "structure": []}, "label": "Weatherbit API key", "unit": "", "value": config['WEATHER']['weatherbit_api_key'], "link": "https://www.weatherbit.io/account/create"},
+                        {"name": "weather_update_interval", "editable": True, "type": {"type": "int", "structure": []}, "label": "Update interval", "unit": "seconds", "value": config['WEATHER']['weather_update_interval']},
+                        {"name": "with_feel_temperature", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with feel temperature", "unit": "", "value": config['WEATHER']['with_feel_temperature']},
+                        {"name": "with_rain", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with rain information (if available)", "unit": "", "value": config['WEATHER']['with_rain']},
+                        {"name": "with_wind_spd", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind speed in km/h", "unit": "", "value": config['WEATHER']['with_wind_spd']},
+                        {"name": "with_wind_dir", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with wind direction", "unit": "", "value": config['WEATHER']['with_wind_dir']},
+                        {"name": "with_humidity", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air humidity", "unit": "", "value": config['WEATHER']['with_humidity']},
+                        {"name": "with_pressure", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with air pressure in hPa", "unit": "", "value": config['WEATHER']['with_pressure']},
+                        {"name": "with_clouds", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with clouds information in percent (if available)", "unit": "", "value": config['WEATHER']['with_clouds']},
+                        {"name": "with_snow", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with snow information in mm/hr (if available)", "unit": "", "value": config['WEATHER']['with_snow']},
+                        {"name": "with_uv", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with ultraviolet radiation information", "unit": "", "value": config['WEATHER']['with_uv']},
+                        {"name": "with_sunrise", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunrise time", "unit": "", "value": config['WEATHER']['with_sunrise']},
+                        {"name": "with_sunset", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with sunset time", "unit": "", "value": config['WEATHER']['with_sunset']},
+                        {"name": "with_description", "editable": True, "type": {"type": "bool", "structure": []}, "label": "with short weather description text", "unit": "", "value": config['WEATHER']['with_description']}
+                    ]
+                },
+                {
+                    "name": "RSS",
+                    "items": [
+                        {"name": "rss_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show RSS feeds", "unit": "", "value": config['RSS']['rss_show']},
+                        {"name": "feeds", "editable": True, "type":{"type": "list", "structure": [{"name": "name", "type": "string"},{"name": "count", "type": "int(1,99)"},{"name": "url", "type": "url(http,https)"}]}, "label": "Feeds", "unit": "json list", "value": config['RSS']['feeds']}
+                    ]
+                },
+                {
+                    "name": "CLOCK",
+                    "items": [
+                        {"name": "clock_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock", "unit": "", "value": config['CLOCK']['clock_show']},
+                        {"name": "clock_without_idle_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show clock always is no audio is played (in music_required mode only)", "unit": "", "value": config['CLOCK']['clock_without_idle_time']},
+                        {"name": "clock_refresh_per_second", "editable": True, "type": {"type": "int", "structure": []}, "label": "Display refresh rate", "unit": "frames/s", "value": config['CLOCK']['clock_refresh_per_second']},
+                        {"name": "max_idle_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max idle time from inactive output to next time to display clock", "unit": "minutes", "value": config['CLOCK']['max_idle_time']},
+                        {"name": "max_show_time", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max show time [automatically quit by activity of zones]", "unit": "minutes", "value": config['CLOCK']['max_show_time']},
+                        {"name": "audioinfo_timer", "editable": True, "type": {"type": "int", "structure": []}, "label": "Check audio zones refresh time", "unit": "seconds", "value": config['CLOCK']['audioinfo_timer']}
+                    ]
+                }
+            ]
+        }
+    }
+
+def save_config(payload):
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device
+    
+    try:
+        data = str(payload["data"])
+        jsonObj = json.loads(data)
+        doReboot = False
+    
+        noRebootOnPropChanges = [
+            'screensaver_seconds',
+            'alternative_layout',
+            'ipv4_only'
+        ]
+
+        for idx,areaKey in enumerate(jsonObj,1):
+            for idx,fieldKey in enumerate(jsonObj[areaKey],1):
+                fieldValue = str(jsonObj[areaKey][fieldKey])
+                if '%' in fieldValue and '%%' not in fieldValue: 
+                    fieldValue = fieldValue.replace('%','%%') # masking of percent char
+                if '\\' in fieldValue and '\\\\' not in fieldValue: 
+                    fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
+                if config[areaKey][fieldKey]!=fieldValue:
+                    if fieldKey not in noRebootOnPropChanges:
+                        config_str_masked = config[areaKey][fieldKey]
+                        if '%' in config_str_masked and '%%' not in config_str_masked: 
+                            config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
+                        if '\\' in config_str_masked and '\\\\' not in config_str_masked: 
+                            config_str_masked = config_str_masked.replace('\\','\\\\') # masking of percent char
+                        if config_str_masked!=fieldValue:
+                            config[areaKey][fieldKey] = fieldValue
+                            #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
+                            doReboot = True
+                if areaKey!='SYSTEM' or fieldKey!='password':
+                    flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
+                if areaKey=='SYSTEM' and fieldKey=='hostname' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
+                    setHostname(config[areaKey][fieldKey])
+                if areaKey=='SYSTEM' and fieldKey=='screensaver_seconds' and fieldValue!=str(screensaver_seconds):
+                    config[areaKey][fieldKey] = fieldValue
+                    screensaver_seconds = int(fieldValue)
+                    setScreensaver(config[areaKey][fieldKey])
+                if areaKey=='SYSTEM' and fieldKey=='ipv4_only' and fieldValue!=str(ipv4_only):
+                    config[areaKey][fieldKey] = fieldValue
+                    ipv4_only = eval(fieldValue)
+                    set_ipv4_only(ipv4_only)
+                if areaKey=='AUDIO' and fieldKey=='librespot_device' and fieldValue!=str(librespot_device):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_device = str(fieldValue)
+                    set_librespot_device(librespot_device)
+                if areaKey=='AUDIO' and fieldKey=='librespot_bitrate' and fieldValue!=str(librespot_bitrate):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_bitrate = str(fieldValue)
+                    set_librespot_bitrate(librespot_bitrate)
+                if areaKey=='AUDIO' and fieldKey=='librespot_format' and fieldValue!=str(librespot_format):
+                    config[areaKey][fieldKey] = fieldValue
+                    librespot_format = str(fieldValue)
+                    set_librespot_format(librespot_format)
+                if areaKey=='AUDIO' and fieldKey=='shairport_device' and fieldValue!=str(shairport_device):
+                    config[areaKey][fieldKey] = fieldValue
+                    shairport_device = str(fieldValue)
+                    set_shairport_device(shairport_device)
+                if areaKey=='SYSTEM' and fieldKey=='alternative_layout' and fieldValue!=str(alternative_layout):
+                    config[areaKey][fieldKey] = fieldValue
+                    alternative_layout = eval(fieldValue)
+                    Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
+                if areaKey=='SYSTEM' and fieldKey=='password' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!='********':
+                    if display_cover is True:
+                        setUserPassword('coverplayer',config[areaKey][fieldKey])
+                    else:
+                        setUserPassword('rmuser',config[areaKey][fieldKey])
+
+        pwbackup = config['SYSTEM']['password']
+        del config['SYSTEM']['password']
+        
+        fileinfo = translation_exist(countrycode, False)
+        exist = fileinfo[0]
+        if exist:
+            flexprint('translation file ' + countrycode + ' exist')    # hash in ini speichern, wenn bei start der hash vorhanden ist, dann NICHT integrieren! (Ändert sich der countrycode, dann muss die neue Sprache die config überschreiben. Wurde die Sprache einmal übernommen, dann darf bei config read NICHT das translation file verwendet werden.)
+            if updateHash!='':
+                config['LANGUAGE']['translation_hash'] = updateHash
+
+        with open(configFile, 'w') as fileRes:
+            config.write(fileRes)
+
+        config['SYSTEM']['password'] = pwbackup
+        if doReboot is True and is_raspberry_pi is True:
+            flexprint('successfully write of config file => do reboot now')
+            reboot = True
+        else:
+            flexprint('successfully write of config file')
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]setup configFile error: ' + str(e) + '[/red]')    
+        return False
+
+def set_zone_control(payload):
+    try:
+        cid = str(payload["control_id"])
+        cmd = str(payload["cmd"])
+        enable = bool(payload.get("enable", False))
+
+        msg = '[bold magenta]POST zone_control => control_id: ' + cid + ', cmd: ' + cmd
+        if cmd == 'playmode' or cmd == 'shufflemode' or cmd == 'repeatmode':
+            msg += ', enable:' + str(enable)
+        msg += '[/bold magenta]'
+        flexprint(msg)
+            
+        if cmd == "previous":
+            play_previous(cid, False)
+            return True
+        if cmd == "next":
+            play_next(cid, False)
+            return True
+        if cmd == "playmode":
+            set_play_mode(cid, enable, True, False)
+            return True
+        if cmd == "shufflemode":
+            set_shuffle_mode(cid, enable, True, False)
+            return True
+        if cmd == "repeatmode":
+            set_repeat_mode(cid, enable, True, False)
+            return True
+        if cmd == "switch":
+            control_id = cid
+            return True
+        return False
+    except Exception as e:
+        if errorlog is True: flexprint('[red]zone control error: ' + str(e) + '[/red]')
+        return False
+
+def set_spotify_auth_redirect_url(payload):
+    global spotify_auth_redirect_url, spotify_connect_authorized
+    success = False
+
+    try:
+        spotify_auth_redirect_url = str(payload["url"])
+   
+        msg = '[bold magenta]POST spotify_auth_redirect_url( => url: ' + spotify_auth_redirect_url + '[/bold magenta]'
+        flexprint(msg)
+
+        success = spotify_connect.auth_response(spotify_auth_redirect_url)
+        if success is True:
+            spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+
+        flexprint('Spotify Connect Login successful: ' + str(success) + ', authorized: ' + str(spotify_connect_authorized))
+    except Exception as e:
+        if errorlog is True: flexprint('[red]spotify auth redirect error: ' + str(e) + '[/red]')    
+    return success
+
+def set_message(payload):
+    global custom_message, custom_message_option
+
+    try:
+        custom_message = str(payload["message"])
+        custom_message_option = str(payload["option"])
+        flexprint('POST message => message: ' + custom_message + ', option: ' + custom_message_option)
+
+        if custom_message != ''  and custom_message_option != 'playout':
+            force_custom_message()
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set message error: ' + str(e) + '[/red]')
+        return False
+
+def set_livecontrol(payload):
+    global led_scroll_delay, led_vertical_scroll_delay, vertical_scroll_delay, led_contrast, config
+
+    try:
+        livecontrol_control = str(payload["control"])
+        livecontrol_value = str(payload["value"])
+        flexprint('POST livecontrol => control: ' + livecontrol_control + ', value: ' + livecontrol_value)
+
+        if livecontrol_control != '' and livecontrol_value != '':
+            if livecontrol_control == 'led_scroll_delay':
+                led_scroll_delay = float(livecontrol_value)
+                config['SYSTEM']['led_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'vertical_scroll_delay':
+                vertical_scroll_delay = int(livecontrol_value)
+                config['SYSTEM']['vertical_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'led_vertical_scroll_delay':
+                led_vertical_scroll_delay = float(livecontrol_value)
+                config['SYSTEM']['led_vertical_scroll_delay'] = livecontrol_value
+            if livecontrol_control == 'led_contrast':
+                led_contrast = int(livecontrol_value)
+                config['SYSTEM']['led_contrast'] = livecontrol_value
+                device.contrast(led_contrast)
+
+        config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+        del config['SYSTEM']['password']
+
+        with open(configFile, 'w') as fileRes:
+            config.write(fileRes)
+        flexprint('successfully write of config file')
+
+        config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set livecontrol error: ' + str(e) + '[/red]')    
+        return False
 
 def get_spotify_auth_url(spotify_connect_auth_success):
     if enable_spotify_connect is False:
@@ -4650,7 +4892,7 @@ def textsize_width(txt, font=None):
 
 def transform_zone_data_to_string(displaystr, name, controlled, obj):
     try:
-        if is_app_embedded is True or display_cover is True:
+        if is_raspberry_pi is False or is_app_embedded is True or display_cover is True:
             hw_width = led_modules * 8
         else:
             hw_width = device.width
@@ -5153,7 +5395,7 @@ def show_clock():
 
 def split_word(word,lines):
     try:
-        if is_app_embedded is True:
+        if is_raspberry_pi is False or is_app_embedded is True:
             font = proportional(CP437_FONT)
             w = textsize_width(word, font)
             hw_width = led_modules * 8
@@ -5187,7 +5429,7 @@ def vertical_longtext_split_and_append(text,lines):
     if display_cover is True or is_raspberry_pi is False:
         return lines
     try:
-        if is_app_embedded is True:
+        if is_raspberry_pi is False or is_app_embedded is True:
             font = CP437_FONT_PROPORTIONAL
             hw_width = led_modules * 8
         else:
@@ -6098,7 +6340,7 @@ def build_output():
                                 buildlines = vertical_longtext_split_and_append(convert_special_chars(playing_headline),buildlines)
                             if show_zone is True:
                                 zonestr = get_message('Zone') + ': ' + convert_special_chars(zone_name)
-                                if is_app_embedded is True:
+                                if is_raspberry_pi is False or is_app_embedded is True:
                                     font = CP437_FONT_PROPORTIONAL
                                     w = textsize_width(zonestr, font)
                                     hw_width = led_modules * 8
@@ -6304,7 +6546,7 @@ if enable_spotify_connect is True and spotify_connect is not None:
 
 try:
     with ThreadPoolExecutor(max_workers=4) as executor:
-        if with_restserver is True:
+        if with_restserver_fastapi is True:
             job = executor.submit(start_restserver)
 
         while True:
