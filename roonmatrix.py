@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.3.0, date: 12.05.2026
+# version 1.3.0, date: 13.05.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.3.0, date: 12.05.2026'
+scriptVersion = '1.3.0, date: 13.05.2026'
 
 def is_running_on_raspberry_pi():
     try:
@@ -138,6 +138,9 @@ else:
 TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
 if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
     TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
+    if not path.exists(TEMP_STATE_DIR):
+        Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)
+    
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
 print('current_path: ' + current_path)
 print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
@@ -277,7 +280,7 @@ except Exception as e:
 if is_app_embedded is True:
     logdir = TEMP_STATE_DIR + '/logs/'
     if not path.exists(logdir):
-        Path(logdir).mkdir(parents=False, exist_ok=False)
+        Path(logdir).mkdir(parents=True, exist_ok=True)
 else:
     logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
     if is_raspberry_pi is False:
@@ -1791,17 +1794,18 @@ def getInfoData():
         spotify_connect_auth_success = spotify_connect.get_spotify_connect_auth_state()
 
     return {
+        "time": timeStr,
         "name": hostName,
         "scriptVersion": scriptVersion,
         "is_app_embedded": is_app_embedded,
         "is_raspberry_pi": is_raspberry_pi,
+        "display_cover": display_cover,
         "countrycode": countrycode,
-        "time": timeStr,
         "debug": debug,
         "startlog": startlog,
         "log": log,
         "errorlog": errorlog,
-        "display_cover": display_cover,
+        "logdir": logdir,
         "led_modules": led_modules,
         "led_scroll_delay": led_scroll_delay,
         "led_vertical_scroll_delay": led_vertical_scroll_delay,
@@ -2368,7 +2372,7 @@ def save_config(payload):
         return False
 
 def set_zone_control(payload):
-    global control_id
+    global control_id, control_zone
 
     try:
         cid = str(payload["control_id"])
@@ -2398,6 +2402,9 @@ def set_zone_control(payload):
             return True
         if cmd == "switch":
             control_id = cid
+            if is_app_embedded is True:
+                control_zone = cid # new to fix auto-fallback to id before 
+                save_selected_zone_state(control_zone) # new to fix auto-fallback to id before 
             return True
         return False
     except Exception as e:
