@@ -120,12 +120,23 @@ print('standard imports done...')
 
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
-current_path = path.dirname(path.abspath(__file__)) + '/'
-base_translations_path = current_path + 'translations/'
 
 APP_NAME = "roonmatrix"
+
+current_path = path.dirname(path.abspath(__file__)) + '/'
+
+if is_app_embedded is True:
+    environ['SSL_CERT_FILE'] = certifi.where()
+    environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+    base_translations_path = str(Path(tempfile.gettempdir()) / APP_NAME) + '/translations/'
+    if not path.exists(base_translations_path):
+        base_translations_path = current_path + 'translations/'
+else:
+    base_translations_path = current_path + 'translations/'
+
 TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
-if is_raspberry_pi is False or path.exists("/dev/shm") is False:
+if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
     TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
 print('current_path: ' + current_path)
@@ -210,19 +221,28 @@ def load_selected_zone_state():
             return json.load(f).get("zone")
     except:
         return None
-        
-base_path = '/usr/local/Roon/etc/'
+
 if is_app_embedded is True:
-    base_path = current_path + 'config/'
+    if path.exists(TEMP_STATE_DIR + '/roon_api.ini'):
+        roon_config_path = TEMP_STATE_DIR + '/'
+    else:
+        roon_config_path = current_path + 'config/'
+    roon_write_path = TEMP_STATE_DIR + '/'
+    configReadFile = roon_config_path + 'roon_api.ini'
+    configWriteFile = roon_write_path + 'roon_api.ini'
+else:
+    roon_config_path = '/usr/local/Roon/etc/'
+    roon_write_path = roon_config_path
+    configReadFile = roon_config_path + 'roon_api.ini'
+    configWriteFile = roon_config_path + 'roon_api.ini'
 
 # core id and token files
-idfile = base_path + 'coreid.txt'
-tokenfile = base_path + 'roontoken.txt'
+idfile = roon_write_path + 'coreid.txt'
+tokenfile = roon_write_path + 'roontoken.txt'
 # read config file
-configFile = base_path + 'roon_api.ini'
 print('read main ini')
 config = configparser.ConfigParser()
-config.read(configFile)
+config.read(configReadFile)
 
 if 'display_cover' in config['SYSTEM']:
     display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
@@ -254,12 +274,17 @@ except Exception as e:
     flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
     display_cover = False
 
-logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
-if is_raspberry_pi is False:
-    logdir = current_path + 'logs/'
+if is_app_embedded is True:
+    logdir = TEMP_STATE_DIR + '/logs/'
+    if not path.exists(logdir):
+        Path(logdir).mkdir(parents=False, exist_ok=False)
+else:
+    logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
+    if is_raspberry_pi is False:
+        logdir = current_path + 'logs/'
 flexprint('logdir: ' + str(logdir))
 
-if is_app_embedded is False and (display_cover is True or is_raspberry_pi is False):
+if is_app_embedded is True or display_cover is True or is_raspberry_pi is False:
     init_logging()
     logger = logging.getLogger('main')
     serial = None
@@ -612,9 +637,9 @@ try:
         load_with_override = (translation_hash != updateHash)
         flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
         if load_with_override is True:
-            config.read([configFile, str(overrideFile)])
+            config.read([configReadFile, str(overrideFile)])
         else:
-            config.read([configFile])
+            config.read([configReadFile])
     else:
         fileinfo = download_translation(countrycode, False)
         if fileinfo is not None:
@@ -626,7 +651,7 @@ try:
             overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
             if exist is True and overrideFile is not None and len(overrideFile) > 0:
                 updateHash = hash
-                config.read([configFile, overrideFile])
+                config.read([configReadFile, overrideFile])
 except Exception as e:
     if errorlog is True: flexprint('[red]get translations error: ' + str(e) + '[/red]')
 
@@ -966,7 +991,7 @@ ws_manager = ConnectionManager()
 spotify_connect = None
 if spotify_client_id!='' and spotify_client_secret!='':
     try:
-        spotify_connect = SpotifyConnect(display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+        spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
     except Exception as e:
         flexprint("spotify_connect error:", e)
 
@@ -1138,8 +1163,6 @@ else:
                 return
         
         def do_POST(self):
-            global control_id
-
             content_length = int(self.headers["Content-Length"])
             body = self.rfile.read(content_length)
             payload = json.loads(body.decode("utf-8"))
@@ -1675,7 +1698,7 @@ def roon_discover():
             discover.stop()
 
             flexprint("roon_discover => Found the following servers")
-            flexprint(roon_servers)
+            flexprint(str(roon_servers))
             if len(roon_servers) > 0:
                 core_ip = roon_servers[0][0]
                 core_port = roon_servers[0][1]
@@ -1686,7 +1709,7 @@ def roon_discover():
                     config['ROON']['core_ip'] = core_ip # set roon server ip
                     config['ROON']['core_port'] = str(core_port) # set roon server port
                     del config['SYSTEM']['password']
-                    with open(configFile, 'w') as fileRes:
+                    with open(configWriteFile, 'w') as fileRes:
                         config.write(fileRes)
                     config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
             
@@ -1769,6 +1792,8 @@ def getInfoData():
 
     return {
         "name": hostName,
+        "scriptVersion": scriptVersion,
+        "is_app_embedded": is_app_embedded,
         "is_raspberry_pi": is_raspberry_pi,
         "countrycode": countrycode,
         "time": timeStr,
@@ -2328,7 +2353,7 @@ def save_config(payload):
             if updateHash!='':
                 config['LANGUAGE']['translation_hash'] = updateHash
 
-        with open(configFile, 'w') as fileRes:
+        with open(configWriteFile, 'w') as fileRes:
             config.write(fileRes)
 
         config['SYSTEM']['password'] = pwbackup
@@ -2343,6 +2368,8 @@ def save_config(payload):
         return False
 
 def set_zone_control(payload):
+    global control_id
+
     try:
         cid = str(payload["control_id"])
         cmd = str(payload["cmd"])
@@ -2437,7 +2464,7 @@ def set_livecontrol(payload):
         config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
         del config['SYSTEM']['password']
 
-        with open(configFile, 'w') as fileRes:
+        with open(configWriteFile, 'w') as fileRes:
             config.write(fileRes)
         flexprint('successfully write of config file')
 

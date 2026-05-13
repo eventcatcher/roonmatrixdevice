@@ -18,14 +18,17 @@ import ssl
 from builtins import print as rawprint
 from rich import print
 import sys
+import tempfile
+from pathlib import Path
 import logging
 import urllib3
 import spotipy
 import spotipy.oauth2 as oauth2
 
 class SpotifyConnect:
-    def __init__(self, display_cover = True, log = True, force_ipv4_only = True, enable_spotify_connect = False, client_id = "", client_secret = "", spotify_connect_auth_url_callback = None):
+    def __init__(self, is_app_embedded = False, display_cover = True, log = True, force_ipv4_only = True, enable_spotify_connect = False, client_id = "", client_secret = "", spotify_connect_auth_url_callback = None):
         self.spotify = None
+        self.is_app_embedded = is_app_embedded
         self.display_cover = display_cover
         self.log = log			# log infos on or off
 
@@ -45,7 +48,7 @@ class SpotifyConnect:
             self.client_secret = client_secret
             self.spotify_connect_auth_url_callback = spotify_connect_auth_url_callback
             self.logger = None
-            if self.display_cover is True:
+            if self.is_app_embedded is True or self.display_cover is True:
                 self.logger = logging.getLogger('spotify_connect')
             self.spotify_connect_auth_success = False
         
@@ -111,7 +114,12 @@ class SpotifyConnect:
         if self.force_ipv4_only:
             session.mount("https://", IPv4OnlyAdapter())
 
-        cache_path = "/home/"+ ('coverplayer' if self.display_cover is True else 'rmuser') +"/FTP/.spotify-cache"
+        if self.is_app_embedded is True:
+            APP_NAME = "roonmatrix"
+            TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
+            cache_path = TEMP_STATE_DIR +"/.spotify-cache"
+        else:
+            cache_path = "/home/"+ ('coverplayer' if self.display_cover is True else 'rmuser') +"/FTP/.spotify-cache"
         self.flexprint('Spotify Connect cache_path: ' + str(cache_path))
 
         if self.enable_spotify_connect is True:
