@@ -86,13 +86,13 @@ class SpotifyConnect:
         try:
             user = self.spotify.me()
             if user:
-                self.flexprint(f"✅ Spotify OAuth successful for {user['display_name']}\n")
+                self.flexprint(f"[green]Spotify OAuth successful[/green] for {user['display_name']}\n")
                 return True
             else:
-                self.flexprint("✅ Spotify ClientCredentials active\n")
+                self.flexprint("[green]Spotify ClientCredentials active[/green]\n")
                 return False
         except Exception as e:
-            if self.errorlog is True: self.flexprint("Spotify Connect Connection test failed:", e)
+            if self.errorlog is True: self.flexprint("[bold red]Spotify Connect Connection test failed:[/bold red]", e)
             return False
     
     def auth(self):
@@ -123,7 +123,7 @@ class SpotifyConnect:
         self.flexprint('Spotify Connect cache_path: ' + str(cache_path))
 
         if self.enable_spotify_connect is True:
-            self.flexprint("🔑 Using Spotify OAuth (Connect control enabled)")
+            self.flexprint("Using Spotify OAuth (Connect control enabled)")
             self.auth_manager = oauth2.SpotifyOAuth(
                 client_id=self.client_id,
                 client_secret=self.client_secret,
@@ -137,30 +137,30 @@ class SpotifyConnect:
                 token_info = self.auth_manager.get_cached_token()
                 if token_info and not self.auth_manager.is_token_expired(token_info):
                     self.spotify_connect_auth_success = True
-                    self.flexprint("✅ Spotify Connect Token found and valid")
+                    self.flexprint("[green]Spotify Connect Token found and valid[/green]")
                 else:
                     # no valid token: try to refresh (can fail)
                     token_info = self.auth_manager.refresh_access_token(token_info["refresh_token"])
                     self.spotify_connect_auth_success = True
-                    self.flexprint("🔄 Spotify Connect Token refreshed")
+                    self.flexprint("Spotify Connect Token refreshed")
             except Exception as e:
                 # no Token exist or not refreshable
-                self.flexprint("⚠️ Invalid Spotify Connect authentification:", e)
+                self.flexprint("[bold red]Invalid Spotify Connect authentification:[/bold red]", e)
                 auth_url = self.auth_manager.get_authorize_url()
-                self.flexprint('spotify connect token not exist → request by app')
+                self.flexprint('[bold red]spotify connect token not exist → request by app[/bold red]')
                 self.spotify_connect_auth_url_callback(auth_url)
                 self.spotify_connect_auth_success = False
                 return
         else:
-            self.flexprint("🧩 Using Client Credentials (read-only access)")
+            self.flexprint("Using Client Credentials (read-only access)")
             try:
                 self.auth_manager = oauth2.SpotifyClientCredentials(
                     client_id=self.client_id,
                     client_secret=self.client_secret
                 )
-                self.flexprint("✅ Spotify Client Credentials authentication successfully done")
+                self.flexprint("[green]Spotify Client Credentials authentication successfully done[/green]")
             except Exception as e:
-                self.flexprint("⚠️ Invalid Spotify credentials authentification:", e)
+                self.flexprint("[bold red]Invalid Spotify credentials authentification:[/bold red]", e)
                 return
 
         self.spotify = spotipy.Spotify(auth_manager=self.auth_manager, requests_session=session)
@@ -171,11 +171,11 @@ class SpotifyConnect:
             code = self.auth_manager.parse_response_code(redirect_response)
             token_info = self.auth_manager.get_access_token(code=code, as_dict=True)
             self.auth_manager.cache_handler.save_token_to_cache(token_info)
-            self.flexprint("Spotify Connect OAuth-Token saved. Future launches run automatically.")
+            self.flexprint("[green]Spotify Connect OAuth-Token saved. Future launches run automatically.[/green]")
             self.auth()
             return True
         except Exception as e:
-            self.flexprint("Spotify Connect OAuth response error: " + str(e))
+            self.flexprint("[bold red]Spotify Connect OAuth response error: [/bold red]" + str(e))
     
     def get_spotify_connect_auth_state(self):
         return self.spotify_connect_auth_success
