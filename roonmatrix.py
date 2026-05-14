@@ -1048,6 +1048,8 @@ if with_restserver_fastapi is True:
             hours = int(payload["hours"])
             if display_cover is True or is_raspberry_pi is False:
                 result = filter_lines_by_hours(logdir + 'roonmatrix.log', hours)
+                if result is None:
+                    result = ''
                 cmpstr = zlib.compress(result.encode('utf-8'))
             else:
                 cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
@@ -1148,7 +1150,9 @@ else:
             self.send_header("Content-Length", str(len(txt)))
             self.end_headers()
 
-            self.wfile.write(txt)
+            if txt is None:
+                txt = ''
+            self.wfile.write(txt.encode("utf-8"))
 
         def do_GET(self):
             if self.path == "/":
@@ -1177,6 +1181,8 @@ else:
                     hours = int(payload["hours"])
                     if display_cover is True or is_raspberry_pi is False:
                         result = filter_lines_by_hours(logdir + 'roonmatrix.log', hours)
+                        if result is None:
+                            result = ''
                         cmpstr = zlib.compress(result.encode('utf-8'))
                     else:
                         cmd = '/usr/bin/journalctl --unit=roonmatrix.service --no-pager --since \"' + str(hours) + 'hours ago\"'
