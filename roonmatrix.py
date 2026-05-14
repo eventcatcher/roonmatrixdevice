@@ -100,7 +100,9 @@ from functools import partial
 from pathlib import Path
 import hashlib
 import zlib
-import crypt
+
+if is_raspberry_pi is True:
+    import crypt
 
 from roonapi import RoonApi, RoonDiscovery
 from weatherbit.api import Api
