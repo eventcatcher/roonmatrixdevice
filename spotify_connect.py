@@ -29,6 +29,7 @@ class SpotifyConnect:
     def __init__(self, is_app_embedded = False, display_cover = True, log = True, force_ipv4_only = True, enable_spotify_connect = False, client_id = "", client_secret = "", spotify_connect_auth_url_callback = None):
         self.spotify = None
         self.is_app_embedded = is_app_embedded
+        self.is_raspberry_pi = self.is_running_on_raspberry_pi()
         self.display_cover = display_cover
         self.log = log			# log infos on or off
 
@@ -54,7 +55,14 @@ class SpotifyConnect:
         
             self.auth()
         except Exception as e:
-            if self.errorlog is True: self.flexprint(f"[red]init error:[/red] {e}")
+            if self.errorlog is True: self.flexprint("[red]SpotifyConnect init error:[/red]")
+
+    def is_running_on_raspberry_pi(self):
+        try:
+            with open('/proc/device-tree/model', 'r') as f:
+                return 'Raspberry Pi' in f.read()
+        except Exception:
+            return False
 
     def flexprint(self, str, objStr = None):
         if self.log is True:
@@ -114,12 +122,14 @@ class SpotifyConnect:
         if self.force_ipv4_only:
             session.mount("https://", IPv4OnlyAdapter())
 
-        if self.is_app_embedded is True:
-            APP_NAME = "roonmatrix"
-            TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
-            cache_path = TEMP_STATE_DIR +"/.spotify-cache"
-        else:
+        if self.is_raspberry_pi is True:
             cache_path = "/home/"+ ('coverplayer' if self.display_cover is True else 'rmuser') +"/FTP/.spotify-cache"
+        else:
+            APP_NAME = "roonmatrix"
+            from platformdirs import PlatformDirs
+            dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=True)
+            configs_dir = dirs.user_config_dir + '/'
+            cache_path = configs_dir +".spotify-cache"
         self.flexprint('Spotify Connect cache_path: ' + str(cache_path))
 
         if self.enable_spotify_connect is True:

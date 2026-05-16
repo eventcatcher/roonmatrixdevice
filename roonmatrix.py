@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.3.0, date: 13.05.2026
+# version 1.3.0, date: 16.05.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,59 +16,17 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.3.0, date: 13.05.2026'
+scriptVersion = '1.3.1, date: 16.05.2026'
+APP_NAME = "roonmatrix"
 
-def is_running_on_raspberry_pi():
-    try:
-        with open('/proc/device-tree/model', 'r') as f:
-            return 'Raspberry Pi' in f.read()
-    except Exception:
-        return False
-
-is_app_embedded = False
-
-use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
-is_raspberry_pi = is_running_on_raspberry_pi()
-with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
-with_async_request = is_app_embedded is False
-
-if is_raspberry_pi:
-    import RPi.GPIO as GPIO
-else:
-    GPIO = None
-
-import ssl
-
-if is_app_embedded is True:
-    import certifi
-    from cp437_font import CP437_FONT_PROPORTIONAL
-    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-else:
-    from luma.led_matrix.device import max7219 # (luma missing on app-embedded)
-    from luma.core.interface.serial import spi, noop
-    from luma.core.legacy import text, textsize
-    from luma.core.legacy.font import proportional, CP437_FONT
-    from luma.core.render import canvas
-    from luma.core.virtual import viewport
-    from luma.core.sprite_system import framerate_regulator
-    from aiohttp import ClientSession, ClientTimeout, ClientConnectorError # (codesign problem on app-embedded)
-    ssl_ctx = None
-
-if with_restserver_fastapi is True:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, Body # (codesign problem on app-embedded, on required pydantic too)
-    import uvicorn # (codesign problem on app-embedded)
-else:
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    import websockets
-    from websockets.asyncio.server import broadcast
-    
+import argparse
+from os import path, system, environ, stat, remove, rename, getcwd, makedirs, umask
 from threading import Timer
 from datetime import datetime, timedelta, timezone
 from dateutil import tz
 import time
 import requests
 import requests.packages.urllib3.util.connection as urllib3_cn
-import argparse
 import tempfile
 from ast import literal_eval
 from urllib.request import Request, urlopen
@@ -76,7 +34,6 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-from os import path, system, environ, stat, remove, rename, getcwd, makedirs, umask
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
@@ -100,14 +57,18 @@ from functools import partial
 from pathlib import Path
 import hashlib
 import zlib
-
-if is_raspberry_pi is True:
-    import crypt
-
+import ssl
 from roonapi import RoonApi, RoonDiscovery
 from weatherbit.api import Api
 import feedparser
 from spotify_connect import SpotifyConnect
+
+def is_running_on_raspberry_pi():
+    try:
+        with open('/proc/device-tree/model', 'r') as f:
+            return 'Raspberry Pi' in f.read()
+    except Exception:
+        return False
 
 startlog = True # log start and config information
 errorlog = True # log errors
@@ -115,27 +76,86 @@ log = True      # log infos on or off
 debug = False   # log debug messages (memory and variable information)
 logger = None
 
+print('parse args now...')
+parser = argparse.ArgumentParser()
+parser.add_argument("-e", "--embedded", default=False, action='store_true',
+                    help="started as app embedded script")
+args = parser.parse_args()
+is_app_embedded = args.embedded
+
+if debug is True:
+    print('parse env now...')
+    print('')
+    for key in environ:
+        print('env ' + str(key) + ', value: ' + str(environ[key]))
+    print('')
+
+if is_app_embedded is False and 'embedded' in environ:
+    print('found env embedded: ' + str(environ['embedded']))
+    print('')
+    is_app_embedded = True
+
+print('started as app embedded script: ' + str(is_app_embedded))
+print('')
+
+use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
+is_raspberry_pi = is_running_on_raspberry_pi()
+with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
+with_async_request = is_app_embedded is False
+
+if is_raspberry_pi is True:
+    import RPi.GPIO as GPIO
+    import crypt
+else:
+    GPIO = None
+    from platformdirs import PlatformDirs
+
+if is_app_embedded is True:
+    import certifi
+    from cp437_font import CP437_FONT_PROPORTIONAL
+    ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+else:
+    from luma.led_matrix.device import max7219 # (luma missing on app-embedded)
+    from luma.core.interface.serial import spi, noop
+    from luma.core.legacy import text, textsize
+    from luma.core.legacy.font import proportional, CP437_FONT
+    from luma.core.render import canvas
+    from luma.core.virtual import viewport
+    from luma.core.sprite_system import framerate_regulator
+    from aiohttp import ClientSession, ClientTimeout, ClientConnectorError # (codesign problem on app-embedded)
+    ssl_ctx = None
+
+if with_restserver_fastapi is True:
+    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, Body # (codesign problem on app-embedded, on required pydantic too)
+    import uvicorn # (codesign problem on app-embedded)
+else:
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+    import websockets
+
 if debug is True:
     import psutil
 
-print('standard imports done...')
+print('import packages done...')
 
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 
-APP_NAME = "roonmatrix"
-
 current_path = path.dirname(path.abspath(__file__)) + '/'
+
+if is_raspberry_pi:
+    configs_dir = current_path
+else:
+    dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=True)
+    configs_dir = dirs.user_config_dir + '/'
+print('configs path: ' + configs_dir)
+
+base_translations_path = configs_dir + 'translations/'
+if is_raspberry_pi is False and not path.exists(base_translations_path):
+    Path(base_translations_path).mkdir(parents=True, exist_ok=True)
 
 if is_app_embedded is True:
     environ['SSL_CERT_FILE'] = certifi.where()
     environ['REQUESTS_CA_BUNDLE'] = certifi.where()
-
-    base_translations_path = str(Path(tempfile.gettempdir()) / APP_NAME) + '/translations/'
-    if not path.exists(base_translations_path):
-        base_translations_path = current_path + 'translations/'
-else:
-    base_translations_path = current_path + 'translations/'
 
 TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
 if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
@@ -228,11 +248,11 @@ def load_selected_zone_state():
         return None
 
 if is_app_embedded is True:
-    if path.exists(TEMP_STATE_DIR + '/roon_api.ini'):
-        roon_config_path = TEMP_STATE_DIR + '/'
+    if path.exists(configs_dir + 'roon_api.ini'):
+        roon_config_path = configs_dir
     else:
         roon_config_path = current_path + 'config/'
-    roon_write_path = TEMP_STATE_DIR + '/'
+    roon_write_path = configs_dir
     configReadFile = roon_config_path + 'roon_api.ini'
     configWriteFile = roon_write_path + 'roon_api.ini'
 else:
@@ -280,13 +300,16 @@ except Exception as e:
     display_cover = False
 
 if is_app_embedded is True:
-    logdir = TEMP_STATE_DIR + '/logs/'
+    logdir = configs_dir + 'logs/'
     if not path.exists(logdir):
         Path(logdir).mkdir(parents=True, exist_ok=True)
 else:
     logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
     if is_raspberry_pi is False:
-        logdir = current_path + 'logs/'
+        logdir = configs_dir + 'logs/'
+        if not path.exists(logdir):
+            Path(logdir).mkdir(parents=True, exist_ok=True)
+
 flexprint('logdir: ' + str(logdir))
 
 if is_app_embedded is True or display_cover is True or is_raspberry_pi is False:
@@ -892,6 +915,7 @@ webcheck_timer = None
 weather_timer = None
 callbacks_initialized = False
 ws_update_queue = {}
+ws_notification_queue = [];
 infodata_props_to_check = {
     "control_id",
     "playmode",
@@ -965,9 +989,9 @@ if with_restserver_fastapi is True:
         async def send_text(self, message: str, websocket: WebSocket):
             await websocket.send_text(message)
 
-        async def broadcast(self, data: str):
+        async def broadcast(self, message: str):
             for connection in self.active_connections:
-                await connection.send_json(data)
+                await connection.send_text(message)
 else:
     class ConnectionManager:
         def __init__(self):
@@ -988,8 +1012,9 @@ else:
         async def send_text(self, message: str, websocket):
             await websocket.send(message)
 
-        async def broadcast(self, data: str):
-            broadcast(self.active_connections, json.dumps(data))
+        async def broadcast(self, message: str):
+            for connection in self.active_connections:
+                await connection.send(message)
 
 ws_manager = ConnectionManager()
 
@@ -1085,9 +1110,13 @@ if with_restserver_fastapi is True:
     async def rest_live_control(payload: dict = Body(...)):
         return set_livecontrol(payload)
 
+    @app.post("/remove_notification/")
+    async def rest_zone_control(payload: dict = Body(...)):
+        return remove_notification(payload)
+
     @wsapp.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
-        global ws_update_queue
+        global ws_update_queue, ws_notification_queue
         ws_ping_seconds = 15
         last_ping = datetime.now()
         try:
@@ -1115,6 +1144,10 @@ if with_restserver_fastapi is True:
                         last_ping = datetime.now()
                         flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] ping client: {websocket.client}")
                         await ws_manager.send_text('ping', websocket) # send ping every x seconds (ws_ping_seconds)
+                    for notification in ws_notification_queue:
+                        flexprint('[bold red]send notification ' + str(notification) + ' via websocket broadcast...[/bold red]')
+                        await ws_manager.broadcast(notification) # send notification via broadcast
+                    
         except WebSocketDisconnect:
             ws_manager.disconnect(websocket)
         except Exception as e:
@@ -1216,6 +1249,10 @@ else:
             if self.path == "/livecontrol/":
                 self.send_json(set_livecontrol(payload))
                 return
+                
+            if self.path == '/remove_notification/':
+                self.send_json(remove_notification(payload))
+                return
 
     # ---------------------------------------------------------
     # starting REST-Webserver (HTTPServer)
@@ -1235,7 +1272,7 @@ else:
     # ---------------------------------------------------------
 
     async def ws_handler(websocket):
-        global ws_update_queue
+        global ws_update_queue, ws_notification_queue
         if websocket.path != "/ws":
             flexprint("[bold magenta]websocket error: invalid path[/bold magenta]")
             await websocket.close()
@@ -1244,7 +1281,7 @@ else:
         ws_ping_seconds = 15
         last_ping = datetime.now()
         try:
-            #await ws_manager.connect(websocket)
+            await ws_manager.connect(websocket)
             ip = websocket.remote_address[0]
             data = getInfoData()
             ws_update_queue[ip] = [data]
@@ -1268,6 +1305,9 @@ else:
                         last_ping = datetime.now()
                         flexprint(f"[bold magenta]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} =>[/bold magenta] ping client: {websocket.remote_address}")
                         await ws_manager.send_text('ping', websocket) # send ping every x seconds (ws_ping_seconds)
+                    for notification in ws_notification_queue:
+                        flexprint('[bold red]send notification ' + str(notification) + ' via websocket broadcast...[/bold red]')
+                        await ws_manager.broadcast(notification) # send messages via broadcast
         except websockets.exceptions.ConnectionClosedError:
             ws_manager.disconnect(websocket)
         except Exception as e:
@@ -1307,6 +1347,11 @@ def start_restserver():
         flexprint('[green]Websocket-Server started[/green]') 
     except Exception as e:
         if errorlog is True: flexprint('[red]start Websocket-Server error: ' + str(e) + '[/red]')    
+
+def send_roon_activation_warning():
+    if 'roon-activation-alert' not in ws_notification_queue:
+        flexprint("[bold red]add roon activation warning to notifications queue[/bold red]")
+        ws_notification_queue.append('roon-activation-alert')
 
 # --- REST SERVER END ---
 
@@ -1633,6 +1678,7 @@ def clear_display(type):
         if errorlog is True: flexprint('[red]clear display error: ' + str(e) + '[/red]')
 
 def roon_discover_all_test():
+    # only used for debugging
     if test_roon_discover is True:
         try:
             discover = RoonDiscovery(None)
@@ -1655,6 +1701,7 @@ def roon_discover_first_test():
             if errorlog is True: flexprint('[red]roon discover first test error: ' + str(e) + '[/red]')
 
 def roon_discover_active_test():
+    # only used for debugging
     if test_roon_discover is True:
         try:
             if path.exists(idfile):
@@ -1664,12 +1711,11 @@ def roon_discover_active_test():
             else:
                 core_id = None
 
+            token = None
             if path.exists(tokenfile):
                 with open(tokenfile, "r") as f:
                     token = f.read()
                     f.close()
-            else:
-                token = None
 
             if core_id is not None and token is not None:
                 discover = RoonDiscovery(core_id)
@@ -1746,46 +1792,65 @@ def roon_discover():
             flexprint('[red]==> roon discover error: [/red]', str(e))
             #flexprint(traceback.format_exc())
 
-def get_roon_api():
-    global roonapi, roon_servers
+def get_roon_api(blocking = True):
+    global roonapi, roon_servers, ws_notification_queue
 
     try:
-        if path.exists(tokenfile):
-            with open(tokenfile, "r") as f:
-                token = f.read()
-                f.close()
-        else:
-            token = None
+        token = ''
+        try:
+            if path.exists(tokenfile):
+                with open(tokenfile, "r") as f:
+                    token = f.read()
+                    f.close()
+        except OSError:
+            flexprint("[bold red]Please authorise device in roon app![/bold red]")
 
-        if core_ip !='' and core_port != '' and token is not None:
-            flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port))
-            roonapi = RoonApi(appinfo, token, core_ip, int(core_port), True)
+        if core_ip !='' and core_port != '':
+            flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port) + ", blocking: " + str(blocking))
+                        
+            roonapi = RoonApi(appinfo, token, core_ip, int(core_port), blocking)
             time.sleep(1)
-            if roonapi is not None:
-                data = [core_ip, int(core_port)]
-                if len(roon_servers) == 0:
-                    roon_servers = [data]
 
-                flexprint("roon api connected => (host, core_name, core_id)")
-                flexprint(roonapi.host)
-                flexprint(roonapi.core_name)
-                flexprint(roonapi.core_id)
+            data = [core_ip, int(core_port)]
+            if len(roon_servers) == 0:
+                roon_servers = [data]
+
+            flexprint("roon api connected: " + str(roonapi is not None) + " => (blocking: " + str(blocking) + ", host: " + str(roonapi.host) + ", core_name: " + str(roonapi.core_name) + ", core_id: " + str(roonapi.core_id) + ", token: " + str(roonapi.token is not None and roonapi.token != '') + ")")
                 
-                # This is what we need to reconnect
-                core_id = roonapi.core_id
-                token = roonapi.token
-
-                with open(idfile, "w") as f:
-                    f.write(str(core_id))
-                    f.close()
-
-                with open(tokenfile, "w") as f:
-                    f.write(str(token))
-                    f.close()
+            # This is what we need to reconnect
+            core_id = roonapi.core_id
+            token = roonapi.token
                 
-                set_default_zone()
-                flexprint('register roonapi state callback')
-                roonapi.register_state_callback(roon_state_callback)
+            if (core_id is None or token is None) and blocking is False:
+                send_roon_activation_warning()
+                time.sleep(1)
+
+                t = Timer(2, get_roon_api)	# retry after 30s
+                t.start()
+            elif blocking is False:
+                t = Timer(2, get_roon_api)	# retry after 5s
+                t.start()
+
+            with open(idfile, "w") as f:
+                f.write(str(core_id))
+                f.close()
+
+            with open(tokenfile, "w") as f:
+                f.write(str(token))
+                f.close()
+                
+            set_default_zone()
+            flexprint('register roonapi state callback')
+            roonapi.register_state_callback(roon_state_callback)
+            
+            if core_id is not None and token is not None and 'roon-activation-alert' in ws_notification_queue:
+                ws_notification_queue.remove('roon-activation-alert')
+        else:
+            send_roon_activation_warning()
+            time.sleep(1)
+
+            t = Timer(30, get_roon_api)	# retry after 30s
+            t.start()
     except Exception as e:
         if errorlog is True: 
             flexprint('[red]==> get roon api error: [/red]', str(e))
@@ -2453,6 +2518,20 @@ def set_message(payload):
         if errorlog is True: flexprint('[red]set message error: ' + str(e) + '[/red]')
         return False
 
+def remove_notification(payload):
+    global ws_notification_queue
+
+    try:
+        message = str(payload["message"])
+        flexprint('POST remove_notification => message: ' + message)
+
+        if message != '' and message in ws_notification_queue:
+            ws_notification_queue.remove(message)
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]remove_notification error: ' + str(e) + '[/red]')
+        return False
+
 def set_livecontrol(payload):
     global led_scroll_delay, led_vertical_scroll_delay, vertical_scroll_delay, led_contrast, config
 
@@ -2804,7 +2883,7 @@ def is_audioinfo_available():
             if core_ip == '' or core_port == '':
                 roon_discover()
             if roonapi is None:
-                get_roon_api()
+                get_roon_api(False)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             roon_discover_first_test()
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
@@ -6190,7 +6269,7 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
         #    flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
         #    roonapi.stop()
         #    roonapi = None
-        #    get_roon_api()
+        #    get_roon_api(False)
         #    if roonapi is not None:
         #        return list(roonapi.zones.values())
     except Exception as e:
@@ -6241,7 +6320,7 @@ def build_output():
             if core_ip == '' or core_port == '':
                 roon_discover()
             if roonapi is None:
-                get_roon_api()
+                get_roon_api(False)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             roon_discover_first_test()
 
@@ -6265,7 +6344,7 @@ def build_output():
                     #if state=='stopped' and 'now_playing' not in zone:
                         #flexprint('[red]stopped state found => reconnect roon api[/red]')
                         #roonapi.stop()
-                        #get_roon_api()
+                        #get_roon_api(False)
                     
                     if state == "Unknown" or 'now_playing' not in zone:
                         continue
@@ -6540,13 +6619,6 @@ while True:
         flexprint("The internet connection is down")
         pass
 
-flexprint('argparse now...')
-
-parser = argparse.ArgumentParser()
-parser.add_argument("-z", "--zone", help="zone selection")
-parser.add_argument("-a", "--all", default=False, action='store_true',
-                    help="display all zones regardless of state")
-
 appKey = 'coverplayer' if display_cover is True else 'roonmatrix'
 appinfo = {
   "extension_id": appKey + '_' + hostName,
@@ -6562,7 +6634,7 @@ if roon_show == True:
     if core_ip == '' or core_port == '':
         roon_discover()
     if roonapi is None:
-        get_roon_api()
+        get_roon_api(False)
 
 if weather_show == True:
     get_weather(weather_api,location)
