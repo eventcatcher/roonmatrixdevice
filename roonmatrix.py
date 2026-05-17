@@ -110,10 +110,12 @@ else:
     GPIO = None
     from platformdirs import PlatformDirs
 
-if is_app_embedded is True:
-    import certifi
+if is_app_embedded is True or is_raspberry_pi is False:
     from cp437_font import CP437_FONT_PROPORTIONAL
+    import certifi
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
+    if is_raspberry_pi is False:
+        from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
 else:
     from luma.led_matrix.device import max7219 # (luma missing on app-embedded)
     from luma.core.interface.serial import spi, noop
@@ -509,7 +511,7 @@ def get_countrycode_from_public_ip():
             jsonObj = json.loads(ipdata)
             cc = str(jsonObj['cc']).lower()
     except Exception as e:
-        flexprint('[red]setHostname error: ' + str(e) + '[/red]')
+        flexprint('[red]get countrycode from public ip error: ' + str(e) + '[/red]')
     return cc
 
 def creation_date(path_to_file):
@@ -2587,7 +2589,7 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
             estimated_seconds = (2 + len(msg)) * (vertical_scroll_delay + 1/1000 * led_vertical_scroll_delay * 8)
         else:
             fps = 0 if scroll_delay == 0 else 1.0 / scroll_delay
-            if display_cover is True or is_raspberry_pi is False:
+            if display_cover is True or is_raspberry_pi is False or is_app_embedded is True:
                 estimated_seconds = 20 # fake time to limit api calls in display_cover mode
             else:
                 with canvas(device) as draw:
@@ -2608,7 +2610,7 @@ def get_next_fetch_output_time(msg, font=None, scroll_delay=0.03):
 def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None):
     global interrupt_message, fetch_output_time
 
-    if display_cover is True or is_raspberry_pi is False:
+    if display_cover is True or is_raspberry_pi is False or is_app_embedded is True:
         interrupt_message = False
         return
 
@@ -2654,7 +2656,7 @@ def show_message_interruptable(device, msg, y_offset=0, fill=None, font=None):
 def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, font=None):
     global interrupt_message, fetch_output_time
 
-    if display_cover is True or is_raspberry_pi is False:
+    if display_cover is True or is_raspberry_pi is False or is_app_embedded is True:
         interrupt_message = False
         return
 
@@ -5007,9 +5009,14 @@ def textsize_width(txt, font=None):
     :type txt: str
     :param font: The font (from :py:mod:`luma.core.legacy.font`) to use.
     """
-    font = font or DEFAULT_FONT
-    src = [c for ascii_code in txt for c in font[ord(ascii_code)]]
-    return (len(src), 8)
+    try:
+        font = font or DEFAULT_FONT
+        src = [c for ascii_code in txt for c in font[ord(ascii_code)]]
+        return len(src)
+    except Exception as e:
+        if errorlog is True: flexprint('[red]on textsize_width error: ' + str(e) + '[/red]')
+    return
+
 
 def transform_zone_data_to_string(displaystr, name, controlled, obj):
     try:
@@ -5023,7 +5030,7 @@ def transform_zone_data_to_string(displaystr, name, controlled, obj):
                 displaystr = vertical_longtext_split_and_append(convert_special_chars(playing_headline),displaystr)
             if show_zone is True:
                 sourcestr = get_message('Source') + ': ' + convert_special_chars(name)
-                if is_app_embedded is True:
+                if is_app_embedded is True or is_raspberry_pi is False:
                     font = CP437_FONT_PROPORTIONAL
                     w = textsize_width(sourcestr, font)
                 else:
@@ -5036,7 +5043,7 @@ def transform_zone_data_to_string(displaystr, name, controlled, obj):
                     displaystr = vertical_longtext_split_and_append(sourcestr,displaystr)
 
                 zonestr = controlled + get_message('Zone') + ': ' + convert_special_chars(obj["zone"])
-                if is_app_embedded is True:
+                if is_app_embedded is True or is_raspberry_pi is False:
                     w = textsize_width(zonestr, font)
                 else:
                     w, h = textsize(zonestr, font)
@@ -5072,7 +5079,9 @@ def transform_zone_data_to_string(displaystr, name, controlled, obj):
                 displaystr += get_message('Track') + ': "' + convert_special_chars(obj["track"]) + '"'
                 displaystr = convert_special_chars(displaystr)
     except Exception as e:
-        if errorlog is True: flexprint('[red]transform zone data to string error: ' + str(e) + '[/red]')
+        if errorlog is True: 
+            flexprint('[red]transform zone data to string error: ' + str(e) + '[/red]')
+            #flexprint(traceback.format_exc())
     return displaystr
 
 def get_force_mode(displaystr):
@@ -5517,11 +5526,11 @@ def show_clock():
 def split_word(word,lines):
     try:
         if is_raspberry_pi is False or is_app_embedded is True:
-            font = proportional(CP437_FONT)
+            font = CP437_FONT_PROPORTIONAL
             w = textsize_width(word, font)
             hw_width = led_modules * 8
         else:
-            font = CP437_FONT_PROPORTIONAL
+            font = proportional(CP437_FONT)
             w, h = textsize(word, font)
             hw_width = device.width
 
@@ -5530,13 +5539,13 @@ def split_word(word,lines):
             while count > 0 and w > hw_width:
                 count -= 1
                 part = word[:count]
-                if is_app_embedded is True:
+                if is_raspberry_pi is False or is_app_embedded is True:
                     w = textsize_width(part, font)
                 else:
                     w, h = textsize(part, font)
             word = word[count:]
             lines.append(part)
-            if is_app_embedded is True:
+            if is_raspberry_pi is False or is_app_embedded is True:
                 w = textsize_width(word, font)
             else:
                 w, h = textsize(word, font)
@@ -5547,7 +5556,7 @@ def split_word(word,lines):
     return lines
 
 def vertical_longtext_split_and_append(text,lines):
-    if display_cover is True or is_raspberry_pi is False:
+    if display_cover is True:
         return lines
     try:
         if is_raspberry_pi is False or is_app_embedded is True:
@@ -5566,12 +5575,12 @@ def vertical_longtext_split_and_append(text,lines):
                 if len(line) > 0:
                     line += ' '
                 line += word
-                if is_app_embedded is True:
-                    w = textsize_width(word, font)
+                if is_raspberry_pi is False or is_app_embedded is True:
+                    w = textsize_width(line, font)
                 else:
-                    w, h = textsize(word, font)
+                    w, h = textsize(line, font)
                 if w > hw_width and line_before != '':
-                    if is_app_embedded is True:
+                    if is_raspberry_pi is False or is_app_embedded is True:
                         lb_w = textsize_width(line_before, font)
                     else:
                         lb_w, lb_h = textsize(line_before, font)
@@ -5580,10 +5589,10 @@ def vertical_longtext_split_and_append(text,lines):
                     else:
                         lines = split_word(line_before,lines)
                         last_line = lines.pop()
-                        if is_app_embedded is True:
+                        if is_raspberry_pi is False or is_app_embedded is True:
                             lb_w = textsize_width(last_line + ' ' + word, font)
                         else:
-                            lb_w = textsize_width(last_line + ' ' + word, font)
+                            lb_w, lb_h = textsize(last_line + ' ' + word, font)
                         if lb_w <= hw_width:
                             last_line += (' ' + word)
                             word = ''
@@ -6695,7 +6704,7 @@ try:
                 prepared_displaystr = ''
                 prepared_vert_strlines = []
                 delaySec = led_scroll_delay/1000
-                if is_app_embedded is True:
+                if is_app_embedded is True or is_raspberry_pi is False:
                     font = CP437_FONT_PROPORTIONAL
                 else:
                     font = proportional(CP437_FONT)
