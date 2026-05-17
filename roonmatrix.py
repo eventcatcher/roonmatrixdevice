@@ -2113,8 +2113,8 @@ def getConfigData():
                         "name": "SYSTEM",
                         "items": [
                             {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
-                            {"name": "led_scroll_delay", "editable": False, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
-                            {"name": "led_vertical_scroll_delay", "editable": False, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
+                            {"name": "led_scroll_delay", "editable": True, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
+                            {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
                             {"name": "internet_connection_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Internet connection timeout", "unit": "seconds", "value": config['SYSTEM']['internet_connection_timeout']},
                             {"name": "internet_connection_url", "editable": True, "type": {"type": "url(http,https)", "structure": []}, "label": "Internet connection check url", "unit": "url", "value": config['SYSTEM']['internet_connection_url'], "link": "*"},
                             {"name": "separator", "editable": True, "type": {"type": "string", "structure": []}, "label": "Message Separator", "unit": "", "value": config['SYSTEM']['separator']},
