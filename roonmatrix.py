@@ -114,7 +114,7 @@ if is_app_embedded is True or is_raspberry_pi is False:
     from cp437_font import CP437_FONT_PROPORTIONAL
     import certifi
     ssl_ctx = ssl.create_default_context(cafile=certifi.where())
-    if is_raspberry_pi is False:
+    if is_app_embedded is False and is_raspberry_pi is False:
         from aiohttp import ClientSession, ClientTimeout, ClientConnectorError
 else:
     from luma.led_matrix.device import max7219 # (luma missing on app-embedded)
