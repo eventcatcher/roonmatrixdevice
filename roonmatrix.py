@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 1.3.0, date: 16.05.2026
+# version 2.0.0, date: 23.05.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,10 +16,27 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '1.3.1, date: 16.05.2026'
+scriptVersion = '2.0.0, date: 23.05.2026'
 APP_NAME = "roonmatrix"
 
+startlog = True	# default true: log start and config information
+errorlog = True	# default true: log errors
+log = True			# default true: log infos on or off
+
+debug = False		# default false: log debug messages (memory and variable information)
+silent = False		# default False: print no warnings and no error messages to the console output
+
+import sys
+
+if silent is True:
+    import warnings ; warnings.warn = lambda *args,**kwargs: None
+    def supressErrors(*args):
+        pass
+    suppressionHandle = sys.stderr
+    sys.stderr = supressErrors()
+
 import argparse
+import os
 from os import path, system, environ, stat, remove, rename, getcwd, makedirs, umask
 from threading import Timer
 from datetime import datetime, timedelta, timezone
@@ -34,7 +51,6 @@ from urllib.error import URLError, HTTPError
 from urllib import parse
 import configparser
 import json
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
 from functools import wraps
@@ -63,6 +79,28 @@ from weatherbit.api import Api
 import feedparser
 from spotify_connect import SpotifyConnect
 
+# In Windows, sys.stderr and/or sys.stdout inside Python runtime (serious_python) is not working and results in a exception which will stop running the script. 
+# Therefore, this log functions are overridden here.
+
+if sys.stdout is None or log is False:
+    sys.stdout = open(os.devnull, "w")
+
+if sys.stderr is None or log is False:
+    sys.stderr = open(os.devnull, "w")
+
+if sys.stdin is None or log is False:
+    sys.stdin = open(os.devnull, "r")
+
+def log_exception(exc_type, exc_value, exc_traceback):
+    crashlog_file = os.path.join(
+        tempfile.gettempdir(),
+        "roonmatrix_python_crash.log"
+    )
+    with open(crashlog_file, "a", encoding="utf-8") as f:
+        traceback.print_exception(exc_type, exc_value, exc_traceback, file=f)
+
+sys.excepthook = log_exception
+
 def is_running_on_raspberry_pi():
     try:
         with open('/proc/device-tree/model', 'r') as f:
@@ -70,38 +108,45 @@ def is_running_on_raspberry_pi():
     except Exception:
         return False
 
-startlog = True # log start and config information
-errorlog = True # log errors
-log = True      # log infos on or off
-debug = False   # log debug messages (memory and variable information)
 logger = None
 
-print('parse args now...')
+if log is True:
+    print('')
+    print('start roonmatrix python script @ ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+if startlog is True:
+    print('parse args now...')
 parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--embedded", default=False, action='store_true',
                     help="started as app embedded script")
 args = parser.parse_args()
 is_app_embedded = args.embedded
 
-if debug is True:
+if startlog is True:
     print('parse env now...')
+if debug is True:
     print('')
     for key in environ:
         print('env ' + str(key) + ', value: ' + str(environ[key]))
     print('')
 
 if is_app_embedded is False and 'embedded' in environ:
-    print('found env embedded: ' + str(environ['embedded']))
-    print('')
+    if startlog is True:
+        print('found env embedded: ' + str(environ['embedded']))
+        print('')
     is_app_embedded = True
 
-print('started as app embedded script: ' + str(is_app_embedded))
-print('')
+if startlog is True:
+    print('started as app embedded script: ' + str(is_app_embedded))
+    print('')
 
 use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
 is_raspberry_pi = is_running_on_raspberry_pi()
 with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
 with_async_request = is_app_embedded is False
+
+platform = 'raspberry-pi' if is_raspberry_pi is True else 'unknown'
+if 'platform' in environ:
+    platform = str(environ['platform'])
 
 if is_raspberry_pi is True:
     import RPi.GPIO as GPIO
@@ -137,19 +182,21 @@ else:
 if debug is True:
     import psutil
 
-print('import packages done...')
+if startlog is True:
+    print('import packages done...')
 
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 
-current_path = path.dirname(path.abspath(__file__)) + '/'
+current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
 
 if is_raspberry_pi:
     configs_dir = current_path
 else:
     dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=True)
-    configs_dir = dirs.user_config_dir + '/'
-print('configs path: ' + configs_dir)
+    configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
+if startlog is True:
+    print('configs path: ' + configs_dir)
 
 base_translations_path = configs_dir + 'translations/'
 if is_raspberry_pi is False and not path.exists(base_translations_path):
@@ -166,8 +213,9 @@ if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm"
         Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)
     
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
-print('current_path: ' + current_path)
-print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
+if startlog is True:
+    print('current_path: ' + current_path)
+    print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
 
 logdir = ''
  
@@ -267,7 +315,8 @@ else:
 idfile = roon_write_path + 'coreid.txt'
 tokenfile = roon_write_path + 'roontoken.txt'
 # read config file
-print('read main ini')
+if startlog is True:
+    print('read main ini')
 config = configparser.ConfigParser()
 config.read(configReadFile)
 
@@ -829,6 +878,7 @@ if startlog is True:
     flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
     flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
     flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]platform: ' + platform + '[/bold deep_sky_blue4]')
     flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
     flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
     flexprint('')
@@ -1160,7 +1210,6 @@ else:
     # REST-Webserver without fastAPI plugin (for inapp server)
 
     class MyRestHandler(BaseHTTPRequestHandler):
-
         def send_octet_stream(self, obj, status=200):
             self.send_response(status)
             self.send_header("Content-Type", 'application/octet-stream')
@@ -1607,7 +1656,7 @@ def filter_lines_by_hours(base_filepath, hours_back):
                 break
 
         for filepath in reversed(log_files):
-            with open(filepath, 'r', encoding='utf-8') as file:
+            with open(filepath, 'r', encoding='cp1252' if platform == 'windows' else 'utf-8') as file:
                 for line in file:
                     try:
                         timestamp_str = line[:17].strip()
@@ -1874,6 +1923,7 @@ def getInfoData():
         "scriptVersion": scriptVersion,
         "is_app_embedded": is_app_embedded,
         "is_raspberry_pi": is_raspberry_pi,
+        "platform": platform,
         "display_cover": display_cover,
         "countrycode": countrycode,
         "debug": debug,
