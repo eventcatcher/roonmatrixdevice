@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '2.0.0, date: 23.05.2026'
+scriptVersion = '2.0.0, date: 28.05.2026'
 APP_NAME = "roonmatrix"
 
 startlog = True	# default true: log start and config information
@@ -1148,7 +1148,7 @@ if with_restserver_fastapi is True:
         ret = set_zone_control(payload)
         if ret == 500:
             ret = False
-        return set_zone_control(payload)
+        return ret
 
     @app.post("/spotify_auth_redirect_url/")
     async def rest_set_spotify_auth_redirect_url(payload: dict = Body(...)):
