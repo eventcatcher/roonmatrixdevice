@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '2.0.0, date: 28.05.2026'
+scriptVersion = '2.0.0, date: 31.05.2026'
 APP_NAME = "roonmatrix"
 
 startlog = True	# default true: log start and config information
@@ -37,7 +37,7 @@ if silent is True:
 
 import argparse
 import os
-from os import path, system, environ, stat, remove, rename, getcwd, makedirs, umask
+from os import path, environ, remove, rename, makedirs, umask
 from threading import Timer
 from datetime import datetime, timedelta, timezone
 from dateutil import tz
@@ -53,10 +53,8 @@ import configparser
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import asyncio
-from functools import wraps
 import threading
 from math import ceil
-import sdnotify
 import socket
 import urllib3
 from unidecode import unidecode
@@ -69,14 +67,14 @@ import logging
 from logging.handlers import RotatingFileHandler
 from collections import OrderedDict
 from operator import is_not
-from functools import partial
+from functools import partial, wraps
 from pathlib import Path
 import hashlib
 import zlib
 import ssl
 from roonapi import RoonApi, RoonDiscovery
 from weatherbit.api import Api
-import feedparser
+import fastfeedparser
 from spotify_connect import SpotifyConnect
 
 # In Windows, sys.stderr and/or sys.stdout inside Python runtime (serious_python) is not working and results in a exception which will stop running the script. 
@@ -148,9 +146,15 @@ platform = 'raspberry-pi' if is_raspberry_pi is True else 'unknown'
 if 'platform' in environ:
     platform = str(environ['platform'])
 
+configs_dir = None
+if 'configs_dir' in environ:
+    configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
+
 if is_raspberry_pi is True:
     import RPi.GPIO as GPIO
     import crypt
+    import sdnotify
+    n = sdnotify.SystemdNotifier() # init watchdog notifier
 else:
     GPIO = None
     from platformdirs import PlatformDirs
@@ -193,10 +197,15 @@ current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
 if is_raspberry_pi:
     configs_dir = current_path
 else:
-    dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=True)
-    configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
+    if platform != 'ios':
+        try:
+            dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
+            configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
+        except Exception as e:
+            traceback.format_exc()
+
 if startlog is True:
-    print('configs path: ' + configs_dir)
+    print('configs path: ' + str(configs_dir))
 
 base_translations_path = configs_dir + 'translations/'
 if is_raspberry_pi is False and not path.exists(base_translations_path):
@@ -242,28 +251,29 @@ def init_logging():
     )
 
 def flexprint(str, objStr = None):
+    is_tty = getattr(sys.stdout, "isatty", lambda: False)()
     if log is True:
         if objStr is None:
-            if sys.stdout.isatty() or logger is None:
+            if is_tty or logger is None:
                 if display_cover is True or is_raspberry_pi is False:
                     print(('python_runtime: ' + str) if is_app_embedded is True else str) # output as colored text with rich (rich overrides original print)
                     if is_raspberry_pi is False and logger is not None:
                         logger.info(str)
                 else:
-                    if sys.stdout.isatty():
+                    if is_tty:
                         print(str) # output as colored text with rich (rich overrides original print)
                     else:
                         rawprint(str) # output as raw text with rich like color and text style tags
             else:
                 logger.info(str) # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
         else:
-            if sys.stdout.isatty() or logger is None:
+            if is_tty or logger is None:
                 if display_cover is True or is_raspberry_pi is False:
                     print(('python_runtime: ' + str) if is_app_embedded is True else str, objStr) # output as colored text with rich (rich overrides original print)
                     if is_raspberry_pi is False and logger is not None:
                         logger.info(f"{str} {objStr}")
                 else:
-                    if sys.stdout.isatty():
+                    if is_tty:
                         print(str, objStr) # output as colored text with rich (rich overrides original print)
                     else:
                         rawprint(str, objStr) # output as raw text with rich like color and text style tags
@@ -736,11 +746,10 @@ except Exception as e:
 
 hostName = socket.gethostname()
 
-sys.stdout.reconfigure(encoding='utf-8')
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding='utf-8')
 from_zone = tz.tzutc()
 to_zone = tz.tzlocal()
-
-n = sdnotify.SystemdNotifier() # init watchdog notifier
 
 weather_show = eval(config['WEATHER']['weather_show']) # show weather data (True) or no (False)
 location = config['WEATHER']['location'] # city name to display weather data for
@@ -5664,7 +5673,8 @@ def get_rss_feed(displaystr):
         try:
             name = data['name']
             max = data['count']
-            feed = feedparser.parse(data['url'])
+ 
+            feed = fastfeedparser.parse(data['url'])
 
             for entry in feed.entries:
                 count += 1
@@ -5687,15 +5697,15 @@ def get_rss_feed(displaystr):
                     displaystr = vertical_longtext_split_and_append(convert_special_chars(name),displaystr)
                     displaystr = vertical_longtext_split_and_append(published,displaystr)
                     displaystr = vertical_longtext_split_and_append(convert_special_chars(entry.title),displaystr)
-                    displaystr = vertical_longtext_split_and_append(convert_special_chars(entry.summary),displaystr)
+                    displaystr = vertical_longtext_split_and_append(convert_special_chars(entry.description),displaystr)
                 else:
-                    displaystr += convert_special_chars(name + ' @ ' + published + ' => ' + entry.title + ': ' + entry.summary)
+                    displaystr += convert_special_chars(name + ' @ ' + published + ' => ' + entry.title + ': ' + entry.description)
                 if count == max:
                     break
         except Exception as e:
             if errorlog is True: 
                 flexprint('==> rss feed error: ', str(e))
-                #flexprint(traceback.format_exc())
+                flexprint(traceback.format_exc())
 
     return displaystr
 
@@ -6276,7 +6286,10 @@ def remove_completed_threads():
         except Exception as e:
             if errorlog is True: flexprint('[red]==> remove complete threads error: [/red]', str(e))
 
-def tick():
+def tick():    
+    if is_raspberry_pi is False:
+        return
+
     global n
 
     if debug is True:
