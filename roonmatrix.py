@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 2.0.0, date: 23.05.2026
+# version 2.0.0, date: 04.06.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '2.0.0, date: 31.05.2026'
+scriptVersion = '2.0.0, date: 04.06.2026'
 APP_NAME = "roonmatrix"
 
 startlog = True	# default true: log start and config information
@@ -202,7 +202,7 @@ else:
             dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
             configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
         except Exception as e:
-            traceback.format_exc()
+            flexprint(traceback.format_exc())
 
 if startlog is True:
     print('configs path: ' + str(configs_dir))
@@ -801,6 +801,7 @@ config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder 
 
 led_modules = int(config['SYSTEM']['led_modules']) # number of led matrix modules (8x8 led)
 
+updated_at = config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now()) # datetime to saved config last time
 led_block_orientation = int(config['SYSTEM']['led_block_orientation']) # led block_orientation in degrees
 led_rotate = int(config['SYSTEM']['led_rotate']) # led rotation
 led_inreverse = int(config['SYSTEM']['led_inreverse']) # led blocks arranged in reverse order
@@ -975,6 +976,7 @@ spotify_devices = []
 webcheck_timer = None
 weather_timer = None
 callbacks_initialized = False
+reboot_python = False
 ws_update_queue = {}
 ws_notification_queue = [];
 infodata_props_to_check = {
@@ -1013,7 +1015,7 @@ def add_changed_data_to_websocket_queue():
                     break
     
             if matched == False and data['app_displaystr'] != '':
-                flexprint('[bold magenta]websocket add item to queue for device with ip ' + str(ip) + '[/bold magenta]: ' + data['app_displaystr'])
+                flexprint('[bold magenta]websocket add item to queue for device with ip ' + str(ip) + '[/bold magenta], app_displaystr: ' + data['app_displaystr'])
                 queue.append(data)
                 if len(queue) > 3:
                     ws_update_queue[ip] = queue[-3:]
@@ -2051,7 +2053,9 @@ def getInfoData():
         "shuffle_on": shuffle_on,
         "repeat_on": repeat_on,
         "track_id": track_id,
-        "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success)
+        "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success),
+        "reboot_python": reboot_python,
+        "config_updated_at": updated_at
     }
 
 def convert_config_to_dict(config):
@@ -2097,7 +2101,8 @@ def getConfigData():
                             {"name": "display_auto_wakeup", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Display wakeup on updates", "unit": "", "value": config['SYSTEM']['display_auto_wakeup']},
                             {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests", "unit": "", "value": config['SYSTEM']['ipv4_only']},
                             {"name": "alternative_layout", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use alternative keyboard layout", "unit": "", "value": config['SYSTEM']['alternative_layout']},
-                            {"name": "searchresult_maxlength", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max items in search result (Roon, Webserver, Spotify, Apple Music)", "unit": "items", "value": config['SYSTEM']['searchresult_maxlength']}
+                            {"name": "searchresult_maxlength", "editable": True, "type": {"type": "int", "structure": []}, "label": "Max items in search result (Roon, Webserver, Spotify, Apple Music)", "unit": "items", "value": config['SYSTEM']['searchresult_maxlength']},
+                            {"name": "updated_at", "editable": False, "type": {"type": "string", "structure": []}, "label": "updated at", "unit": "", "value": config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now())}
                         ]
                     },
                     {
@@ -2194,7 +2199,8 @@ def getConfigData():
                             {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
                             {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
                             {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                            {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']},
+                            {"name": "updated_at", "editable": False, "type": {"type": "string", "structure": []}, "label": "updated at", "unit": "", "value": config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now())}
                         ]
                     },
                     {
@@ -2314,7 +2320,8 @@ def getConfigData():
                         {"name": "datetime_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show date and time", "unit": "", "value": config['SYSTEM']['datetime_show']},
                         {"name": "datetime_only_time", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show only time part", "unit": "", "value": config['SYSTEM']['datetime_only_time']},
                         {"name": "socket_timeout", "editable": True, "type": {"type": "int", "structure": []}, "label": "Socket timeout", "unit": "seconds", "value": config['SYSTEM']['socket_timeout']},
-                        {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']}
+                        {"name": "ipv4_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Use only IPv4 for web requests (fix for DSlite or IPv6 problems)", "unit": "", "value": config['SYSTEM']['ipv4_only']},
+                        {"name": "updated_at", "editable": False, "type": {"type": "string", "structure": []}, "label": "updated at", "unit": "", "value": config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now())}
                     ]
                 },
                 {
@@ -2412,8 +2419,12 @@ def getConfigData():
     }
 
 def save_config(payload):
-    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi
     
+    roon_enabled_before = roon_show is True and core_ip != '' and core_port !='' and roonapi is not None
+    webservers_show_before = webservers_show
+    webservers_zones_before = webservers_zones
+
     try:
         data = str(payload["data"])
         jsonObj = json.loads(data)
@@ -2422,7 +2433,15 @@ def save_config(payload):
         noRebootOnPropChanges = [
             'screensaver_seconds',
             'alternative_layout',
-            'ipv4_only'
+            'ipv4_only',
+            'enable_spotify_connect',
+            'spotify_client_id',
+            'spotify_client_secret',
+            'roon_show',
+            'core_ip',
+            'core_port'
+            'webservers_show',
+            'webservers_zones'
         ]
 
         for idx,areaKey in enumerate(jsonObj,1):
@@ -2483,6 +2502,7 @@ def save_config(payload):
 
         pwbackup = config['SYSTEM']['password']
         del config['SYSTEM']['password']
+        config['SYSTEM']['updated_at'] = str(datetime.now())
         
         fileinfo = translation_exist(countrycode, False)
         exist = fileinfo[0]
@@ -2495,11 +2515,62 @@ def save_config(payload):
             config.write(fileRes)
 
         config['SYSTEM']['password'] = pwbackup
+
+        flexprint('successfully write of config file')
+        if doReboot is False:
+            spotify_client_id = config['STREAMING']['spotify_client_id'] if 'spotify_client_id' in config['STREAMING'] else '' # spotify web api client id
+            spotify_client_secret = config['STREAMING']['spotify_client_secret'] if 'spotify_client_secret' in config['STREAMING'] else '' # spotify web api client secret
+            enable_spotify_connect = eval(config['STREAMING']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
+            if spotify_client_id!='' and spotify_client_secret!='' and enable_spotify_connect is True:
+                ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
+                if ipv4_only is True:
+                    force_ipv4_only()
+                if spotify_connect is None:
+                    try:
+                        spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+                    except Exception as e:
+                        flexprint("spotify_connect error:", e)
+                else:
+                    spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+                    if spotify_connect_authorized is False:      
+                        try:
+                            spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+                        except Exception as e:
+                            flexprint("spotify_connect error:", e)
+                if spotify_connect is not None:
+                    spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+                    if spotify_connect_authorized is False:
+                        spotify = spotify_connect.auth()
+            
+            if enable_spotify_connect is False and spotify_connect is not None:
+                 #spotify_connect = None
+                 doReboot = True
+                        
+            roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
+            core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
+            core_port = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
+            
+            if roon_enabled_before is False and roon_show is True:
+                if core_ip == '' or core_port == '':
+                    roon_discover()
+                if roonapi is None:
+                    get_roon_api(False)
+
+            if roon_show is False and roonapi is not None:
+                #roonapi = None
+                doReboot = True
+
+            webservers_show = eval(config['WEBSERVERS']['webservers_show']) # show spotify or apple music data (True) or not (False)
+            webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
+            if (webservers_show_before is True and webservers_show is False) or webservers_zones_before is not webservers_zones:
+                doReboot = True
+
         if doReboot is True and is_raspberry_pi is True:
-            flexprint('successfully write of config file => do reboot now')
+            flexprint('=> do reboot now')
             reboot = True
-        else:
-            flexprint('successfully write of config file')
+        if doReboot is True and is_app_embedded is True:
+            reboot_python = doReboot
+        
         return True
     except Exception as e:
         if errorlog is True: flexprint('[red]setup configFile error: ' + str(e) + '[/red]')    

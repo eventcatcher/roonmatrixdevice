@@ -23,6 +23,8 @@ from pathlib import Path
 import logging
 import urllib3
 import spotipy
+import traceback
+from os import environ
 import spotipy.oauth2 as oauth2
 
 class SpotifyConnect:
@@ -55,7 +57,9 @@ class SpotifyConnect:
         
             self.auth()
         except Exception as e:
-            if self.errorlog is True: self.flexprint("[red]SpotifyConnect init error:[/red]")
+            if self.errorlog is True: 
+                self.flexprint("[red]SpotifyConnect init error: " + str(e) + "[/red]")
+                self.flexprint(traceback.format_exc())
 
     def is_running_on_raspberry_pi(self):
         try:
@@ -65,24 +69,29 @@ class SpotifyConnect:
             return False
 
     def flexprint(self, str, objStr = None):
+        is_tty = getattr(sys.stdout, "isatty", lambda: False)()
         if self.log is True:
             if objStr is None:
-                if sys.stdout.isatty() or self.logger is None:
-                    if self.display_cover is True:
-                        print(str) # output as colored text with rich (rich overrides original print)
+                if is_tty or self.logger is None:
+                    if self.display_cover is True or self.is_raspberry_pi is False:
+                        print(('python_runtime: ' + str) if self.is_app_embedded is True else str) # output as colored text with rich (rich overrides original print)
+                        if self.is_raspberry_pi is False and self.logger is not None:
+                            self.logger.info(str)
                     else:
-                        if sys.stdout.isatty():
+                        if is_tty:
                             print(str) # output as colored text with rich (rich overrides original print)
                         else:
                             rawprint(str) # output as raw text with rich like color and text style tags
                 else:
                     self.logger.info(str) # output as colored text with rich (rich overrides original print) into own log folder with special logger formatting
             else:
-                if sys.stdout.isatty() or self.logger is None:
-                    if self.display_cover is True:
-                        print(str, objStr) # output as colored text with rich (rich overrides original print)
+                if is_tty or self.logger is None:
+                    if self.display_cover is True or self.is_raspberry_pi is False:
+                        print(('python_runtime: ' + str) if self.is_app_embedded is True else str, objStr) # output as colored text with rich (rich overrides original print)
+                        if self.is_raspberry_pi is False and self.logger is not None:
+                            self.logger.info(f"{str} {objStr}")
                     else:
-                        if sys.stdout.isatty():
+                        if is_tty:
                             print(str, objStr) # output as colored text with rich (rich overrides original print)
                         else:
                             rawprint(str, objStr) # output as raw text with rich like color and text style tags
@@ -126,9 +135,23 @@ class SpotifyConnect:
             cache_path = "/home/"+ ('coverplayer' if self.display_cover is True else 'rmuser') +"/FTP/.spotify-cache"
         else:
             APP_NAME = "roonmatrix"
-            from platformdirs import PlatformDirs
-            dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=True)
-            configs_dir = dirs.user_config_dir + '/'
+            
+            platform = 'raspberry-pi' if self.is_raspberry_pi is True else 'unknown'
+            if 'platform' in environ:
+                platform = str(environ['platform'])
+
+            configs_dir = None
+            if 'configs_dir' in environ:
+                configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
+
+            if platform != 'ios':
+                from platformdirs import PlatformDirs
+                try:
+                    dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
+                    configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
+                except Exception as e:
+                    self.flexprint(traceback.format_exc())
+                        
             cache_path = configs_dir +".spotify-cache"
         self.flexprint('Spotify Connect cache_path: ' + str(cache_path))
 
