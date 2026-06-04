@@ -2419,29 +2419,33 @@ def getConfigData():
     }
 
 def save_config(payload):
-    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi, spotify_connect_authorized, active_spotify_connect_zone
     
     roon_enabled_before = roon_show is True and core_ip != '' and core_port !='' and roonapi is not None
     webservers_show_before = webservers_show
-    webservers_zones_before = webservers_zones
+    webservers_zones_before = config['WEBSERVERS']['zones']
 
     try:
         data = str(payload["data"])
         jsonObj = json.loads(data)
         doReboot = False
     
-        noRebootOnPropChanges = [
+        noRebootNoPropChanges = [
             'screensaver_seconds',
             'alternative_layout',
-            'ipv4_only',
+            'ipv4_only'
+        ]
+
+        noRebootWithPropChanges = [
             'enable_spotify_connect',
             'spotify_client_id',
             'spotify_client_secret',
             'roon_show',
             'core_ip',
-            'core_port'
+            'core_port',
             'webservers_show',
-            'webservers_zones'
+            'zones',
+            'updated_at'
         ]
 
         for idx,areaKey in enumerate(jsonObj,1):
@@ -2452,7 +2456,7 @@ def save_config(payload):
                 if '\\' in fieldValue and '\\\\' not in fieldValue: 
                     fieldValue = fieldValue.replace('\\','\\\\') # masking of quotes char
                 if config[areaKey][fieldKey]!=fieldValue:
-                    if fieldKey not in noRebootOnPropChanges:
+                    if fieldKey not in noRebootNoPropChanges:
                         config_str_masked = config[areaKey][fieldKey]
                         if '%' in config_str_masked and '%%' not in config_str_masked: 
                             config_str_masked = config_str_masked.replace('%','%%') # masking of percent char
@@ -2461,7 +2465,9 @@ def save_config(payload):
                         if config_str_masked!=fieldValue:
                             config[areaKey][fieldKey] = fieldValue
                             #print('fieldValue changed: ' + str(fieldValue) + ' vs. ' + str(config[areaKey][fieldKey]))
-                            doReboot = True
+                            if fieldKey not in noRebootWithPropChanges:
+                                flexprint('set doReboot for fieldKey: ' + str(fieldKey))
+                                doReboot = True
                 if areaKey!='SYSTEM' or fieldKey!='password':
                     flexprint('setup received, set [' + areaKey + '][' + fieldKey + '] => ' + fieldValue)
                 if areaKey=='SYSTEM' and fieldKey=='hostname' and is_raspberry_pi is True and config[areaKey][fieldKey]!='' and config[areaKey][fieldKey]!=hostName:
@@ -2516,7 +2522,7 @@ def save_config(payload):
 
         config['SYSTEM']['password'] = pwbackup
 
-        flexprint('successfully write of config file')
+        flexprint('successfully write of config file -> doReboot: ' + str(doReboot))
         if doReboot is False:
             spotify_client_id = config['STREAMING']['spotify_client_id'] if 'spotify_client_id' in config['STREAMING'] else '' # spotify web api client id
             spotify_client_secret = config['STREAMING']['spotify_client_secret'] if 'spotify_client_secret' in config['STREAMING'] else '' # spotify web api client secret
@@ -2541,10 +2547,17 @@ def save_config(payload):
                     spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
                     if spotify_connect_authorized is False:
                         spotify = spotify_connect.auth()
+                        spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
+                    if spotify_connect_authorized is True:
+                        flexprint('spotify connect is authorized => get active_spotify_connect_zone')
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+            
+            flexprint('doReboot before additional checks: ' + str(doReboot))
             
             if enable_spotify_connect is False and spotify_connect is not None:
                  #spotify_connect = None
                  doReboot = True
+                 flexprint('set doReboot for spotify connect')
                         
             roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
             core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
@@ -2559,11 +2572,13 @@ def save_config(payload):
             if roon_show is False and roonapi is not None:
                 #roonapi = None
                 doReboot = True
+                flexprint('set doReboot for roon')
 
             webservers_show = eval(config['WEBSERVERS']['webservers_show']) # show spotify or apple music data (True) or not (False)
             webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
-            if (webservers_show_before is True and webservers_show is False) or webservers_zones_before is not webservers_zones:
+            if (webservers_show_before is True and webservers_show is False) or webservers_zones_before != config['WEBSERVERS']['zones']:
                 doReboot = True
+                flexprint('set doReboot for webserver (zones changed: ' + str(webservers_zones_before != config['WEBSERVERS']['zones']) + ')')
 
         if doReboot is True and is_raspberry_pi is True:
             flexprint('=> do reboot now')
