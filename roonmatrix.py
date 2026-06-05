@@ -1028,8 +1028,9 @@ def add_changed_data_to_websocket_queue():
 
 def spotify_connect_web_auth(url):
     global spotify_auth_url
-    spotify_auth_url = url
-    add_changed_data_to_websocket_queue()
+    if 'replace-this' not in spotify_client_id and 'replace-this' not in spotify_client_secret:
+        spotify_auth_url = url
+        add_changed_data_to_websocket_queue()
 
 if with_restserver_fastapi is True:
     class ConnectionManager:
@@ -1411,7 +1412,7 @@ def start_restserver():
         if errorlog is True: flexprint('[red]start Websocket-Server error: ' + str(e) + '[/red]')    
 
 def send_roon_activation_warning():
-    if 'roon-activation-alert' not in ws_notification_queue:
+    if roon_show is True and core_ip is not None and core_ip.strip()!='' and core_port is not None and core_port.strip()!='' and str(core_port)!='0' and 'roon-activation-alert' not in ws_notification_queue:
         flexprint("[bold red]add roon activation warning to notifications queue[/bold red]")
         ws_notification_queue.append('roon-activation-alert')
 
@@ -2421,7 +2422,14 @@ def getConfigData():
 def save_config(payload):
     global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi, spotify_connect_authorized, active_spotify_connect_zone
     
+    core_ip_before = core_ip
+    core_port_before = core_port
     roon_enabled_before = roon_show is True and core_ip != '' and core_port !='' and roonapi is not None
+    
+    spotify_client_id_before = spotify_client_id
+    spotify_client_secret_before = spotify_client_secret
+    enable_spotify_connect_before = enable_spotify_connect
+    
     webservers_show_before = webservers_show
     webservers_zones_before = config['WEBSERVERS']['zones']
 
@@ -2554,7 +2562,7 @@ def save_config(payload):
             
             flexprint('doReboot before additional checks: ' + str(doReboot))
             
-            if enable_spotify_connect is False and spotify_connect is not None:
+            if (enable_spotify_connect_before is True and enable_spotify_connect is False and spotify_connect is not None) or (enable_spotify_connect_before is True and enable_spotify_connect is True and (spotify_client_id_before != spotify_client_id or spotify_client_secret_before != spotify_client_secret)):
                  #spotify_connect = None
                  doReboot = True
                  flexprint('set doReboot for spotify connect')
@@ -2569,14 +2577,14 @@ def save_config(payload):
                 if roonapi is None:
                     get_roon_api(False)
 
-            if roon_show is False and roonapi is not None:
+            if (roon_show is False and roonapi is not None) or (roon_enabled_before is True and roon_show is True and (core_ip_before != core_ip or core_port_before != core_port)):
                 #roonapi = None
                 doReboot = True
                 flexprint('set doReboot for roon')
 
             webservers_show = eval(config['WEBSERVERS']['webservers_show']) # show spotify or apple music data (True) or not (False)
             webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
-            if (webservers_show_before is True and webservers_show is False) or webservers_zones_before != config['WEBSERVERS']['zones']:
+            if (webservers_show_before is True and webservers_show is False) or (webservers_show_before is True and webservers_show is True and webservers_zones_before != config['WEBSERVERS']['zones']):
                 doReboot = True
                 flexprint('set doReboot for webserver (zones changed: ' + str(webservers_zones_before != config['WEBSERVERS']['zones']) + ')')
 
