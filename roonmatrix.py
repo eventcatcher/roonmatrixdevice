@@ -995,6 +995,11 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 
 socket.setdefaulttimeout(socket_timeout) # set socket timeout
 
+def get_spotify_auth_url(spotify_connect_auth_success):
+    if enable_spotify_connect is False:
+        return '*'
+    return '*' if spotify_connect_auth_success is True else spotify_auth_url
+
 def getInfoData():
     timeStr = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     outputTimeStr = fetch_output_time.strftime("%Y-%m-%d %H:%M:%S") if fetch_output_time is not None else 'None'
@@ -2722,11 +2727,6 @@ def set_livecontrol(payload):
     except Exception as e:
         if errorlog is True: flexprint('[red]set livecontrol error: ' + str(e) + '[/red]')    
         return False
-
-def get_spotify_auth_url(spotify_connect_auth_success):
-    if enable_spotify_connect is False:
-        return '*'
-    return '*' if spotify_connect_auth_success is True else spotify_auth_url
 
 def get_next_fetch_output_time_relative(estimated_seconds):
     running_start = datetime.now()
