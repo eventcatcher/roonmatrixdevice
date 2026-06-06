@@ -914,6 +914,7 @@ if restart_with_last_selected_zone is True:
     save_selected_zone_state(control_zone)
 
 initialization_done = False # flag: initialization part is done (before threads are started)
+exit_now = False
 check_audioinfo = False # flag: automatic background check of zones is enabled or not while clock will be displayed
 audioinfo_available = False # flag: updated zone is found
 roonapi = None # roonapi object variable
@@ -1276,6 +1277,12 @@ if with_restserver_fastapi is True:
     async def rest_config():
         return getConfigData()
 
+    @app.get("/exit_now/")
+    async def rest_exit_now():
+        global exit_now
+        exit_now = True # close script
+        return 'ok'
+
     @app.post("/log/")
     async def rest_log(payload: dict = Body(...)):
         try:
@@ -1410,6 +1417,12 @@ else:
                
             if self.path == "/config/":
                 self.send_json(getConfigData())
+                return
+
+            if self.path == '/exit_now/':
+                global exit_now
+                exit_now = True
+                self.send_text('ok')
                 return
         
         def do_POST(self):
@@ -6829,7 +6842,7 @@ try:
         if with_restserver_fastapi is True:
             job = executor.submit(start_restserver)
 
-        while True:
+        while exit_now is False:
             if debug is True:
                 flexprint('main loop playcount: ' + str(playcount) + ', now: ' + str(datetime.now()) + ', fetch_output_time: ' + str(fetch_output_time) + ', fetch_output_in_progress: ' + str(fetch_output_in_progress) + ', fetch_output_done: ' + str(fetch_output_done) + ', output_in_progress: ' + str(output_in_progress) + ', prepared_displaystr empty: ' + str(prepared_displaystr==''))
             if reboot is True:
