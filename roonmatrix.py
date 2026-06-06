@@ -1280,6 +1280,7 @@ if with_restserver_fastapi is True:
     @app.get("/exit_now/")
     async def rest_exit_now():
         global exit_now
+        flexprint('REST received exit_now')
         exit_now = True # close script
         return 'ok'
 
@@ -1421,6 +1422,7 @@ else:
 
             if self.path == '/exit_now/':
                 global exit_now
+                flexprint('REST received exit_now')
                 exit_now = True
                 self.send_text('ok')
                 return
@@ -6934,6 +6936,8 @@ try:
                     flexprint('clock mode end')
             time.sleep(1)
             tick()
+        flexprint('exit python script now...')
+            
 except Exception as e:
     if errorlog is True: 
         flexprint('[red]==> MAIN ERROR: [/red]', str(e))
