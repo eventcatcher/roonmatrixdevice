@@ -142,14 +142,6 @@ is_raspberry_pi = is_running_on_raspberry_pi()
 with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
 with_async_request = is_app_embedded is False
 
-platform = 'raspberry-pi' if is_raspberry_pi is True else 'unknown'
-if 'platform' in environ:
-    platform = str(environ['platform'])
-
-configs_dir = None
-if 'configs_dir' in environ:
-    configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
-
 if is_raspberry_pi is True:
     import RPi.GPIO as GPIO
     import crypt
@@ -192,42 +184,90 @@ if startlog is True:
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
 
-current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
-
-if is_raspberry_pi:
-    configs_dir = current_path
-else:
-    if platform != 'ios':
-        try:
-            dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
-            configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
-        except Exception as e:
-            flexprint(traceback.format_exc())
-
-if startlog is True:
-    print('configs path: ' + str(configs_dir))
-
-base_translations_path = configs_dir + 'translations/'
-if is_raspberry_pi is False and not path.exists(base_translations_path):
-    Path(base_translations_path).mkdir(parents=True, exist_ok=True)
-
-if is_app_embedded is True:
-    environ['SSL_CERT_FILE'] = certifi.where()
-    environ['REQUESTS_CA_BUNDLE'] = certifi.where()
-
-TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
-if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
-    TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
-    if not path.exists(TEMP_STATE_DIR):
-        Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)
-    
-TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
-if startlog is True:
-    print('current_path: ' + current_path)
-    print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
-
 logdir = ''
- 
+initialization_done = False # flag: initialization part is done (before threads are started)
+exit_now = False
+check_audioinfo = False # flag: automatic background check of zones is enabled or not while clock will be displayed
+audioinfo_available = False # flag: updated zone is found
+roonapi = None # roonapi object variable
+control_id = None # id of actual control (selected) zone
+do_set_zone_control = False # display is set into zone control mode to select another zone to control with the buttons (all other display activities are set into standby)
+weatherstr = '' # string to hold the weather data to display (updated in intervals of minutes => weather_update_interval)
+weatherlines = [] # list to hold the weather data to display in vertical scrolling mode (updated in intervals of minutes => weather_update_interval)
+last_idle_time = None # datetime of last time the playout message was empty
+control_id_update = None # temp zone control id to hold this value while zone control setup. this value will be taken if enter button is pressed
+displaystr = '' # string to hold the whole message which is actually output to led matrix
+app_displaystr = '' # string of new generated audio message part prepared to get info about all audio zones which are playing
+vert_strlines = [] # list of message lines for actually output to led matrix in vertical display mode (exclusive_vertical is True)
+prepared_displaystr = '' # string of new generated playout message prepared for next run of led matrix output before it will be takeover into displaystr and output to the led matrix
+prepared_vert_strlines = [] # string lines of new generated playout message prepared for next run of vertical scrolling led matrix output before it will be takeover into vert_strlines and vertical output to the led matrix
+audio_playing = '' # string of new generated audio message part prepared to get info about all audio zones which are playing
+weather_fetch_count = 0 # count number of weather api fetches (free acount has a limited number of fetches for a day. for weatherbit its limited to 50 fetches per day)
+build_seconds = 0 # time in seconds to fetch and build output data
+interrupt_message = False # flag: set true to interrupt message output
+fetch_output_in_progress = False # flag: set to true if data fetching and output generation is in progress
+output_in_progress = False # flag: set to true if output to led matrix is in progress
+clock_in_progress = False # flag: set if clock displaying is in progress (clock starts if max_idle_time is reached, stops if clock display time of max_show_time in minutes is done)
+fetch_output_done = False # flag: set if fetching and generating of output message is done
+fetch_output_time = None # datetime to fetch and build output data (None: as soon as possible)
+zone_control_last_update_time = None # datetime the zone control mode is entered or a button is clicked
+playmode = {} # playmode is a dictionary of play state of each roon- or webserver zone (key = control_id, value = play mode (play,stop)
+shufflemode = {} # shufflemode is a dictionary of shuffle state of each webserver zone (key = control_id, value = shuffle mode (shuffle,noshuffle)
+repeatmode = {} # repeatmode is a dictionary of repeat state of each webserver zone (key = control_id, value = repeat mode (repeat,norepeat)
+channels = {} # channels is a dictionary of control_id (key) and zone name (value)
+roon_playouts_raw = {} # zone name and their raw jsonString variant of three_line data (track,artist,album) of played song
+roon_playouts = {} # zone name and their json variant of three_line data (track,artist,album) of played song
+web_playouts_raw = {} # webserver zone name and their raw jsonString variant of data (track,artist,album) of played song
+web_playouts = {} # webserver zone name and their json variant of data (track,artist,album) of played song
+jobs = {} # map of running threads
+jobcount = 0
+playcount = 0 # number of playouts
+reboot = False # set true to reboot
+roon_servers = [] # ip list of roon servers
+custom_message = '' # custom message received from app to integrate into playout
+custom_message_option = '' # custom message option (force: force updating, playout: standard playout with integrated custom message, exclusive: show only the custom message)
+is_playing = True # playing state of actual zone
+is_playing_last = None # playing state before of actual zone
+shuffle_on = False # shuffle state of actual zone
+shuffle_on_last = None # shuffle state before of actual zone
+repeat_on = False # repeat state of actual zone
+repeat_on_last = None # repeat state before of actual zone
+track_id = '' # track id of actual zone
+track_id_last = '' # track id before of actual zone
+last_cover_url = '' # cover url of active zone (backup to check for changes)
+last_zones_online = [] # list of zone names of all online zones (backup to check for changes)
+last_zones_playing = [] # list of zone names of all playing zones (backup to check for changes)
+last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
+playpos_last = -1 # play position of active zone (backup to check for changes)
+playlen_last = -1 # play length of active zone (backup to check for changes)
+roon_zones = [] # list of actual roon zones
+spotify_auth_url = ''
+spotify_auth_redirect_url = ''
+spotify_connect_authorized = False
+active_spotify_connect_zone = None
+spotify_devices = []
+webcheck_timer = None
+weather_timer = None
+callbacks_initialized = False
+reboot_python = False
+ws_update_queue = {}
+ws_notification_queue = [];
+test_roon_discover = False # true: call RoonDiscovery to check for roon servers
+translation_hash = ''
+countrycode = 'auto'
+webserver_url_request_timeout = 10
+infodata_props_to_check = {
+    "control_id",
+    "playmode",
+    "shufflemode",
+    "repeatmode",
+    "channels",
+    "roon_playouts_raw",
+    "web_playouts_raw",
+    "app_displaystr",
+    "spotify_auth_url" 
+}
+
 def init_logging():
     max_size_in_mb = 10
     fn = logdir + 'roonmatrix.log'
@@ -291,6 +331,19 @@ def force_ipv4_only():
     except Exception as e:
         flexprint("Warning: IPv4 forcing failed:", e)
 
+def get_countrycode_from_public_ip():
+    cc = 'en'
+    try:
+        req = Request('https://ident.me/json', headers={'User-Agent': 'Mozilla/5.0'})
+        ipdata = urlopen(req, context=ssl_ctx, timeout=webserver_url_request_timeout).read().decode('utf8')
+        if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
+            flexprint('ipdata: ' + str(ipdata))
+            jsonObj = json.loads(ipdata)
+            cc = str(jsonObj['cc']).lower()
+    except Exception as e:
+        flexprint('[red]get countrycode from public ip error: ' + str(e) + '[/red]')
+    return cc
+
 def save_selected_zone_state(name: str):
     if not path.exists(TEMP_STATE_DIR):
         umask(0)
@@ -306,84 +359,6 @@ def load_selected_zone_state():
             return json.load(f).get("zone")
     except:
         return None
-
-if is_app_embedded is True:
-    if path.exists(configs_dir + 'roon_api.ini'):
-        roon_config_path = configs_dir
-    else:
-        roon_config_path = current_path + 'config/'
-    roon_write_path = configs_dir
-    configReadFile = roon_config_path + 'roon_api.ini'
-    configWriteFile = roon_write_path + 'roon_api.ini'
-else:
-    roon_config_path = '/usr/local/Roon/etc/'
-    roon_write_path = roon_config_path
-    configReadFile = roon_config_path + 'roon_api.ini'
-    configWriteFile = roon_config_path + 'roon_api.ini'
-
-# core id and token files
-idfile = roon_write_path + 'coreid.txt'
-tokenfile = roon_write_path + 'roontoken.txt'
-# read config file
-if startlog is True:
-    print('read main ini')
-config = configparser.ConfigParser()
-config.read(configReadFile)
-
-if 'display_cover' in config['SYSTEM']:
-    display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
-else:
-    display_cover = False
-
-# init cover image viewer
-try:    
-    # imports to display image on screen
-    if is_raspberry_pi is False:
-        display_cover = False
-    if display_cover is True:
-        environ["DISPLAY"] = ":0"
-        if path.isdir('/sys/class/graphics/fb0') is False:
-            display_cover = False
-            raise EnvironmentError("No display available")
-
-        import tkinter as tk # included in Python, alternative installing by apt-get install python3-tk (missing on app-embedded)
-        from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk (codesign problem on app-embedded)
-        from io import BytesIO
-        import applemusicpy # (codesign problem on app-embedded) 
-        from coverplayer import Coverplayer
-        root = tk.Tk()
-        root.destroy()	# TODO muss wieder rein
-except EnvironmentError as e:
-    flexprint(f"[magenta]GUI not found (headless system): {e}[/magenta]")
-    display_cover = False
-except Exception as e:
-    flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
-    display_cover = False
-
-if is_app_embedded is True:
-    logdir = configs_dir + 'logs/'
-    if not path.exists(logdir):
-        Path(logdir).mkdir(parents=True, exist_ok=True)
-else:
-    logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
-    if is_raspberry_pi is False:
-        logdir = configs_dir + 'logs/'
-        if not path.exists(logdir):
-            Path(logdir).mkdir(parents=True, exist_ok=True)
-
-flexprint('logdir: ' + str(logdir))
-
-if is_app_embedded is True or display_cover is True or is_raspberry_pi is False:
-    init_logging()
-    logger = logging.getLogger('main')
-    serial = None
-else:
-    if is_raspberry_pi is True:
-        serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
-
-ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
-if ipv4_only is True:
-    force_ipv4_only()
 
 async def head_url(session, reqobj):
    # Helper function to fetch a single URL asynchronously
@@ -560,19 +535,6 @@ def sync_web_requests_with_timing(requestlist):
     flexprint('sync_results: ' + str(sync_results))
     return [sync_results,req_time]
 
-def get_countrycode_from_public_ip():
-    cc = 'en'
-    try:
-        req = Request('https://ident.me/json', headers={'User-Agent': 'Mozilla/5.0'})
-        ipdata = urlopen(req, context=ssl_ctx, timeout=webserver_url_request_timeout).read().decode('utf8')
-        if len(ipdata) > 2 and ipdata[:1] == '{' and ipdata[-1:] == '}':
-            flexprint('ipdata: ' + str(ipdata))
-            jsonObj = json.loads(ipdata)
-            cc = str(jsonObj['cc']).lower()
-    except Exception as e:
-        flexprint('[red]get countrycode from public ip error: ' + str(e) + '[/red]')
-    return cc
-
 def creation_date(path_to_file):
     return path.getctime(path_to_file)
 
@@ -675,326 +637,200 @@ def download_translation(cc, update):
         if errorlog is True: flexprint('[red]translation download error: ' + str(e) + '[/red]')
     return None
 
-translation_hash = config['LANGUAGE']['translation_hash']
-countrycode = config['SYSTEM']['countrycode']
-webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout'])
+def update_translations():
+    updateHash = ''
+    fileinfo = translation_exist(countrycode, False)
+    exist = fileinfo[0]
 
-if countrycode == 'auto' or countrycode == '':
-    countrycode = get_countrycode_from_public_ip()
-flexprint('countrycode: ' + countrycode)
-
-updateHash = ''
-fileinfo = translation_exist(countrycode, False)
-exist = fileinfo[0]
-
-try:
-    if exist:
-        translation_changed = False
-        hash_main = ''
-        max_download_age_in_days = -1
-        download_age_in_days = -1
-        fileinfo_main = translation_fileinfo(countrycode, False)
-        if len(fileinfo_main) > 2:
-            creationDate_main = fileinfo[1]
-            hash_main = fileinfo_main[2]
-            delta = datetime.now() - creationDate_main
-            download_age_in_days = delta.days
-            flexprint('days since last translation download: ' + str(download_age_in_days))
-        if debug is True:
-            flexprint('fileinfo_main: ' + str(fileinfo_main))
+    try:
+        if exist:
+            translation_changed = False
+            hash_main = ''
+            max_download_age_in_days = -1
+            download_age_in_days = -1
+            fileinfo_main = translation_fileinfo(countrycode, False)
+            if len(fileinfo_main) > 2:
+                creationDate_main = fileinfo[1]
+                hash_main = fileinfo_main[2]
+                delta = datetime.now() - creationDate_main
+                download_age_in_days = delta.days
+                flexprint('days since last translation download: ' + str(download_age_in_days))
+            if debug is True:
+                flexprint('fileinfo_main: ' + str(fileinfo_main))
     
-        if download_age_in_days > max_download_age_in_days:
-            fileinfo = download_translation(countrycode, True)
+            if download_age_in_days > max_download_age_in_days:
+                fileinfo = download_translation(countrycode, True)
+                if fileinfo is not None:
+                    if debug is True:
+                        flexprint('fileinfo: ' + str(fileinfo))
+                    exist = fileinfo[0]
+                    creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
+                    hash = fileinfo[2] if len(fileinfo) > 2 else ''
+                    updateFile = fileinfo[3] if len(fileinfo) > 3 else ''
+                    if hash_main == hash:
+                        flexprint('hash is equal (' + hash + ') => file not changed')
+                        delete_translation(countrycode, True)
+                    else:
+                        flexprint('hash is NOT equal (' + hash_main + ' / ' + hash + ') => take updated file')
+                        translation_changed = True
+                        update_translation(countrycode)
+                        hash_main = hash
+
+            overrideFile = get_translation_path(countrycode)
+            updateHash = hash_main
+            load_with_override = (translation_hash != updateHash)
+            flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
+            if load_with_override is True:
+                config.read([configReadFile, str(overrideFile)])
+            else:
+                config.read([configReadFile])
+        else:
+            fileinfo = download_translation(countrycode, False)
             if fileinfo is not None:
                 if debug is True:
                     flexprint('fileinfo: ' + str(fileinfo))
                 exist = fileinfo[0]
                 creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
                 hash = fileinfo[2] if len(fileinfo) > 2 else ''
-                updateFile = fileinfo[3] if len(fileinfo) > 3 else ''
-                if hash_main == hash:
-                    flexprint('hash is equal (' + hash + ') => file not changed')
-                    delete_translation(countrycode, True)
-                else:
-                    flexprint('hash is NOT equal (' + hash_main + ' / ' + hash + ') => take updated file')
-                    translation_changed = True
-                    update_translation(countrycode)
-                    hash_main = hash
+                overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
+                if exist is True and overrideFile is not None and len(overrideFile) > 0:
+                    updateHash = hash
+                    config.read([configReadFile, overrideFile])
+    except Exception as e:
+        if errorlog is True: flexprint('[red]get translations error: ' + str(e) + '[/red]')
 
-        overrideFile = get_translation_path(countrycode)
-        updateHash = hash_main
-        load_with_override = (translation_hash != updateHash)
-        flexprint('read main ini with override, translation_changed: ' + str(translation_changed) + ', load_with_override: ' + str(load_with_override))
-        if load_with_override is True:
-            config.read([configReadFile, str(overrideFile)])
-        else:
-            config.read([configReadFile])
-    else:
-        fileinfo = download_translation(countrycode, False)
-        if fileinfo is not None:
-            if debug is True:
-                flexprint('fileinfo: ' + str(fileinfo))
-            exist = fileinfo[0]
-            creationDate = fileinfo[1] if len(fileinfo) > 1 else ''
-            hash = fileinfo[2] if len(fileinfo) > 2 else ''
-            overrideFile = fileinfo[3] if len(fileinfo) > 3 else ''
-            if exist is True and overrideFile is not None and len(overrideFile) > 0:
-                updateHash = hash
-                config.read([configReadFile, overrideFile])
-except Exception as e:
-    if errorlog is True: flexprint('[red]get translations error: ' + str(e) + '[/red]')
+def setGlobalVarsFromConfigData():
+    var = {}
 
-hostName = socket.gethostname()
+    var['weather_show'] = eval(config['WEATHER']['weather_show']) # show weather data (True) or no (False)
+    var['location'] = config['WEATHER']['location'] # city name to display weather data for
+    var['weatherbit_api_key'] = config['WEATHER']['weatherbit_api_key'] # weatherbit api key
+    var['weather_update_interval'] = int(config['WEATHER']['weather_update_interval']) * 60 # time interval in seconds to update weather data (max. 50 API calls per day)
+    var['with_feel_temperature'] = eval(config['WEATHER']['with_feel_temperature']) # true: show feel temperature in celsius
+    var['with_rain'] = eval(config['WEATHER']['with_rain']) # true: show rain in mm/hr if rain data is available
+    var['with_wind_spd'] = eval(config['WEATHER']['with_wind_spd']) # true: show wind speed in km/h
+    var['with_wind_dir'] = eval(config['WEATHER']['with_wind_dir']) # true: show wind direction
+    var['with_humidity'] = eval(config['WEATHER']['with_humidity']) # true: show humidity in percent
+    var['with_pressure'] = eval(config['WEATHER']['with_pressure']) # true: show pressure in hPa
+    var['with_clouds'] = eval(config['WEATHER']['with_clouds']) # true: show clouds in percent if cloud data is available
+    var['with_snow'] = eval(config['WEATHER']['with_snow']) # true: show snow in mm/hr if snow data is available
+    var['with_uv'] = eval(config['WEATHER']['with_uv']) # true: show ultraviolet radiation in a range of 0-11 
+    var['with_sunrise'] = eval(config['WEATHER']['with_sunrise']) # true: show time of sunrise
+    var['with_sunset'] = eval(config['WEATHER']['with_sunset']) # true: show time of sunset
+    var['with_description'] = eval(config['WEATHER']['with_description']) # true: show short weather description text
 
-if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding='utf-8')
-from_zone = tz.tzutc()
-to_zone = tz.tzlocal()
+    var['webservers_show'] = eval(config['WEBSERVERS']['webservers_show']) # show spotify or apple music data (True) or not (False)
+    var['force_webserver_update'] = eval(config['WEBSERVERS']['force_webserver_update']) # true: force updating output message if webserver data (local running Spotify and Apple Music) is updated (interrupt and refresh output instantly)
+    var['force_active_webserver_zone_only'] = eval(config['WEBSERVERS']['force_active_webserver_zone_only']) # true: force updating output message only if the active zone is of webserver type and is updating
+    var['webcheck_update_interval'] = int(config['WEBSERVERS']['webcheck_update_interval']) # interval in seconds the webservers will check for playouts if force_webserver_update is True
+    var['webservers_zones'] = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
+    var['webserver_head_request_timeout'] = int(config['WEBSERVERS']['webserver_head_request_timeout']) # time in seconds a webserver should send a response to head request (onlinecheck)
+    var['webserver_url_request_timeout'] = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
 
-weather_show = eval(config['WEATHER']['weather_show']) # show weather data (True) or no (False)
-location = config['WEATHER']['location'] # city name to display weather data for
-weatherbit_api_key = config['WEATHER']['weatherbit_api_key'] # weatherbit api key
-weather_update_interval = int(config['WEATHER']['weather_update_interval']) * 60 # time interval in seconds to update weather data (max. 50 API calls per day)
-weather_api = Api(weatherbit_api_key) # weatherbit api key
-with_feel_temperature = eval(config['WEATHER']['with_feel_temperature']) # true: show feel temperature in celsius
-with_rain = eval(config['WEATHER']['with_rain']) # true: show rain in mm/hr if rain data is available
-with_wind_spd = eval(config['WEATHER']['with_wind_spd']) # true: show wind speed in km/h
-with_wind_dir = eval(config['WEATHER']['with_wind_dir']) # true: show wind direction
-with_humidity = eval(config['WEATHER']['with_humidity']) # true: show humidity in percent
-with_pressure = eval(config['WEATHER']['with_pressure']) # true: show pressure in hPa
-with_clouds = eval(config['WEATHER']['with_clouds']) # true: show clouds in percent if cloud data is available
-with_snow = eval(config['WEATHER']['with_snow']) # true: show snow in mm/hr if snow data is available
-with_uv = eval(config['WEATHER']['with_uv']) # true: show ultraviolet radiation in a range of 0-11 
-with_sunrise = eval(config['WEATHER']['with_sunrise']) # true: show time of sunrise
-with_sunset = eval(config['WEATHER']['with_sunset']) # true: show time of sunset
-with_description = eval(config['WEATHER']['with_description']) # true: show short weather description text
+    var['spotify_client_id'] = config['STREAMING']['spotify_client_id'] if 'spotify_client_id' in config['STREAMING'] else '' # spotify web api client id
+    var['spotify_client_secret'] = config['STREAMING']['spotify_client_secret'] if 'spotify_client_secret' in config['STREAMING'] else '' # spotify web api client secret
+    var['enable_spotify_connect'] = eval(config['STREAMING']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
+    var['applemusic_team_id'] = config['STREAMING']['applemusic_team_id'] if 'applemusic_team_id' in config['STREAMING'] else '' # applemusic web api team id
+    var['applemusic_key_id'] = config['STREAMING']['applemusic_key_id'] if 'applemusic_key_id' in config['STREAMING'] else '' # applemusic web api key id
+    var['applemusic_secret_key'] = config['STREAMING']['applemusic_secret_key'] if 'applemusic_secret_key' in config['STREAMING'] else '' # applemusic web api secret key
 
-webservers_show = eval(config['WEBSERVERS']['webservers_show']) # show spotify or apple music data (True) or not (False)
-force_webserver_update = eval(config['WEBSERVERS']['force_webserver_update']) # true: force updating output message if webserver data (local running Spotify and Apple Music) is updated (interrupt and refresh output instantly)
-force_active_webserver_zone_only = eval(config['WEBSERVERS']['force_active_webserver_zone_only']) # true: force updating output message only if the active zone is of webserver type and is updating
-webcheck_update_interval = int(config['WEBSERVERS']['webcheck_update_interval']) # interval in seconds the webservers will check for playouts if force_webserver_update is True
-webservers_zones = literal_eval(config['WEBSERVERS']['zones']) # list of webservers zones (fields: name,  url) to get playout data from local running apple music and spotify
-webserver_head_request_timeout = int(config['WEBSERVERS']['webserver_head_request_timeout']) # time in seconds a webserver should send a response to head request (onlinecheck)
-webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout']) # time in seconds a webserver should send a response to url request
+    var['librespot_device'] = config['AUDIO']['librespot_device'] if 'librespot_device' in config['AUDIO'] else 'plughw:0,0' # Spotify Connect (librespot) audio device name
+    var['librespot_bitrate'] = int(config['AUDIO']['librespot_bitrate']) if 'librespot_bitrate' in config['AUDIO'] else 320 # Spotify Connect (librespot) audio device bitrate (96, 160, or 320)
+    var['librespot_format'] = config['AUDIO']['librespot_format'] if 'librespot_format' in config['AUDIO'] else 'S16' # Spotify Connect (librespot) audio device format (F64, F32, S32, S24, S24_3, S16)
+    var['shairport_device'] = config['AUDIO']['shairport_device'] if 'shairport_device' in config['AUDIO'] else 'plughw:0,0' # Airport 2 (shareport) audio device name
 
-spotify_client_id = config['STREAMING']['spotify_client_id'] if 'spotify_client_id' in config['STREAMING'] else '' # spotify web api client id
-spotify_client_secret = config['STREAMING']['spotify_client_secret'] if 'spotify_client_secret' in config['STREAMING'] else '' # spotify web api client secret
-enable_spotify_connect = eval(config['STREAMING']['enable_spotify_connect']) # show Spotify Connect Zones (True) or not (False)
-applemusic_team_id = config['STREAMING']['applemusic_team_id'] if 'applemusic_team_id' in config['STREAMING'] else '' # applemusic web api team id
-applemusic_key_id = config['STREAMING']['applemusic_key_id'] if 'applemusic_key_id' in config['STREAMING'] else '' # applemusic web api key id
-applemusic_secret_key = config['STREAMING']['applemusic_secret_key'] if 'applemusic_secret_key' in config['STREAMING'] else '' # applemusic web api secret key
+    var['roon_show'] = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
+    var['force_roon_update'] = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
+    var['force_active_roon_zone_only'] = eval(config['ROON']['force_active_roon_zone_only']) # true: force updating output message only if the active zone is of roon type and is updating
+    var['discovery_delay'] = int(config['ROON']['discovery_delay']) # delay after first roon discover call to wait a discover.stop is completed
+    var['core_ip'] = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
+    var['core_port'] = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
 
-librespot_device = config['AUDIO']['librespot_device'] if 'librespot_device' in config['AUDIO'] else 'plughw:0,0' # Spotify Connect (librespot) audio device name
-librespot_bitrate = int(config['AUDIO']['librespot_bitrate']) if 'librespot_bitrate' in config['AUDIO'] else 320 # Spotify Connect (librespot) audio device bitrate (96, 160, or 320)
-librespot_format = config['AUDIO']['librespot_format'] if 'librespot_format' in config['AUDIO'] else 'S16' # Spotify Connect (librespot) audio device format (F64, F32, S32, S24, S24_3, S16)
-shairport_device = config['AUDIO']['shairport_device'] if 'shairport_device' in config['AUDIO'] else 'plughw:0,0' # Airport 2 (shareport) audio device name
+    config['SYSTEM']['hostname'] = hostName # override roonmatrix hostname with actual value
+    config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
 
-roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
-force_roon_update = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
-force_active_roon_zone_only = eval(config['ROON']['force_active_roon_zone_only']) # true: force updating output message only if the active zone is of roon type and is updating
-discovery_delay = int(config['ROON']['discovery_delay']) # delay after first roon discover call to wait a discover.stop is completed
-core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
-core_port = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
+    var['led_modules'] = int(config['SYSTEM']['led_modules']) # number of led matrix modules (8x8 led)
 
-config['SYSTEM']['hostname'] = hostName # override roonmatrix hostname with actual value
-config['SYSTEM']['password'] = '********' # set roonmatrix password placeholder with default value
+    var['updated_at'] = config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now()) # datetime to saved config last time
+    var['led_block_orientation'] = int(config['SYSTEM']['led_block_orientation']) # led block_orientation in degrees
+    var['led_rotate'] = int(config['SYSTEM']['led_rotate']) # led rotation
+    var['led_inreverse'] = int(config['SYSTEM']['led_inreverse']) # led blocks arranged in reverse order
+    var['led_scroll_delay'] = float(config['SYSTEM']['led_scroll_delay']) # delay time in milliseconds to delay next column scroll
+    var['led_vertical_scroll_delay'] = float(config['SYSTEM']['led_vertical_scroll_delay']) # delay time in milliseconds to delay next vertical line  scroll
+    var['led_contrast'] = int(config['SYSTEM']['led_contrast']) # led contrast between 0-255
 
-led_modules = int(config['SYSTEM']['led_modules']) # number of led matrix modules (8x8 led)
+    var['controlswitch_gpio_top'] = int(config['SYSTEM']['controlswitch_gpio_top']) # button gpio number, for direction top
+    var['controlswitch_gpio_down'] = int(config['SYSTEM']['controlswitch_gpio_down']) # button gpio number, for direction down
+    var['controlswitch_gpio_left'] = int(config['SYSTEM']['controlswitch_gpio_left']) # button gpio number, for direction left
+    var['controlswitch_gpio_center'] = int(config['SYSTEM']['controlswitch_gpio_center']) # button gpio number, for direction center
+    var['controlswitch_gpio_right'] = int(config['SYSTEM']['controlswitch_gpio_right']) # button gpio number, for direction right
+    var['controlswitch_bouncetime'] = int(config['SYSTEM']['controlswitch_bouncetime']) # button debounce time in ms
 
-updated_at = config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now()) # datetime to saved config last time
-led_block_orientation = int(config['SYSTEM']['led_block_orientation']) # led block_orientation in degrees
-led_rotate = int(config['SYSTEM']['led_rotate']) # led rotation
-led_inreverse = int(config['SYSTEM']['led_inreverse']) # led blocks arranged in reverse order
-led_scroll_delay = float(config['SYSTEM']['led_scroll_delay']) # delay time in milliseconds to delay next column scroll
-led_vertical_scroll_delay = float(config['SYSTEM']['led_vertical_scroll_delay']) # delay time in milliseconds to delay next vertical line  scroll
-led_contrast = int(config['SYSTEM']['led_contrast']) # led contrast between 0-255
+    var['internet_connection_timeout'] = int(config['SYSTEM']['internet_connection_timeout']) # request timeout in seconds
+    var['internet_connection_url'] = config['SYSTEM']['internet_connection_url'] # url used to check if internet is available
+    var['separator'] = ' ' + config['SYSTEM']['separator'] + ' ' # string which is used to separate the different content messages
+    var['zone_autoswitch'] = eval(config['SYSTEM']['zone_autoswitch']) if 'zone_autoswitch' in config['SYSTEM'] else True # true: switch to another zone if channel_id is lost (offline), false: switch zone only manually
+    var['control_zone'] = config['SYSTEM']['control_zone'] # name of default roon or webserver zone (example: MacStudio-Spotify, which is a concatenation of webserver zone name, hyphen, and app name like Spotify or AppleMusic) the buttons will control (play, pause, next, track before, shuffle)
+    var['restart_with_last_selected_zone'] = eval(config['SYSTEM']['restart_with_last_selected_zone']) if 'restart_with_last_selected_zone' in config['SYSTEM'] else True # if True, the actually selected zone will temporary saved into temp file in RAM filesystem to display the cover of last selected zone on script error, and is loaded after automatic script-restart.
+    var['zone_control_map'] = literal_eval(config['SYSTEM']['zone_control_map']) # map names of control zones to shorter variant (for matrix with less modules)
+    var['zone_control_timeout'] = int(config['SYSTEM']['zone_control_timeout']) # max time in seconds the zone control mode is displayed (before the message playout restarts)
+    var['map_zone_control'] = eval(config['SYSTEM']['map_zone_control']) # true: map zone control names, false: no mapping
+    var['exclusive_audio_mode'] = eval(config['SYSTEM']['exclusive_audio_mode']) # true: display audio messages, show other content (rss, weather) if no audio is played, false: show all
+    var['exclusive_active_zone'] = eval(config['SYSTEM']['exclusive_active_zone']) # true: display only active zone
+    var['music_required'] = eval(config['SYSTEM']['music_required']) # true: music playing is required to display anything (silent if no music is playing)
+    var['show_zone'] = eval(config['SYSTEM']['show_zone']) # true: show zone name of audio channel, false: show no zone name
+    var['show_album'] = eval(config['SYSTEM']['show_album']) # true: show album, false: show only artist and track
+    var['vertical_output'] = eval(config['SYSTEM']['vertical_output']) # true: display vertical (with vertical scrolling line by line)
+    var['vertical_scroll_delay'] = int(config['SYSTEM']['vertical_scroll_delay']) # vertical scroll delay in seconds
+    var['show_vertical_music_label'] = eval(config['SYSTEM']['show_vertical_music_label']) # true: show music label (artist, album, track), false: show without music label (supported only in vertical scrolling mode)
+    var['datetime_show'] = eval(config['SYSTEM']['datetime_show']) # true: show date and time in output message
+    var['datetime_only_time'] = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
+    var['socket_timeout'] = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
+    var['countrycode'] = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
+    #var['ipv4_only'] = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
+    var['alternative_layout'] = eval(config['SYSTEM']['alternative_layout']) if 'alternative_layout' in config['SYSTEM'] else False # true: use alternative keyboard layout (special buttons like lock, shift, BS, enter, moved to spacebar row to get more width for buttons), false: standard keyboard layout 
+    var['searchresult_maxlength'] = int(config['SYSTEM']['searchresult_maxlength']) if 'searchresult_maxlength' in config['SYSTEM'] else 100 # max number of search results (Roon, Webserver, Spotify, Apple Music)
 
-controlswitch_gpio_top = int(config['SYSTEM']['controlswitch_gpio_top']) # button gpio number, for direction top
-controlswitch_gpio_down = int(config['SYSTEM']['controlswitch_gpio_down']) # button gpio number, for direction down
-controlswitch_gpio_left = int(config['SYSTEM']['controlswitch_gpio_left']) # button gpio number, for direction left
-controlswitch_gpio_center = int(config['SYSTEM']['controlswitch_gpio_center']) # button gpio number, for direction center
-controlswitch_gpio_right = int(config['SYSTEM']['controlswitch_gpio_right']) # button gpio number, for direction right
-controlswitch_bouncetime = int(config['SYSTEM']['controlswitch_bouncetime']) # button debounce time in ms
+    var['screensaver_seconds'] = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
+    var['display_auto_wakeup'] = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
 
-internet_connection_timeout = int(config['SYSTEM']['internet_connection_timeout']) # request timeout in seconds
-internet_connection_url = config['SYSTEM']['internet_connection_url'] # url used to check if internet is available
-separator = ' ' + config['SYSTEM']['separator'] + ' ' # string which is used to separate the different content messages
-zone_autoswitch = eval(config['SYSTEM']['zone_autoswitch']) if 'zone_autoswitch' in config['SYSTEM'] else True # true: switch to another zone if channel_id is lost (offline), false: switch zone only manually
-control_zone = config['SYSTEM']['control_zone'] # name of default roon or webserver zone (example: MacStudio-Spotify, which is a concatenation of webserver zone name, hyphen, and app name like Spotify or AppleMusic) the buttons will control (play, pause, next, track before, shuffle)
-restart_with_last_selected_zone = eval(config['SYSTEM']['restart_with_last_selected_zone']) if 'restart_with_last_selected_zone' in config['SYSTEM'] else True # if True, the actually selected zone will temporary saved into temp file in RAM filesystem to display the cover of last selected zone on script error, and is loaded after automatic script-restart.
-zone_control_map = literal_eval(config['SYSTEM']['zone_control_map']) # map names of control zones to shorter variant (for matrix with less modules)
-zone_control_timeout = int(config['SYSTEM']['zone_control_timeout']) # max time in seconds the zone control mode is displayed (before the message playout restarts)
-map_zone_control = eval(config['SYSTEM']['map_zone_control']) # true: map zone control names, false: no mapping
-exclusive_audio_mode = eval(config['SYSTEM']['exclusive_audio_mode']) # true: display audio messages, show other content (rss, weather) if no audio is played, false: show all
-exclusive_active_zone = eval(config['SYSTEM']['exclusive_active_zone']) # true: display only active zone
-music_required = eval(config['SYSTEM']['music_required']) # true: music playing is required to display anything (silent if no music is playing)
-show_zone = eval(config['SYSTEM']['show_zone']) # true: show zone name of audio channel, false: show no zone name
-show_album = eval(config['SYSTEM']['show_album']) # true: show album, false: show only artist and track
-vertical_output = eval(config['SYSTEM']['vertical_output']) # true: display vertical (with vertical scrolling line by line)
-vertical_scroll_delay = int(config['SYSTEM']['vertical_scroll_delay']) # vertical scroll delay in seconds
-show_vertical_music_label = eval(config['SYSTEM']['show_vertical_music_label']) # true: show music label (artist, album, track), false: show without music label (supported only in vertical scrolling mode)
-datetime_show = eval(config['SYSTEM']['datetime_show']) # true: show date and time in output message
-datetime_only_time = eval(config['SYSTEM']['datetime_only_time']) # true: show only time part of datetime in output message
-socket_timeout = int(config['SYSTEM']['socket_timeout']) # socket timeout in seconds
-countrycode = config['SYSTEM']['countrycode'] # two char country code like de or en to load the translations specific for this language. auto = get code from public ip address
-#ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
-alternative_layout = eval(config['SYSTEM']['alternative_layout']) if 'alternative_layout' in config['SYSTEM'] else False # true: use alternative keyboard layout (special buttons like lock, shift, BS, enter, moved to spacebar row to get more width for buttons), false: standard keyboard layout 
-searchresult_maxlength = int(config['SYSTEM']['searchresult_maxlength']) if 'searchresult_maxlength' in config['SYSTEM'] else 100 # max number of search results (Roon, Webserver, Spotify, Apple Music)
+    var['playing_headline'] = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
+    conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
+    translate_map = {} # define key value map to use for language translation
+    for key, val in conversions.items():
+        translate_map[ord(key)] = val
+    var['translate_map'] = translate_map
+    var['conversions'] = conversions
+    var['deg_to_compass'] = literal_eval(config['LANGUAGE']['deg_to_compass']) # language specific transformation of degrees to compass like direction names in ascii code
+    var['weather_description'] = literal_eval(config['LANGUAGE']['weather_description']) # translation of weather descriptions text
+    var['weather_properties'] = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
+    var['messages'] = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
 
-screensaver_seconds = int(config['SYSTEM']['screensaver_seconds']) if display_cover is True else 0 # screensaver timeout in seconds (0 = screensaver off)
-display_auto_wakeup = eval(config['SYSTEM']['display_auto_wakeup']) if display_cover is True else False # wakeup display on track updates
+    if display_cover is True:
+        var['coverplayer_lang'] = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
+        var['row1keyb'] = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
+        var['row2keyb'] = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
+        var['row3keyb'] = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
+        var['row4keyb'] = literal_eval(config['LANGUAGE']['row4keyb']) if 'row4keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 4
+        var['row1keyb_shift'] = literal_eval(config['LANGUAGE']['row1keyb_shift']) if 'row1keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 1
+        var['row2keyb_shift'] = literal_eval(config['LANGUAGE']['row2keyb_shift']) if 'row2keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 2
+        var['row4keyb_shift'] = literal_eval(config['LANGUAGE']['row4keyb_shift']) if 'row4keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 4
+        var['row1keyb_alt'] = literal_eval(config['LANGUAGE']['row1keyb_alt']) if 'row1keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 1
+        var['row2keyb_alt'] = literal_eval(config['LANGUAGE']['row2keyb_alt']) if 'row2keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 2
+        var['row3keyb_alt'] = literal_eval(config['LANGUAGE']['row3keyb_alt']) if 'row3keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 3
+        var['row4keyb_alt'] = literal_eval(config['LANGUAGE']['row4keyb_alt']) if 'row4keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 4
 
-playing_headline = config['LANGUAGE']['playing_headline'] # headline text to display in front of audio informations
-conversions = literal_eval(config['LANGUAGE']['conversions']) # language specific special utf-8 code char replacing to ascii code
-translate_map = {} # define key value map to use for language translation
-for key, val in conversions.items():
-    translate_map[ord(key)] = val
-deg_to_compass = literal_eval(config['LANGUAGE']['deg_to_compass']) # language specific transformation of degrees to compass like direction names in ascii code
-weather_description = literal_eval(config['LANGUAGE']['weather_description']) # translation of weather descriptions text
-weather_properties = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
-messages = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
+    var['clock_show'] = eval(config['CLOCK']['clock_show']) # show clock after idle time (True) or not (False)
+    var['clock_without_idle_time'] = eval(config['CLOCK']['clock_without_idle_time']) # true: show clock always is no audio is played and only in music_required mode, false: show clock only for max time (clock_max_show_time)
+    var['clock_refresh_per_second'] = int(config['CLOCK']['clock_refresh_per_second']) # clock refresh per second (should be more than once per second to prevent time glitches)
+    var['clock_max_idle_time'] = int(config['CLOCK']['max_idle_time']) # idle time in minutes before clock will be displayed
+    var['clock_max_show_time'] = int(config['CLOCK']['max_show_time']) # maximum time in minutes the clock will be displayed
+    var['audioinfo_timer'] = int(config['CLOCK']['audioinfo_timer']) # time in seconds the audio playout channel check is called again
 
-if display_cover is True:
-    coverplayer_lang = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
-    row1keyb = literal_eval(config['LANGUAGE']['row1keyb']) if 'row1keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 1
-    row2keyb = literal_eval(config['LANGUAGE']['row2keyb']) if 'row2keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 2
-    row3keyb = literal_eval(config['LANGUAGE']['row3keyb']) if 'row3keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 3
-    row4keyb = literal_eval(config['LANGUAGE']['row4keyb']) if 'row4keyb' in config['LANGUAGE'] else [] # language specific virtual keyboard row 4
-    row1keyb_shift = literal_eval(config['LANGUAGE']['row1keyb_shift']) if 'row1keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 1
-    row2keyb_shift = literal_eval(config['LANGUAGE']['row2keyb_shift']) if 'row2keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 2
-    row4keyb_shift = literal_eval(config['LANGUAGE']['row4keyb_shift']) if 'row4keyb_shift' in config['LANGUAGE'] else [] # language specific virtual keyboard shift row 4
-    row1keyb_alt = literal_eval(config['LANGUAGE']['row1keyb_alt']) if 'row1keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 1
-    row2keyb_alt = literal_eval(config['LANGUAGE']['row2keyb_alt']) if 'row2keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 2
-    row3keyb_alt = literal_eval(config['LANGUAGE']['row3keyb_alt']) if 'row3keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 3
-    row4keyb_alt = literal_eval(config['LANGUAGE']['row4keyb_alt']) if 'row4keyb_alt' in config['LANGUAGE'] else [] # language specific virtual keyboard alt row 4
-
-clock_show = eval(config['CLOCK']['clock_show']) # show clock after idle time (True) or not (False)
-clock_without_idle_time = eval(config['CLOCK']['clock_without_idle_time']) # true: show clock always is no audio is played and only in music_required mode, false: show clock only for max time (clock_max_show_time)
-clock_refresh_per_second = int(config['CLOCK']['clock_refresh_per_second']) # clock refresh per second (should be more than once per second to prevent time glitches)
-clock_max_idle_time = int(config['CLOCK']['max_idle_time']) # idle time in minutes before clock will be displayed
-clock_max_show_time = int(config['CLOCK']['max_show_time']) # maximum time in minutes the clock will be displayed
-audioinfo_timer = int(config['CLOCK']['audioinfo_timer']) # time in seconds the audio playout channel check is called again
-
-rss_show = eval(config['RSS']['rss_show']) # show rss feeds (true) or not (False)
-rss_feeds = literal_eval(config['RSS']['feeds']) # list of rss feeds (fields: name, count, url), count = number of messages to display
-
-new_control_zone = None
-if restart_with_last_selected_zone is True:
-    new_control_zone = load_selected_zone_state()
-
-if startlog is True:
-    flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
-    flexprint('')
-    flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]platform: ' + platform + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
-    flexprint('')
-    flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
-    flexprint('')
-    flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
-    flexprint('[green4]music_required: ' + str(music_required is True) + '[/green4]')
-    flexprint('[green4]show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True) + '[/green4]')
-    flexprint('')
-    flexprint('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
-    flexprint('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
-    flexprint('[green4]show spotify connect: ' + str(enable_spotify_connect) + '[/green4]')
-    flexprint('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
-    flexprint('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
-    flexprint('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
-    flexprint('')
-    flexprint('=======================================================================================')
-    flexprint('')
-
-if new_control_zone is not None and len(new_control_zone) > 0:
-	control_zone = new_control_zone
-if restart_with_last_selected_zone is True:
-    save_selected_zone_state(control_zone)
-
-initialization_done = False # flag: initialization part is done (before threads are started)
-exit_now = False
-check_audioinfo = False # flag: automatic background check of zones is enabled or not while clock will be displayed
-audioinfo_available = False # flag: updated zone is found
-roonapi = None # roonapi object variable
-control_id = None # id of actual control (selected) zone
-do_set_zone_control = False # display is set into zone control mode to select another zone to control with the buttons (all other display activities are set into standby)
-weatherstr = '' # string to hold the weather data to display (updated in intervals of minutes => weather_update_interval)
-weatherlines = [] # list to hold the weather data to display in vertical scrolling mode (updated in intervals of minutes => weather_update_interval)
-last_idle_time = None # datetime of last time the playout message was empty
-control_id_update = None # temp zone control id to hold this value while zone control setup. this value will be taken if enter button is pressed
-displaystr = '' # string to hold the whole message which is actually output to led matrix
-app_displaystr = '' # string of new generated audio message part prepared to get info about all audio zones which are playing
-vert_strlines = [] # list of message lines for actually output to led matrix in vertical display mode (exclusive_vertical is True)
-prepared_displaystr = '' # string of new generated playout message prepared for next run of led matrix output before it will be takeover into displaystr and output to the led matrix
-prepared_vert_strlines = [] # string lines of new generated playout message prepared for next run of vertical scrolling led matrix output before it will be takeover into vert_strlines and vertical output to the led matrix
-audio_playing = '' # string of new generated audio message part prepared to get info about all audio zones which are playing
-weather_fetch_count = 0 # count number of weather api fetches (free acount has a limited number of fetches for a day. for weatherbit its limited to 50 fetches per day)
-build_seconds = 0 # time in seconds to fetch and build output data
-interrupt_message = False # flag: set true to interrupt message output
-fetch_output_in_progress = False # flag: set to true if data fetching and output generation is in progress
-output_in_progress = False # flag: set to true if output to led matrix is in progress
-clock_in_progress = False # flag: set if clock displaying is in progress (clock starts if max_idle_time is reached, stops if clock display time of max_show_time in minutes is done)
-fetch_output_done = False # flag: set if fetching and generating of output message is done
-fetch_output_time = None # datetime to fetch and build output data (None: as soon as possible)
-zone_control_last_update_time = None # datetime the zone control mode is entered or a button is clicked
-playmode = {} # playmode is a dictionary of play state of each roon- or webserver zone (key = control_id, value = play mode (play,stop)
-shufflemode = {} # shufflemode is a dictionary of shuffle state of each webserver zone (key = control_id, value = shuffle mode (shuffle,noshuffle)
-repeatmode = {} # repeatmode is a dictionary of repeat state of each webserver zone (key = control_id, value = repeat mode (repeat,norepeat)
-channels = {} # channels is a dictionary of control_id (key) and zone name (value)
-roon_playouts_raw = {} # zone name and their raw jsonString variant of three_line data (track,artist,album) of played song
-roon_playouts = {} # zone name and their json variant of three_line data (track,artist,album) of played song
-web_playouts_raw = {} # webserver zone name and their raw jsonString variant of data (track,artist,album) of played song
-web_playouts = {} # webserver zone name and their json variant of data (track,artist,album) of played song
-jobs = {} # map of running threads
-jobcount = 0
-playcount = 0 # number of playouts
-reboot = False # set true to reboot
-roon_servers = [] # ip list of roon servers
-custom_message = '' # custom message received from app to integrate into playout
-custom_message_option = '' # custom message option (force: force updating, playout: standard playout with integrated custom message, exclusive: show only the custom message)
-is_playing = True # playing state of actual zone
-is_playing_last = None # playing state before of actual zone
-shuffle_on = False # shuffle state of actual zone
-shuffle_on_last = None # shuffle state before of actual zone
-repeat_on = False # repeat state of actual zone
-repeat_on_last = None # repeat state before of actual zone
-track_id = '' # track id of actual zone
-track_id_last = '' # track id before of actual zone
-last_cover_url = '' # cover url of active zone (backup to check for changes)
-last_zones_online = [] # list of zone names of all online zones (backup to check for changes)
-last_zones_playing = [] # list of zone names of all playing zones (backup to check for changes)
-last_cover_text_line_parts = [] # list of coverplayer text line parts (backup to check for changes)
-playpos_last = -1 # play position of active zone (backup to check for changes)
-playlen_last = -1 # play length of active zone (backup to check for changes)
-roon_zones = [] # list of actual roon zones
-spotify_auth_url = ''
-spotify_auth_redirect_url = ''
-spotify_connect_authorized = False
-active_spotify_connect_zone = None
-spotify_devices = []
-webcheck_timer = None
-weather_timer = None
-callbacks_initialized = False
-reboot_python = False
-ws_update_queue = {}
-ws_notification_queue = [];
-infodata_props_to_check = {
-    "control_id",
-    "playmode",
-    "shufflemode",
-    "repeatmode",
-    "channels",
-    "roon_playouts_raw",
-    "web_playouts_raw",
-    "app_displaystr",
-    "spotify_auth_url" 
-}
-
-test_roon_discover = False # true: call RoonDiscovery to check for roon servers
-
-socket.setdefaulttimeout(socket_timeout) # set socket timeout
+    var['rss_show'] = eval(config['RSS']['rss_show']) # show rss feeds (true) or not (False)
+    var['rss_feeds'] = literal_eval(config['RSS']['feeds']) # list of rss feeds (fields: name, count, url), count = number of messages to display
+    
+    globals().update(var) # update globals with dict items
 
 def get_spotify_auth_url(spotify_connect_auth_success):
     if enable_spotify_connect is False:
@@ -1225,35 +1061,6 @@ else:
         async def broadcast(self, message: str):
             for connection in self.active_connections:
                 await connection.send(message)
-
-ws_manager = ConnectionManager()
-
-spotify_connect = None
-if spotify_client_id!='' and spotify_client_secret!='':
-    try:
-        spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
-    except Exception as e:
-        flexprint("spotify_connect error:", e)
-
-if display_cover is True:
-    try:
-        Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
-        Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-        Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
-        Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
-    except Exception as e:
-        if errorlog is True: flexprint('[red]Coverplayer init error: ' + str(e) + '[/red]')
-    
-    if spotify_client_id!='' and spotify_client_secret!='':
-        try:
-            environ['DEVICE_NAME'] = hostName
-            environ['BLUETOOTH_DEVICE_NAME'] = hostName
-            environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
-            environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
-        except EnvironmentError as e:
-            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
-        except Exception as e:
-            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
 
 # --- REST SERVER START ---
 
@@ -2612,6 +2419,7 @@ def save_config(payload):
             flexprint('=> do reboot now')
             reboot = True
         if doReboot is True and is_app_embedded is True:
+            setGlobalVarsFromConfigData()
             reboot_python = doReboot
         
         return True
@@ -6767,6 +6575,214 @@ def build_output():
     except Exception as e:
         if errorlog is True: flexprint('[red]build_output (end part) error: ' + str(e) + '[/red]')
 
+# --- MAIN ---
+
+platform = 'raspberry-pi' if is_raspberry_pi is True else 'unknown'
+if 'platform' in environ:
+    platform = str(environ['platform'])
+
+configs_dir = None
+if 'configs_dir' in environ:
+    configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
+
+current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
+
+if is_raspberry_pi:
+    configs_dir = current_path
+else:
+    if platform != 'ios':
+        try:
+            dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
+            configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
+        except Exception as e:
+            print(traceback.format_exc())
+
+if startlog is True:
+    print('configs path: ' + str(configs_dir))
+
+base_translations_path = configs_dir + 'translations/'
+if is_raspberry_pi is False and not path.exists(base_translations_path):
+    Path(base_translations_path).mkdir(parents=True, exist_ok=True)
+
+if is_app_embedded is True:
+    environ['SSL_CERT_FILE'] = certifi.where()
+    environ['REQUESTS_CA_BUNDLE'] = certifi.where()
+
+TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
+if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
+    TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
+    if not path.exists(TEMP_STATE_DIR):
+        Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)
+    
+TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
+if startlog is True:
+    print('current_path: ' + current_path)
+    print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
+
+if is_app_embedded is True:
+    if path.exists(configs_dir + 'roon_api.ini'):
+        roon_config_path = configs_dir
+    else:
+        roon_config_path = current_path + 'config/'
+    roon_write_path = configs_dir
+    configReadFile = roon_config_path + 'roon_api.ini'
+    configWriteFile = roon_write_path + 'roon_api.ini'
+else:
+    roon_config_path = '/usr/local/Roon/etc/'
+    roon_write_path = roon_config_path
+    configReadFile = roon_config_path + 'roon_api.ini'
+    configWriteFile = roon_config_path + 'roon_api.ini'
+
+# core id and token files
+idfile = roon_write_path + 'coreid.txt'
+tokenfile = roon_write_path + 'roontoken.txt'
+
+# read config file
+if startlog is True:
+    print('read main ini')
+config = configparser.ConfigParser()
+config.read(configReadFile)
+
+if 'display_cover' in config['SYSTEM']:
+    display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
+else:
+    display_cover = False
+
+# init cover image viewer
+try:    
+    # imports to display image on screen
+    if is_raspberry_pi is False:
+        display_cover = False
+    if display_cover is True:
+        environ["DISPLAY"] = ":0"
+        if path.isdir('/sys/class/graphics/fb0') is False:
+            display_cover = False
+            raise EnvironmentError("No display available")
+
+        import tkinter as tk # included in Python, alternative installing by apt-get install python3-tk (missing on app-embedded)
+        from PIL import Image, ImageTk # install PIL with: pip3 install pillow, and: sudo apt-get install python3-pil.imagetk (codesign problem on app-embedded)
+        from io import BytesIO
+        import applemusicpy # (codesign problem on app-embedded) 
+        from coverplayer import Coverplayer
+        root = tk.Tk()
+        root.destroy()	# TODO muss wieder rein
+except EnvironmentError as e:
+    flexprint(f"[magenta]GUI not found (headless system): {e}[/magenta]")
+    display_cover = False
+except Exception as e:
+    flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
+    display_cover = False
+
+if is_app_embedded is True:
+    logdir = configs_dir + 'logs/'
+    if not path.exists(logdir):
+        Path(logdir).mkdir(parents=True, exist_ok=True)
+else:
+    logdir = '/home/coverplayer/FTP/logs/' if display_cover is True else '/home/rmuser/FTP/logs/'
+    if is_raspberry_pi is False:
+        logdir = configs_dir + 'logs/'
+        if not path.exists(logdir):
+            Path(logdir).mkdir(parents=True, exist_ok=True)
+
+flexprint('logdir: ' + str(logdir))
+
+if is_app_embedded is True or display_cover is True or is_raspberry_pi is False:
+    init_logging()
+    logger = logging.getLogger('main')
+    serial = None
+else:
+    if is_raspberry_pi is True:
+        serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
+
+ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
+if ipv4_only is True:
+    force_ipv4_only()
+
+translation_hash = config['LANGUAGE']['translation_hash']
+countrycode = config['SYSTEM']['countrycode']
+webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout'])
+
+if countrycode == 'auto' or countrycode == '':
+    countrycode = get_countrycode_from_public_ip()
+flexprint('countrycode: ' + countrycode)
+
+update_translations()
+hostName = socket.gethostname()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding='utf-8')
+from_zone = tz.tzutc()
+to_zone = tz.tzlocal()
+
+setGlobalVarsFromConfigData()
+weather_api = Api(weatherbit_api_key) # weatherbit api key
+
+new_control_zone = None
+if restart_with_last_selected_zone is True:
+    new_control_zone = load_selected_zone_state()
+
+if startlog is True:
+    flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
+    flexprint('')
+    flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]platform: ' + platform + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
+    flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
+    flexprint('')
+    flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
+    flexprint('')
+    flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
+    flexprint('[green4]music_required: ' + str(music_required is True) + '[/green4]')
+    flexprint('[green4]show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True) + '[/green4]')
+    flexprint('')
+    flexprint('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
+    flexprint('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
+    flexprint('[green4]show spotify connect: ' + str(enable_spotify_connect) + '[/green4]')
+    flexprint('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
+    flexprint('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
+    flexprint('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
+    flexprint('')
+    flexprint('=======================================================================================')
+    flexprint('')
+
+if new_control_zone is not None and len(new_control_zone) > 0:
+	control_zone = new_control_zone
+if restart_with_last_selected_zone is True:
+    save_selected_zone_state(control_zone)
+
+socket.setdefaulttimeout(socket_timeout) # set socket timeout
+
+ws_manager = ConnectionManager()
+
+spotify_connect = None
+if spotify_client_id!='' and spotify_client_secret!='':
+    try:
+        spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+    except Exception as e:
+        flexprint("spotify_connect error:", e)
+
+if display_cover is True:
+    try:
+        Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
+        Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
+        Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
+        Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
+    except Exception as e:
+        if errorlog is True: flexprint('[red]Coverplayer init error: ' + str(e) + '[/red]')
+    
+    if spotify_client_id!='' and spotify_client_secret!='':
+        try:
+            environ['DEVICE_NAME'] = hostName
+            environ['BLUETOOTH_DEVICE_NAME'] = hostName
+            environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
+            environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
+        except EnvironmentError as e:
+            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
+        except Exception as e:
+            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
+
 # --- button setup ---
 # button left: play track before
 # button right: play next track
@@ -6798,7 +6814,6 @@ if display_cover is False and is_raspberry_pi is True:
     except Exception as e:
         if errorlog is True: flexprint('[red]GPIO init error: ' + str(e) + '[/red]')
 
-# --- MAIN ---
 if display_cover is False and is_raspberry_pi is True:
     device = init_matrix()
 
