@@ -1280,7 +1280,7 @@ if with_restserver_fastapi is True:
     @app.get("/exit_now/")
     async def rest_exit_now():
         global exit_now
-        flexprint('REST received exit_now')
+        flexprint('received exit_now')
         exit_now = True # close script
         return 'ok'
 
@@ -1422,7 +1422,7 @@ else:
 
             if self.path == '/exit_now/':
                 global exit_now
-                flexprint('REST received exit_now')
+                flexprint('received exit_now')
                 exit_now = True
                 self.send_text('ok')
                 return
@@ -6395,6 +6395,17 @@ def remove_completed_threads():
         except Exception as e:
             if errorlog is True: flexprint('[red]==> remove complete threads error: [/red]', str(e))
 
+def remove_all_threads():
+    global jobs
+
+    try:
+        for job in jobs:
+            if debug is True:
+                flexprint('delete job ' + str(jobs[job]))
+            del jobs[job]
+    except Exception as e:
+        if errorlog is True: flexprint('[red]==> remove complete threads error: [/red]', str(e))
+
 def tick():    
     if is_raspberry_pi is False:
         return
@@ -6839,8 +6850,14 @@ if enable_spotify_connect is True and spotify_connect is not None:
     if spotify_connect_authorized is True:
         active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
 
+class RestartException(Exception):
+    pass
+            
 try:
     with ThreadPoolExecutor(max_workers=4) as executor:
+        if exit_now is True:
+            raise RestartException()
+
         if with_restserver_fastapi is True:
             job = executor.submit(start_restserver)
 
@@ -6937,6 +6954,12 @@ try:
             time.sleep(1)
             tick()
         flexprint('exit python script now...')
+        if webcheck_timer is not None:
+            webcheck_timer.cancel()
+        if weather_timer is not None:
+            weather_timer.cancel()
+        executor.shutdown(wait=False)
+        raise Exception('exit python script')
             
 except Exception as e:
     if errorlog is True: 
