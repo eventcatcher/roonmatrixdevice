@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 2.0.0, date: 04.06.2026
+# version 2.0.0, date: 08.06.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,11 +16,11 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '2.0.0, date: 04.06.2026'
+scriptVersion = '2.0.0, date: 08.06.2026'
 APP_NAME = "roonmatrix"
 
-startlog = True	# default true: log start and config information
-errorlog = True	# default true: log errors
+startlog = True		# default true: log start and config information
+errorlog = True		# default true: log errors
 log = True			# default true: log infos on or off
 
 debug = False		# default false: log debug messages (memory and variable information)
@@ -111,6 +111,8 @@ logger = None
 if log is True:
     print('')
     print('start roonmatrix python script @ ' + datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+
+# parse args
 if startlog is True:
     print('parse args now...')
 parser = argparse.ArgumentParser()
@@ -119,6 +121,7 @@ parser.add_argument("-e", "--embedded", default=False, action='store_true',
 args = parser.parse_args()
 is_app_embedded = args.embedded
 
+# parse env
 if startlog is True:
     print('parse env now...')
 if debug is True:
@@ -127,21 +130,23 @@ if debug is True:
         print('env ' + str(key) + ', value: ' + str(environ[key]))
     print('')
 
+# check for starting by app (virtual device)
 if is_app_embedded is False and 'embedded' in environ:
     if startlog is True:
         print('found env embedded: ' + str(environ['embedded']))
         print('')
     is_app_embedded = True
-
 if startlog is True:
     print('started as app embedded script: ' + str(is_app_embedded))
     print('')
 
+# set important vars
 use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
 is_raspberry_pi = is_running_on_raspberry_pi()
 with_restserver_fastapi = is_app_embedded is False and use_fastapi_on_pi is True
 with_async_request = is_app_embedded is False
 
+# load platform dependent packages
 if is_raspberry_pi is True:
     import RPi.GPIO as GPIO
     import crypt
@@ -181,9 +186,9 @@ if debug is True:
 if startlog is True:
     print('import packages done...')
 
+# init global vars
 display_cover = False
 downloadserver = 'https://www.wilhelm-devblog.de/translations_device/'
-
 logdir = ''
 initialization_done = False # flag: initialization part is done (before threads are started)
 exit_now = False
@@ -256,6 +261,8 @@ test_roon_discover = False # true: call RoonDiscovery to check for roon servers
 translation_hash = ''
 countrycode = 'auto'
 webserver_url_request_timeout = 10
+spotify_connect = None
+updateHash = ''
 infodata_props_to_check = {
     "control_id",
     "playmode",
@@ -267,6 +274,8 @@ infodata_props_to_check = {
     "app_displaystr",
     "spotify_auth_url" 
 }
+
+# --- FUNCTIONS AND CLASSES PART: START ---
 
 def init_logging():
     max_size_in_mb = 10
@@ -638,6 +647,8 @@ def download_translation(cc, update):
     return None
 
 def update_translations():
+    global updateHash
+
     updateHash = ''
     fileinfo = translation_exist(countrycode, False)
     exist = fileinfo[0]
@@ -805,6 +816,8 @@ def setGlobalVarsFromConfigData():
     var['weather_description'] = literal_eval(config['LANGUAGE']['weather_description']) # translation of weather descriptions text
     var['weather_properties'] = literal_eval(config['LANGUAGE']['weather_properties']) # translation of weather properties text
     var['messages'] = literal_eval(config['LANGUAGE']['messages']) # translation of messages text
+    if var['led_modules'] < 15 and 'control zone' in var['messages']:
+        var['messages']['control zone'] = '>' # use single char to shrink text length on roonmatrix devices with less than 15 elements to display zone name selector
 
     if display_cover is True:
         var['coverplayer_lang'] = literal_eval(config['LANGUAGE']['coverplayer']) # translation of text for coverplayer device
@@ -2420,6 +2433,8 @@ def save_config(payload):
             reboot = True
         if doReboot is True and is_app_embedded is True:
             setGlobalVarsFromConfigData()
+            socket.setdefaulttimeout(socket_timeout)
+            init_spotify_connect()
             reboot_python = doReboot
         
         return True
@@ -2671,7 +2686,7 @@ def show_message_vertical_interruptable(device, lines, y_offset=0, fill=None, fo
                     fetch_output_time = get_next_fetch_output_time_relative(estimated_seconds)
 
             time.sleep(vertical_scroll_delay)
-            if interrupt_message is True:
+            if interrupt_message is True or do_set_zone_control is True:
                 break
 
         interrupt_message = False
@@ -3108,7 +3123,7 @@ def pressed_up(channel):
                 zone_control_last_update_time = datetime.now()
                 do_set_zone_control = True
                 flexprint('enter zone control setup')
-                if clock_in_progress is True or displaystr=='':
+                if clock_in_progress is True or (vertical_output is False and displaystr=='') or vertical_output is True:
                     set_control_zone(False)
             else:
                 do_set_zone_control = False
@@ -6276,6 +6291,106 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
         if errorlog is True: flexprint('[red]reconnect roon api if zone is stopped error: ' + str(e) + '[/red]')
     return roon_zones
 
+def init_spotify_connect():
+    global spotify_connect
+    spotify_connect = None
+    if spotify_client_id!='' and spotify_client_secret!='':
+        try:
+            spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
+        except Exception as e:
+            flexprint("spotify_connect error:", e)
+
+def init_coverplayer():
+    if display_cover is True:
+        try:
+            Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
+            Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
+            Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
+            Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
+        except Exception as e:
+            if errorlog is True: flexprint('[red]Coverplayer init error: ' + str(e) + '[/red]')
+    
+        if spotify_client_id!='' and spotify_client_secret!='':
+            try:
+                environ['DEVICE_NAME'] = hostName
+                environ['BLUETOOTH_DEVICE_NAME'] = hostName
+                environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
+                environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
+            except EnvironmentError as e:
+                flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
+            except Exception as e:
+                flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
+
+def init_gpio():
+    # --- roonmatrix device button setup ---
+    # button left: play track before
+    # button right: play next track
+    # button center: toggle between play and pause
+    # button down: toggle between random and sequential play
+    #
+    # button top: enter or leave zone control mode (select a zone to control with the buttons)
+    # in zone control mode:
+    #     button left: switch to zone before the actual control zone
+    #     button right: switch to zone after the actual control zone (in list of available zones)
+    #     button down: leave zone control mode without switching to new selected zone (no saving of control_id)
+    #     button enter: leave zone control mode and switch to new selected zone (save control_id)
+    #     button top: leave zone control mode and switch to new selected zone (save control_id)
+    if display_cover is False and is_raspberry_pi is True:
+        try:
+            GPIO.setmode (GPIO.BCM)
+            GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+            GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+
+            GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
+            GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
+            GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
+            GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
+            GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]GPIO init error: ' + str(e) + '[/red]')
+
+def get_roon_extension_info():
+    appKey = 'coverplayer' if display_cover is True else 'roonmatrix'
+    appinfo = {
+        "extension_id": appKey + '_' + hostName,
+        "display_name": appKey + ' [' + hostName + ']',
+        "display_version": scriptVersion,
+        "publisher": "Stephan Wilhelm",
+        "email": "support@wilhelm-devblog.de",
+        "website": "https://github.com/eventcatcher/roonmatrix"
+    }
+    return appinfo
+
+def log_startinfo():
+    if startlog is True:
+        flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
+        flexprint('')
+        flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
+        flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
+        flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
+        flexprint('[bold deep_sky_blue4]platform: ' + platform + '[/bold deep_sky_blue4]')
+        flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
+        flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
+        flexprint('')
+        flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
+        flexprint('')
+        flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
+        flexprint('[green4]music_required: ' + str(music_required is True) + '[/green4]')
+        flexprint('[green4]show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True) + '[/green4]')
+        flexprint('')
+        flexprint('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
+        flexprint('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
+        flexprint('[green4]show spotify connect: ' + str(enable_spotify_connect) + '[/green4]')
+        flexprint('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
+        flexprint('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
+        flexprint('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
+        flexprint('')
+        flexprint('=======================================================================================')
+        flexprint('')
+
 def build_output():
     global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
     # global fetch_output_time
@@ -6575,18 +6690,25 @@ def build_output():
     except Exception as e:
         if errorlog is True: flexprint('[red]build_output (end part) error: ' + str(e) + '[/red]')
 
-# --- MAIN ---
+# --- FUNCTIONS AND CLASSES PART: END ---
 
+# --- MAIN PART ---
+
+# get optional platform property (in-app)
 platform = 'raspberry-pi' if is_raspberry_pi is True else 'unknown'
 if 'platform' in environ:
     platform = str(environ['platform'])
 
+# get optional configs_dir property (in-app)
 configs_dir = None
 if 'configs_dir' in environ:
     configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
 
+
+# get current path
 current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
 
+# get configs dir
 if is_raspberry_pi:
     configs_dir = current_path
 else:
@@ -6596,29 +6718,31 @@ else:
             configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
         except Exception as e:
             print(traceback.format_exc())
-
 if startlog is True:
     print('configs path: ' + str(configs_dir))
 
+# get translations path (and make dir if missing)
 base_translations_path = configs_dir + 'translations/'
 if is_raspberry_pi is False and not path.exists(base_translations_path):
     Path(base_translations_path).mkdir(parents=True, exist_ok=True)
 
+# set ssl env vars
 if is_app_embedded is True:
     environ['SSL_CERT_FILE'] = certifi.where()
     environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
+# get temp path (and make dir if missing)
 TEMP_STATE_DIR = "/dev/shm/" + APP_NAME
 if is_app_embedded is True or is_raspberry_pi is False or path.exists("/dev/shm") is False:
     TEMP_STATE_DIR = str(Path(tempfile.gettempdir()) / APP_NAME)
     if not path.exists(TEMP_STATE_DIR):
-        Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)
-    
+        Path(TEMP_STATE_DIR).mkdir(parents=True, exist_ok=True)    
 TEMP_STATE_FILE = f"{TEMP_STATE_DIR}/control_zone_state.json"
 if startlog is True:
     print('current_path: ' + current_path)
     print('TEMP_STATE_FILE: ' + TEMP_STATE_FILE)
 
+# get roon config read and write paths  
 if is_app_embedded is True:
     if path.exists(configs_dir + 'roon_api.ini'):
         roon_config_path = configs_dir
@@ -6633,7 +6757,7 @@ else:
     configReadFile = roon_config_path + 'roon_api.ini'
     configWriteFile = roon_config_path + 'roon_api.ini'
 
-# core id and token files
+# get core id and token file paths
 idfile = roon_write_path + 'coreid.txt'
 tokenfile = roon_write_path + 'roontoken.txt'
 
@@ -6643,12 +6767,16 @@ if startlog is True:
 config = configparser.ConfigParser()
 config.read(configReadFile)
 
+# get part of config data
+translation_hash = config['LANGUAGE']['translation_hash']
+countrycode = config['SYSTEM']['countrycode']
+webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout'])
+
+# get display_cover flag (check for coverplayer hardware, import additional packages)
 if 'display_cover' in config['SYSTEM']:
     display_cover = eval(config['SYSTEM']['display_cover']) # true: show cover on screen (device is started in desktop mode), false: work as led scrollbar (device is started in cli mode)
 else:
     display_cover = False
-
-# init cover image viewer
 try:    
     # imports to display image on screen
     if is_raspberry_pi is False:
@@ -6673,6 +6801,7 @@ except Exception as e:
     flexprint(f"[magenta] Error on import of packages to display cover image: {e}[/magenta]")
     display_cover = False
 
+# get logs dir (and make dir if missing)
 if is_app_embedded is True:
     logdir = configs_dir + 'logs/'
     if not path.exists(logdir):
@@ -6683,9 +6812,10 @@ else:
         logdir = configs_dir + 'logs/'
         if not path.exists(logdir):
             Path(logdir).mkdir(parents=True, exist_ok=True)
-
 flexprint('logdir: ' + str(logdir))
 
+# init logger package (all except roonmatrix device) 
+# init serial connection (roonmatrix device only)
 if is_app_embedded is True or display_cover is True or is_raspberry_pi is False:
     init_logging()
     logger = logging.getLogger('main')
@@ -6694,129 +6824,68 @@ else:
     if is_raspberry_pi is True:
         serial = spi(port=0, device=0, gpio=noop()) # object of serial connection (luna)
 
+# set ipv4 only
 ipv4_only = eval(config['SYSTEM']['ipv4_only']) if 'ipv4_only' in config['SYSTEM'] else True # true: use only IPv4 (set to True if you have DSlite or IPv6 problems on web requests)
 if ipv4_only is True:
     force_ipv4_only()
 
-translation_hash = config['LANGUAGE']['translation_hash']
-countrycode = config['SYSTEM']['countrycode']
-webserver_url_request_timeout = int(config['WEBSERVERS']['webserver_url_request_timeout'])
-
+# get country code (to select the right translation file)
 if countrycode == 'auto' or countrycode == '':
     countrycode = get_countrycode_from_public_ip()
 flexprint('countrycode: ' + countrycode)
-
 update_translations()
+
+# get host name
 hostName = socket.gethostname()
 
+# configure stdout to utf-8
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding='utf-8')
+
+# get timezone
 from_zone = tz.tzutc()
 to_zone = tz.tzlocal()
 
+# set global vars from config data
 setGlobalVarsFromConfigData()
-weather_api = Api(weatherbit_api_key) # weatherbit api key
 
+# init weatherbit api with key
+weather_api = Api(weatherbit_api_key)
+
+# get last active control zone since boot time
 new_control_zone = None
 if restart_with_last_selected_zone is True:
     new_control_zone = load_selected_zone_state()
 
-if startlog is True:
-    flexprint('[bold green4]start roonmatrix service for ' + hostName + ' @ ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '[/bold green4]')
-    flexprint('')
-    flexprint('[bold deep_sky_blue4]display cover: ' + str(display_cover) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is app embedded: ' + str(is_app_embedded) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]is raspberry pi device: ' + str(is_raspberry_pi) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]platform: ' + platform + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]use fastapi: ' + str(with_restserver_fastapi) + '[/bold deep_sky_blue4]')
-    flexprint('[bold deep_sky_blue4]with async request: ' + str(with_async_request) + '[/bold deep_sky_blue4]')
-    flexprint('')
-    flexprint("[bold green4]default control zone (buttons): " + control_zone + ', restart_with_last_selected_zone: ' + str(restart_with_last_selected_zone) + ', zone to select: ' + str(new_control_zone) + '[/bold green4]')
-    flexprint('')
-    flexprint('[green4]exclusive_audio_mode: ' + str(exclusive_audio_mode is True) + '[/green4]')
-    flexprint('[green4]music_required: ' + str(music_required is True) + '[/green4]')
-    flexprint('[green4]show datetime: ' + str(datetime_show is True) + ', time only: ' + str(datetime_only_time is True) + '[/green4]')
-    flexprint('')
-    flexprint('[green4]show roon: ' + str(roon_show is True) + ', force update: ' + str(force_roon_update is True) + ', force active zone only: ' + str(force_active_roon_zone_only is True) + '[/green4]')
-    flexprint('[green4]show spotify and apple music: ' + str(webservers_show is True) + ', force update: ' + str(force_webserver_update is True) + ', force active zone only: ' + str(force_active_webserver_zone_only is True) + ', update interval: ' + str(webcheck_update_interval) + ' sec[/green4]')
-    flexprint('[green4]show spotify connect: ' + str(enable_spotify_connect) + '[/green4]')
-    flexprint('[green4]show weather: ' + str(weather_show is True) + ', for location: ' + location + ', update interval: ' + str(weather_update_interval) + ' sec[/green4]')
-    flexprint('[green4]show rss: ' + str(rss_show is True) + '[/green4]')
-    flexprint('[green4]show clock: ' + str(clock_show is True) + ', clock_without_idle_time: ' + str(clock_without_idle_time is True) + ', max idle time: ' + str(clock_max_idle_time) + ' min, max show time: ' + str(clock_max_show_time) + ' min[/green4]')
-    flexprint('')
-    flexprint('=======================================================================================')
-    flexprint('')
+# log important settings
+log_startinfo()
 
+# set and save active control zone
 if new_control_zone is not None and len(new_control_zone) > 0:
 	control_zone = new_control_zone
 if restart_with_last_selected_zone is True:
     save_selected_zone_state(control_zone)
 
-socket.setdefaulttimeout(socket_timeout) # set socket timeout
+# set socket timeout
+socket.setdefaulttimeout(socket_timeout)
 
+# set websocket manager
 ws_manager = ConnectionManager()
 
-spotify_connect = None
-if spotify_client_id!='' and spotify_client_secret!='':
-    try:
-        spotify_connect = SpotifyConnect(is_app_embedded = is_app_embedded, display_cover = display_cover, log = log, force_ipv4_only = ipv4_only, enable_spotify_connect = enable_spotify_connect, client_id = spotify_client_id, client_secret = spotify_client_secret, spotify_connect_auth_url_callback = spotify_connect_web_auth)
-    except Exception as e:
-        flexprint("spotify_connect error:", e)
+# init spotify connect class
+init_spotify_connect()
 
-if display_cover is True:
-    try:
-        Coverplayer.config(coverplayer_lang, webserver_url_request_timeout, display_auto_wakeup)
-        Coverplayer.set_keyboard_codes([row1keyb, row2keyb, row3keyb, row4keyb, row1keyb_shift, row2keyb_shift, row4keyb_shift, row1keyb_alt, row2keyb_alt, row3keyb_alt, row4keyb_alt], alternative_layout)
-        Coverplayer.disable_spotify(spotify_client_id=='' or spotify_client_secret=='')
-        Coverplayer.disable_applemusic(applemusic_team_id=='' or applemusic_key_id=='' or applemusic_secret_key=='')
-    except Exception as e:
-        if errorlog is True: flexprint('[red]Coverplayer init error: ' + str(e) + '[/red]')
-    
-    if spotify_client_id!='' and spotify_client_secret!='':
-        try:
-            environ['DEVICE_NAME'] = hostName
-            environ['BLUETOOTH_DEVICE_NAME'] = hostName
-            environ['SPOTIPY_CLIENT_ID'] = spotify_client_id
-            environ['SPOTIPY_CLIENT_SECRET'] = spotify_client_secret
-        except EnvironmentError as e:
-            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
-        except Exception as e:
-            flexprint(f"[magenta]error on set of env vars for Spotify: {e}[/magenta]")
+# init and config coverplayer class, set env vars
+init_coverplayer()
 
-# --- button setup ---
-# button left: play track before
-# button right: play next track
-# button center: toggle between play and pause
-# button down: toggle between random and sequential play
-#
-# button top: enter or leave zone control mode (select a zone to control with the buttons)
-# in zone control mode:
-#     button left: switch to zone before the actual control zone
-#     button right: switch to zone after the actual control zone (in list of available zones)
-#     button down: leave zone control mode without switching to new selected zone (no saving of control_id)
-#     button enter: leave zone control mode and switch to new selected zone (save control_id)
-#     button top: leave zone control mode and switch to new selected zone (save control_id)
+# --- roonmatrix device button setup ---
+init_gpio()
 
-if display_cover is False and is_raspberry_pi is True:
-    try:
-        GPIO.setmode (GPIO.BCM)
-        GPIO.setup (controlswitch_gpio_top, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup (controlswitch_gpio_down, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup (controlswitch_gpio_left, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup (controlswitch_gpio_center, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-        GPIO.setup (controlswitch_gpio_right, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-
-        GPIO.add_event_detect(controlswitch_gpio_top, GPIO.FALLING, callback=pressed_up, bouncetime=controlswitch_bouncetime)
-        GPIO.add_event_detect(controlswitch_gpio_down, GPIO.FALLING, callback=pressed_down, bouncetime=controlswitch_bouncetime)
-        GPIO.add_event_detect(controlswitch_gpio_left, GPIO.FALLING, callback=pressed_left, bouncetime=controlswitch_bouncetime)
-        GPIO.add_event_detect(controlswitch_gpio_center, GPIO.FALLING, callback=pressed_enter, bouncetime=controlswitch_bouncetime)
-        GPIO.add_event_detect(controlswitch_gpio_right, GPIO.FALLING, callback=pressed_right, bouncetime=controlswitch_bouncetime)
-    except Exception as e:
-        if errorlog is True: flexprint('[red]GPIO init error: ' + str(e) + '[/red]')
-
+# init LED matrix (roonmatrix device only)
 if display_cover is False and is_raspberry_pi is True:
     device = init_matrix()
 
+# wait for internet connection
 while True:
     if is_url_active(internet_connection_url,internet_connection_timeout) is True:
         # Do somthing
@@ -6826,16 +6895,10 @@ while True:
         flexprint("The internet connection is down")
         pass
 
-appKey = 'coverplayer' if display_cover is True else 'roonmatrix'
-appinfo = {
-  "extension_id": appKey + '_' + hostName,
-  "display_name": appKey + ' [' + hostName + ']',
-  "display_version": scriptVersion,
-  "publisher": "Stephan Wilhelm",
-  "email": "support@wilhelm-devblog.de",
-  "website": "https://github.com/eventcatcher/roonmatrix"
-}
+# generate roon extension info
+appinfo = get_roon_extension_info()
 
+# discover roon server and get roon api access
 if roon_show == True:
     flexprint('check for roon server now...')
     if core_ip == '' or core_port == '':
@@ -6843,24 +6906,30 @@ if roon_show == True:
     if roonapi is None:
         get_roon_api(False)
 
+# get weather data and init timer (to get next weather data)
 if weather_show == True:
     get_weather(weather_api,location)
 
+# get webserver data (playout data of local running Spotify and Apple Music App) and init timer (to get next webserver data)
 if webservers_show is True and force_webserver_update is True:
     flexprint('check for web servers now...')
     check_webserver_for_playouts()
 
+# check spotify connect authorization
 if enable_spotify_connect is True and spotify_connect is not None:
     flexprint('check spotify connect auth now...')
     spotify_connect_authorized = spotify_connect.get_spotify_connect_auth_state()
 
+# set default zone to display
 set_default_zone()
+
 clear_display('initialization done')
 initialization_done = True
 
 flexprint('main initialization done')
 flexprint('')
 
+# get active spotify connect zone
 if enable_spotify_connect is True and spotify_connect is not None:
     if spotify_connect_authorized is True:
         active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
