@@ -222,7 +222,8 @@ repeatmode = {} # repeatmode is a dictionary of repeat state of each webserver z
 channels = {} # channels is a dictionary of control_id (key) and zone name (value)
 roon_playouts_raw = {} # zone name and their raw jsonString variant of three_line data (track,artist,album) of played song
 roon_playouts = {} # zone name and their json variant of three_line data (track,artist,album) of played song
-roon_blocked_activation = True # true: wait for roon api activation is done, false: no waiting but with automatic retry
+roon_nonblocked_thread_on_appstart = True # true: connect to roon api on appstart by own thread with waiting to response, false: no waiting for response but automatic retry
+roon_nonblocked_thread_on_reconnect = True # true: connect to roon api on reconnect by own thread with waiting to response, false: no waiting for response but automatic retry
 roon_activation_retry_seconds = 15 # time in seconds to retry roon activation
 web_playouts_raw = {} # webserver zone name and their raw jsonString variant of data (track,artist,album) of played song
 web_playouts = {} # webserver zone name and their json variant of data (track,artist,album) of played song
@@ -264,6 +265,7 @@ translation_hash = ''
 countrycode = 'auto'
 webserver_url_request_timeout = 10
 spotify_connect = None
+roon_first_connect = False # true: first connection process on device start is successfully done
 updateHash = ''
 infodata_props_to_check = {
     "control_id",
@@ -753,8 +755,6 @@ def setGlobalVarsFromConfigData():
     var['shairport_device'] = config['AUDIO']['shairport_device'] if 'shairport_device' in config['AUDIO'] else 'plughw:0,0' # Airport 2 (shareport) audio device name
 
     var['roon_show'] = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
-    var['roon_blocked_activation'] = eval(config['ROON']['roon_blocked_activation']) # true: wait for roon api activation is done, false: no waiting but with automatic retry
-    var['roon_activation_retry_seconds'] = int(config['ROON']['roon_activation_retry_seconds']) # time in seconds to retry roon activation
     var['force_roon_update'] = eval(config['ROON']['force_roon_update']) # true: force updating output message if roon zone info is updated (interrupt and refresh output instantly)
     var['force_active_roon_zone_only'] = eval(config['ROON']['force_active_roon_zone_only']) # true: force updating output message only if the active zone is of roon type and is updating
     var['discovery_delay'] = int(config['ROON']['discovery_delay']) # delay after first roon discover call to wait a discover.stop is completed
@@ -1853,8 +1853,8 @@ def roon_discover():
             flexprint('[red]==> roon discover error: [/red]', str(e))
             #flexprint(traceback.format_exc())
 
-def get_roon_api(blocking = False, retry = 0):
-    global roonapi, roon_servers, ws_notification_queue
+def get_roon_api(wait_for_response = False, retry = 0):
+    global roonapi, roon_servers, ws_notification_queue, roon_first_connect
 
     try:
         if roonapi is not None and retry > 0:
@@ -1870,16 +1870,16 @@ def get_roon_api(blocking = False, retry = 0):
             flexprint("[bold red]Please authorise device in roon app![/bold red]")
 
         if core_ip !='' and core_port != '':
-            flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port) + ", blocking: " + str(blocking))
+            flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port) + ", wait_for_response: " + str(wait_for_response))
                         
-            roonapi = RoonApi(appinfo, token, core_ip, int(core_port), blocking)
+            roonapi = RoonApi(appinfo, token, core_ip, int(core_port), wait_for_response)
             time.sleep(1)
 
             data = [core_ip, int(core_port)]
             if len(roon_servers) == 0:
                 roon_servers = [data]
 
-            flexprint("RoonApi connected: " + str(roonapi is not None) + " => (blocking: " + str(blocking) + ", host: " + str(roonapi.host) + ", core_name: " + str(roonapi.core_name) + ", core_id: " + str(roonapi.core_id) + ", token: " + str(roonapi.token is not None and roonapi.token != '') + ")")
+            flexprint("RoonApi connected: " + str(roonapi is not None) + " => (wait_for_response: " + str(wait_for_response) + ", host: " + str(roonapi.host) + ", core_name: " + str(roonapi.core_name) + ", core_id: " + str(roonapi.core_id) + ", token: " + str(roonapi.token is not None and roonapi.token != '') + ")")
                 
             # This is what we need to reconnect
             core_id = roonapi.core_id
@@ -1893,7 +1893,7 @@ def get_roon_api(blocking = False, retry = 0):
                 f.write(str(token))
                 f.close()
                 
-            if (core_id is None or token is None) and blocking is False:
+            if (core_id is None or token is None) and wait_for_response is False:
                 if retry < 2:
                     send_roon_activation_warning()
                 time.sleep(1)
@@ -1902,11 +1902,11 @@ def get_roon_api(blocking = False, retry = 0):
                 t = Timer(roon_activation_retry_seconds, get_roon_api, [False,retry+1])	# retry after 30s
                 t.start()
                 return
-            elif roonapi is not None and core_id is not None and token is not None and blocking is False:
+            elif roonapi is not None and core_id is not None and token is not None and wait_for_response is False:
                 roonapi.stop()
-                flexprint("RoonApi connection with blocking => start")
+                flexprint("RoonApi connection with final wait for response => start")
                 roonapi = RoonApi(appinfo, token, core_ip, int(core_port), True)
-                flexprint("RoonApi connection with blocking => done")
+                flexprint("RoonApi connection with final wait for response => done")
                 time.sleep(1)
                 
             set_default_zone()
@@ -1915,6 +1915,7 @@ def get_roon_api(blocking = False, retry = 0):
             
             if core_id is not None and token is not None and 'roon-activation-alert' in ws_notification_queue:
                 ws_notification_queue.remove('roon-activation-alert')
+            roon_first_connect = True
         else:
             if retry < 2:
                 send_roon_activation_warning()
@@ -1927,6 +1928,14 @@ def get_roon_api(blocking = False, retry = 0):
         if errorlog is True: 
             flexprint('[red]==> get RoonApi error: [/red]', str(e))
             #flexprint(traceback.format_exc())
+
+def connect_to_roon_server(nonblocked_thread):
+    if roonapi is None:
+        if nonblocked_thread is True:
+            thread = threading.Thread(target=get_roon_api, args=(nonblocked_thread, 0))	# run in own thread to run it non-blocked
+            thread.start()
+        else:
+            get_roon_api(nonblocked_thread)
 
 def convert_config_to_dict(config):
     sections_dict = {}
@@ -2000,8 +2009,6 @@ def getConfigData():
                         "items": [
                             {"name": "roon_show", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Show roon zone informations", "unit": "", "value": config['ROON']['roon_show']},
                             {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                            {"name": "roon_blocked_activation", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Wait for activation in Roon (on: blocking app on start, off: no waiting with retry)", "unit": "", "value": config['ROON']['roon_blocked_activation']},
-                            {"name": "roon_activation_retry_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Time in seconds to retry Roon activation", "unit": "seconds", "value": config['ROON']['roon_activation_retry_seconds']},
                             {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
                             {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                         ]
@@ -2093,8 +2100,6 @@ def getConfigData():
                             {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
                             {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
                             {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                            {"name": "roon_blocked_activation", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Wait for activation in Roon (on: blocking app on start, off: no waiting with retry)", "unit": "", "value": config['ROON']['roon_blocked_activation']},
-                            {"name": "roon_activation_retry_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Time in seconds to retry Roon activation", "unit": "seconds", "value": config['ROON']['roon_activation_retry_seconds']},
                             {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
                             {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                         ]
@@ -2217,8 +2222,6 @@ def getConfigData():
                         {"name": "force_roon_update", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force roon updates", "unit": "", "value": config['ROON']['force_roon_update']},
                         {"name": "force_active_roon_zone_only", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Force active roon zone only", "unit": "", "value": config['ROON']['force_active_roon_zone_only']},
                         {"name": "discovery_delay", "editable": True, "type": {"type": "int", "structure": []}, "label": "Roon Discovery delay", "unit": "seconds", "value": config['ROON']['discovery_delay']},
-                        {"name": "roon_blocked_activation", "editable": True, "type": {"type": "bool", "structure": []}, "label": "Wait for activation in Roon (on: blocking app on start, off: no waiting with retry)", "unit": "", "value": config['ROON']['roon_blocked_activation']},
-                        {"name": "roon_activation_retry_seconds", "editable": True, "type": {"type": "int", "structure": []}, "label": "Time in seconds to retry Roon activation", "unit": "seconds", "value": config['ROON']['roon_activation_retry_seconds']},
                         {"name": "core_ip", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core IP address (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_ip']},
                         {"name": "core_port", "editable": True, "noValidation": True, "type": {"type": "string", "structure": []}, "label": "Core port (empty ip and port to reset)", "unit": "", "value": config['ROON']['core_port']}
                     ]
@@ -2296,7 +2299,7 @@ def getConfigData():
     }
 
 def save_config(payload):
-    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, roon_blocked_activation, roon_activation_retry_seconds, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi, spotify_connect_authorized, active_spotify_connect_zone
+    global config, reboot, screensaver_seconds, alternative_layout, ipv4_only, librespot_device, librespot_bitrate, librespot_format, shairport_device, spotify_client_id, spotify_client_secret, enable_spotify_connect, spotify_connect, roon_show, core_ip, core_port, webservers_show, webservers_zones, reboot_python, roonapi, spotify_connect_authorized, active_spotify_connect_zone
     
     core_ip_before = core_ip
     core_port_before = core_port
@@ -2325,8 +2328,6 @@ def save_config(payload):
             'spotify_client_id',
             'spotify_client_secret',
             'roon_show',
-            'roon_blocked_activation',
-            'roon_activation_retry_seconds',
             'core_ip',
             'core_port',
             'webservers_show',
@@ -2446,16 +2447,14 @@ def save_config(payload):
                  flexprint('set doReboot for spotify connect')
                         
             roon_show = eval(config['ROON']['roon_show']) # show roon data (True) or not (False)
-            roon_blocked_activation = eval(config['ROON']['roon_blocked_activation']) # show roon data (True) or not (False)
-            roon_activation_retry_seconds = int(config['ROON']['roon_activation_retry_seconds']) # show roon data (True) or not (False)
             core_ip = config['ROON']['core_ip'] # ip of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
             core_port = config['ROON']['core_port'] # port of the roon core (server). if empty the ip and port is searched and saved automatically by RoonDiscovery call
             
             if roon_enabled_before is False and roon_show is True:
                 if core_ip == '' or core_port == '':
                     roon_discover()
-                if roonapi is None:
-                    get_roon_api(False)
+                if roonapi is None and roon_first_connect is True:
+                    connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
 
             if (roon_show is False and roonapi is not None) or (roon_enabled_before is True and roon_show is True and (core_ip_before != core_ip or core_port_before != core_port)):
                 #roonapi = None
@@ -2939,8 +2938,8 @@ def is_audioinfo_available():
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
                 roon_discover()
-            if roonapi is None:
-                get_roon_api(False)
+            if roonapi is None and roon_first_connect is True:
+                connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             roon_discover_first_test()
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
@@ -6348,7 +6347,7 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
         #    flexprint('[red]zone in stopped state found => reconnect roon api[/red]')
         #    roonapi.stop()
         #    roonapi = None
-        #    get_roon_api(False)
+        #    connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
         #    if roonapi is not None:
         #        return list(roonapi.zones.values())
     except Exception as e:
@@ -6507,8 +6506,8 @@ def build_output():
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
                 roon_discover()
-            if roonapi is None:
-                get_roon_api(False)
+            if roonapi is None and roon_first_connect is True:
+                connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             roon_discover_first_test()
 
@@ -6532,7 +6531,7 @@ def build_output():
                     #if state=='stopped' and 'now_playing' not in zone:
                         #flexprint('[red]stopped state found => reconnect roon api[/red]')
                         #roonapi.stop()
-                        #get_roon_api(False)
+                        #connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
                     
                     if state == "Unknown" or 'now_playing' not in zone:
                         continue
@@ -6978,11 +6977,10 @@ appinfo = get_roon_extension_info()
 
 # discover roon server and get roon api access
 if show_test_only is False and roon_show == True:
-    flexprint('check for roon server now...')
+    flexprint('check for roon server now... roon_nonblocked_thread_on_appstart: ' + str(roon_nonblocked_thread_on_appstart))
     if core_ip == '' or core_port == '':
         roon_discover()
-    if roonapi is None:
-        get_roon_api(roon_blocked_activation)
+    connect_to_roon_server(roon_nonblocked_thread_on_appstart)
 
 # get weather data and init timer (to get next weather data)
 if show_test_only is False and weather_show == True:
