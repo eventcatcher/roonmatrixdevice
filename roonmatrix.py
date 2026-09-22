@@ -22,6 +22,7 @@ APP_NAME = "roonmatrix"
 startlog = True		# default true: log start and config information
 errorlog = True		# default true: log errors
 log = True			# default true: log infos on or off
+log_startup = True	# default false: log basic infos of startup process
 
 debug = False		# default false: log debug messages (memory and variable information)
 silent = False		# default False: print no warnings and no error messages to the console output
@@ -74,7 +75,6 @@ import zlib
 import ssl
 from roonapi import RoonApi, RoonDiscovery
 from weatherbit.api import Api
-import fastfeedparser
 from spotify_connect import SpotifyConnect
 
 # In Windows, sys.stderr and/or sys.stdout inside Python runtime (serious_python) is not working and results in a exception which will stop running the script. 
@@ -96,6 +96,14 @@ def log_exception(exc_type, exc_value, exc_traceback):
     )
     with open(crashlog_file, "a", encoding="utf-8") as f:
         traceback.print_exception(exc_type, exc_value, exc_traceback, file=f)
+
+def log_startup_info(textlines):
+    startup_log_file = os.path.join(
+        tempfile.gettempdir(),
+        "roonmatrix_python_start.log"
+    )
+    with open(startup_log_file, "a", encoding="utf-8") as f:
+        f.writelines( textlines )
 
 sys.excepthook = log_exception
 
@@ -139,6 +147,11 @@ if is_app_embedded is False and 'embedded' in environ:
 if startlog is True:
     print('started as app embedded script: ' + str(is_app_embedded))
     print('')
+
+if is_app_embedded is True:
+    import feedparser
+else:
+    import fastfeedparser
 
 # set important vars
 use_fastapi_on_pi = True # use fastapi package on raspberry pi devices
@@ -766,6 +779,7 @@ def setGlobalVarsFromConfigData():
 
     var['led_modules'] = int(config['SYSTEM']['led_modules']) # number of led matrix modules (8x8 led)
 
+    var['config_version'] = config['SYSTEM']['config_version'] if 'config_version' in config['SYSTEM'] else '' # if new configuration properties have been added, the configuration must be replaced with the new one
     var['updated_at'] = config['SYSTEM']['updated_at'] if 'updated_at' in config['SYSTEM'] else str(datetime.now()) # datetime to saved config last time
     var['led_block_orientation'] = int(config['SYSTEM']['led_block_orientation']) # led block_orientation in degrees
     var['led_rotate'] = int(config['SYSTEM']['led_rotate']) # led rotation
@@ -870,6 +884,7 @@ def getInfoData():
     return {
         "time": timeStr,
         "name": hostName,
+        "config_version": config_version,
         "scriptVersion": scriptVersion,
         "is_app_embedded": is_app_embedded,
         "is_raspberry_pi": is_raspberry_pi,
@@ -1963,6 +1978,7 @@ def getConfigData():
                     {
                         "name": "SYSTEM",
                         "items": [
+                            {"name": "config_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Configuration version", "unit": "", "value": config['SYSTEM']['config_version'] if 'config_version' in config['SYSTEM'] else "init"},
                             {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                             {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                             {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
@@ -2055,6 +2071,7 @@ def getConfigData():
                     {
                         "name": "SYSTEM",
                         "items": [
+                            {"name": "config_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Configuration version", "unit": "", "value": config['SYSTEM']['config_version'] if 'config_version' in config['SYSTEM'] else "init"},
                             {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
                             {"name": "led_scroll_delay", "editable": True, "type": {"type": "int(12,50)", "structure": []}, "label": "LED scroll delay", "unit": "12-50 ms", "value": config['SYSTEM']['led_scroll_delay']},
                             {"name": "led_vertical_scroll_delay", "editable": True, "type": {"type": "int(12,200)", "structure": []}, "label": "LED vertical scroll delay (line by line)", "unit": "12-200 ms", "value": config['SYSTEM']['led_vertical_scroll_delay']},
@@ -2163,6 +2180,7 @@ def getConfigData():
                 {
                     "name": "SYSTEM",
                     "items": [
+                        {"name": "config_version", "editable": False, "type": {"type": "string", "structure": []}, "label": "Configuration version", "unit": "", "value": config['SYSTEM']['config_version'] if 'config_version' in config['SYSTEM'] else "init"},
                         {"name": "hostname", "editable": True, "type": {"type": "string(5,32)", "structure": []}, "label": "Hostname (Important)", "unit": "5-32", "value": hostName},
                         {"name": "password", "editable": True, "type": {"type": "string(8,64)", "structure": []}, "label": "Password (Important)", "unit": "8-64", "value": "********"},
                         {"name": "countrycode", "editable": True, "type": {"type": "string(2,4)", "structure": []}, "label": "Countrycode (auto or 2 chars code)", "unit": "2-4", "value": config['SYSTEM']['countrycode']},
@@ -5669,7 +5687,10 @@ def get_rss_feed(displaystr):
             name = data['name']
             max = data['count']
  
-            feed = fastfeedparser.parse(data['url'])
+            if is_app_embedded is True:
+                feed = feedparser.parse(data['url'])
+            else:
+                feed = fastfeedparser.parse(data['url'])
 
             for entry in feed.entries:
                 count += 1
@@ -6773,18 +6794,21 @@ if 'platform' in environ:
 
 # get optional configs_dir property (in-app)
 configs_dir = None
-if 'configs_dir' in environ:
-    configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
-
+if is_app_embedded is True:
+    current_path = environ['PYTHONHOME'] + '/app/'
+    configs_dir = current_path + 'config/'
 
 # get current path
-current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
+if is_raspberry_pi:
+    current_path = (path.dirname(path.abspath(__file__)) + '/').replace('\\','/')
 
 # get configs dir
 if is_raspberry_pi:
     configs_dir = current_path
 else:
-    if platform != 'ios':
+    if platform == 'ios' and 'configs_dir' in environ:
+        configs_dir = str(environ['configs_dir'] + '/').replace('\\','/')
+    else:
         try:
             dirs = PlatformDirs(APP_NAME.title(), appauthor=False, ensure_exists=False)
             configs_dir = (dirs.user_config_dir + '/').replace('\\','/')
@@ -6816,10 +6840,21 @@ if startlog is True:
 
 # get roon config read and write paths  
 if is_app_embedded is True:
-    if path.exists(configs_dir + 'roon_api.ini'):
-        roon_config_path = configs_dir
+    if path.exists(configs_dir + 'roon_api.ini'): # check version too
+        config_exist = configparser.ConfigParser()
+        config_exist.read(configs_dir + 'roon_api.ini')
+        config_version_exist = config_exist['SYSTEM']['config_version'] if 'config_version' in config_exist['SYSTEM'] else ''
+
+        config_new = configparser.ConfigParser()
+        config_new.read(environ['PYTHONHOME'] + '/app/config/roon_api.ini')
+        config_version_new = config_new['SYSTEM']['config_version'] if 'config_version' in config_new['SYSTEM'] else ''
+        
+        if config_version_exist == config_version_new:
+            roon_config_path = configs_dir
+        else:
+            roon_config_path = environ['PYTHONHOME'] + '/app/config/'
     else:
-        roon_config_path = current_path + 'config/'
+        roon_config_path = environ['PYTHONHOME'] + '/app/config/'
     roon_write_path = configs_dir
     configReadFile = roon_config_path + 'roon_api.ini'
     configWriteFile = roon_write_path + 'roon_api.ini'
@@ -6838,6 +6873,24 @@ if startlog is True:
     print('read main ini')
 config = configparser.ConfigParser()
 config.read(configReadFile)
+cv = config['SYSTEM']['config_version'] if 'config_version' in config['SYSTEM'] else ''
+
+if is_app_embedded is True and log_startup is True:
+    textlines = []
+    textlines.append('date: ' + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + '\n')
+    textlines.append('platform: ' + str(platform) + '\n')
+    textlines.append('tempfile: ' + tempfile.gettempdir() + '\n')
+    textlines.append('config_version: ' + str(cv) + '\n')
+    textlines.append('configs_dir: ' + str(configs_dir) + '\n')
+    textlines.append('current_path: ' + str(current_path) + '\n')
+    textlines.append('base_translations_path: ' + str(base_translations_path) + '\n')
+    textlines.append('TEMP_STATE_FILE: ' + str(TEMP_STATE_FILE) + '\n')
+    textlines.append('configReadFile: ' + str(configReadFile) + '\n')
+    textlines.append('configWriteFile: ' + str(configWriteFile) + '\n')
+    textlines.append('roon_write_path: ' + str(roon_write_path) + '\n')
+    textlines.append('environ: ' + str(environ) + '\n')
+    textlines.append('---\n')
+    log_startup_info(textlines)
 
 # get part of config data
 translation_hash = config['LANGUAGE']['translation_hash']
