@@ -1802,7 +1802,7 @@ def roon_discover_active_test():
         except Exception as e:
             if errorlog is True: flexprint('[red]roon discover active test error: ' + str(e) + '[/red]')
 
-def roon_discover():
+def roon_discover(connect):
     global roon_servers, core_ip, core_port, config
 
     if roonapi is not None:
@@ -1860,6 +1860,8 @@ def roon_discover():
 
                     flexprint("roon_discover => Shutdown api")
                     api.stop()
+                    if connect is True:
+                        connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
 
             flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
             time.sleep(discovery_delay)
@@ -2470,7 +2472,7 @@ def save_config(payload):
             
             if roon_enabled_before is False and roon_show is True:
                 if core_ip == '' or core_port == '':
-                    roon_discover()
+                    roon_discover(True)
                 if roonapi is None and roon_first_connect is True:
                     connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
 
@@ -2955,7 +2957,7 @@ def is_audioinfo_available():
             if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ' [/bright_magenta]')
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
-                roon_discover()
+                roon_discover(True)
             if roonapi is None and roon_first_connect is True:
                 connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
@@ -6526,7 +6528,7 @@ def build_output():
         if show_test_only is False and roon_show == True:
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
-                roon_discover()
+                roon_discover(True)
             if roonapi is None and roon_first_connect is True:
                 connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
