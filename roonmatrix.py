@@ -1888,9 +1888,18 @@ def get_roon_api(wait_for_response = False, retry = 0):
 
         if core_ip !='' and core_port != '':
             flexprint("check RoonApi connection => core_ip: " + str(core_ip) + ", port: " + str(core_port) + ", wait_for_response: " + str(wait_for_response))
-                        
+              
+            threadTimer = None
+            if wait_for_response is True:
+                if token == '':
+                    flexprint("RoonApi with no token => send_roon_activation_warning")
+                    send_roon_activation_warning()
+                    time.sleep(1)
+                else:
+                    threadTimer = threading.Timer(5, send_roon_activation_warning) # 5 sec timer
+                    threadTimer.start()
+
             roonapi = RoonApi(appinfo, token, core_ip, int(core_port), wait_for_response)
-            time.sleep(1)
 
             data = [core_ip, int(core_port)]
             if len(roon_servers) == 0:
@@ -1910,6 +1919,10 @@ def get_roon_api(wait_for_response = False, retry = 0):
                 f.write(str(token))
                 f.close()
                 
+            if threadTimer is not None and core_id is not None and token is not None:
+                threadTimer.cancel()
+                threadTimer = None
+    
             if (core_id is None or token is None) and wait_for_response is False:
                 if retry < 2:
                     send_roon_activation_warning()
@@ -1942,6 +1955,8 @@ def get_roon_api(wait_for_response = False, retry = 0):
             t = Timer(roon_activation_retry_seconds, get_roon_api, [False,retry+1])	# retry after 30s
             t.start()
     except Exception as e:
+        if threadTimer is not None:
+            threadTimer.cancel()
         if errorlog is True: 
             flexprint('[red]==> get RoonApi error: [/red]', str(e))
             #flexprint(traceback.format_exc())
