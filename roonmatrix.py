@@ -104,6 +104,7 @@ def log_startup_info(textlines):
     )
     with open(startup_log_file, "a", encoding="utf-8") as f:
         f.writelines( textlines )
+    print('python_runtime => log_startup_info: \n' + str(textlines))
 
 sys.excepthook = log_exception
 
@@ -1808,6 +1809,11 @@ def roon_discover(connect):
     if roonapi is not None:
         return
 
+    if sys.platform == 'ios':
+        # udp multicast/broadcast (SOOD) needs the com.apple.developer.networking.multicast entitlement on iOS
+        flexprint('[yellow]roon_discover skipped on iOS (multicast entitlement missing) => please set core ip and port manually[/yellow]')
+        return
+
     try:
         if path.exists(idfile):
             with open(idfile, "r") as f:
@@ -1823,7 +1829,7 @@ def roon_discover(connect):
         else:
             token = None
 
-        if core_id is None or token is None or core_ip == '' or core_port == '':
+        if core_ip == '' or core_port == '':
             discover = RoonDiscovery(None)
             roon_servers = discover.all()
 
@@ -7049,8 +7055,9 @@ appinfo = get_roon_extension_info()
 if show_test_only is False and roon_show == True:
     flexprint('check for roon server now... roon_nonblocked_thread_on_appstart: ' + str(roon_nonblocked_thread_on_appstart))
     if core_ip == '' or core_port == '':
-        roon_discover()
-    connect_to_roon_server(roon_nonblocked_thread_on_appstart)
+        threading.Thread(target=roon_discover, args=(True,), daemon=True).start() # run non-blocked => rest/websocket server start is not delayed by discovery timeout
+    else:
+        connect_to_roon_server(roon_nonblocked_thread_on_appstart)
 
 # get weather data and init timer (to get next weather data)
 if show_test_only is False and weather_show == True:
