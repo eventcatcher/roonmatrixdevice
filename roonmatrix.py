@@ -231,6 +231,7 @@ fetch_output_done = False # flag: set if fetching and generating of output messa
 fetch_output_time = None # datetime to fetch and build output data (None: as soon as possible)
 zone_control_last_update_time = None # datetime the zone control mode is entered or a button is clicked
 playmode = {} # playmode is a dictionary of play state of each roon- or webserver zone (key = control_id, value = play mode (play,stop)
+playpositions = {} # playpositions is a dictionary of play position of each roon- or webserver zone (key = control_id, value = play mode (play,stop)
 shufflemode = {} # shufflemode is a dictionary of shuffle state of each webserver zone (key = control_id, value = shuffle mode (shuffle,noshuffle)
 repeatmode = {} # repeatmode is a dictionary of repeat state of each webserver zone (key = control_id, value = repeat mode (repeat,norepeat)
 channels = {} # channels is a dictionary of control_id (key) and zone name (value)
@@ -987,6 +988,7 @@ def getInfoData():
         "playmode": playmode,
         "shufflemode": shufflemode,
         "repeatmode": repeatmode,
+        "playpositions": playpositions,
         "custom_message": custom_message,
         "custom_message_option": custom_message_option,
         "channels": channels,
@@ -2583,6 +2585,7 @@ def set_play_position(payload):
         msg = '[bold magenta]POST set_play_position => control_id: ' + cid + ', position: ' + str(position) + '[/bold magenta]'
         flexprint(msg)
             
+        playpositions[cid] = position
         send_play_position(cid, position, False)
         return True
     except Exception as e:
@@ -5297,6 +5300,8 @@ def get_and_set_play_shuffle_repeat_track_id(name, obj):
         track_id =  obj['id'] if 'id' in obj else ''
         sourcetype = obj['sourcetype'] if 'sourcetype' in obj else 'local'
         zid = name + '-' + obj["zone"]
+        if 'position' in obj:
+            playpositions[zid] = int(obj['position']) if isinstance(obj['position'], str) is True else obj['position']
         set_play_mode(zid, playing, False)
         set_shuffle_mode(zid, shuffle, False)
         set_repeat_mode(zid, repeat, False)
@@ -5878,6 +5883,7 @@ def roon_state_callback(event, changed_ids):
                     shuffle = zone["settings"]["shuffle"]
                     repeat = zone["settings"]["loop"] != 'disabled'
                     playpos = zone.get("seek_position")
+                    playpositions[zone_id] = playpos
                     playlen = zone["now_playing"].get("length")                                   
                     set_play_mode(zone_id, playing, False)
                     set_shuffle_mode(zone_id, shuffle, False)
