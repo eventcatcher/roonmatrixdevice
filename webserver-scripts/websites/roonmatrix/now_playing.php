@@ -38,7 +38,8 @@ try {
     	'shuffle',
     	'noshuffle',
     	'repeat',
-    	'norepeat'
+    	'norepeat',
+    	'seek'
     ];
 
 	$replaceText = <<<EOD
@@ -139,6 +140,11 @@ try {
                     EOD;    
 				}
 				break;
+			case 'seek':
+				$script = <<<EOD
+                tell application "$source" to set player position to $search
+                EOD;    
+			    break;
 			case 'artists':
 				if ($source == "Music") {
 					$script = <<<EOD

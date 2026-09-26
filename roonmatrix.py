@@ -1161,6 +1161,13 @@ if with_restserver_fastapi is True:
             ret = False
         return ret
 
+    @app.post("/set_play_position/")
+    async def rest_set_play_position(payload: dict = Body(...)):
+        ret = set_play_position(payload)
+        if ret == 500:
+            ret = False
+        return ret
+
     @app.post("/reset_spotify_tokens/")
     async def rest_reset_spotify_tokens():
         return reset_spotify_tokens()
@@ -1309,6 +1316,10 @@ else:
             
             if self.path == "/zone_control/":
                 self.send_json(set_zone_control(payload))
+                return
+
+            if self.path == "/set_play_position/":
+                self.send_json(set_play_position(payload))
                 return
 
             if self.path == "/reset_spotify_tokens/":
@@ -1809,10 +1820,10 @@ def roon_discover(connect):
     if roonapi is not None:
         return
 
-    if sys.platform == 'ios':
+    #if sys.platform == 'ios':
         # udp multicast/broadcast (SOOD) needs the com.apple.developer.networking.multicast entitlement on iOS
-        flexprint('[yellow]roon_discover skipped on iOS (multicast entitlement missing) => please set core ip and port manually[/yellow]')
-        return
+        #flexprint('[yellow]roon_discover skipped on iOS (multicast entitlement missing) => please set core ip and port manually[/yellow]')
+        #return
 
     try:
         if path.exists(idfile):
@@ -2562,6 +2573,22 @@ def set_zone_control(payload):
         if errorlog is True: flexprint('[red]zone control error: ' + str(e) + '[/red]')
         return False
 
+def set_play_position(payload):
+    global control_id, control_zone
+
+    try:
+        cid = str(payload["control_id"])
+        position = int(payload["position"])
+
+        msg = '[bold magenta]POST set_play_position => control_id: ' + cid + ', position: ' + str(position) + '[/bold magenta]'
+        flexprint(msg)
+            
+        send_play_position(cid, position, False)
+        return True
+    except Exception as e:
+        if errorlog is True: flexprint('[red]set play position error: ' + str(e) + '[/red]')
+        return False
+
 def reset_spotify_tokens():
     global spotify_auth_redirect_url, spotify_connect_authorized, spotify_connect_auth_success, spotify_connect
     success = False
@@ -3210,6 +3237,26 @@ def play_next(control_id, do_async=True):
                     roonapi.playback_control(control_id, "next")
         except Exception as e:
             if errorlog is True: flexprint('[red]play next error: ' + str(e) + '[/red]')                
+
+def send_play_position(control_id, position, do_async=True):
+    if control_id is not None:
+        try:
+            if control_id in channels.keys() and channels[control_id]=='webserver':
+                send_webserver_zone_control(control_id, do_async, "seek", str(position))
+            elif control_id in channels.keys() and channels[control_id]=="spotifyconnect":
+                if spotify_connect_enabled():
+                    try:
+                        active_spotify_connect_zone = get_active_zone_from_spotify_connect_onlinecheck(True)
+                        if active_spotify_connect_zone is not None:
+                            spotify_connect.seek_track(position * 1000, active_spotify_connect_zone['id'] if active_spotify_connect_zone['is_active'] is True else None) 
+                    except Exception as e:
+                        if errorlog is True:
+                            flexprint('spotify_connect error (seek_track, maybe offline), error: ' + str(e))                    
+            else:
+                if roon_show == True and roon_servers:
+                    roonapi.seek(control_id, position)
+        except Exception as e:
+            if errorlog is True: flexprint('[red]seek play position error: ' + str(e) + '[/red]')                
 
 def pressed_up(channel):
     global do_set_zone_control, zone_control_last_update_time, clock_in_progress, control_id, control_id_update, control_zone, is_playing_last, shuffle_on_last, repeat_on_last, track_id_last, is_playing, shuffle_on, repeat_on, track_id

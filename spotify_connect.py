@@ -305,6 +305,15 @@ class SpotifyConnect:
         except Exception as e:
             if self.errorlog is True: self.flexprint(f"[red]Spotify Connect previous error:[/red] {e}")
 
+    def seek_track(self, position, device_id=None):
+        if self.spotify is None:
+            return
+        self.flexprint('SpotifyConnect => seek_track to position ' + str(position) + ' with device_id: ' + str(device_id))
+        try:
+            self.spotify.seek_track(position_ms=position, device_id=device_id)
+        except Exception as e:
+            if self.errorlog is True: self.flexprint(f"[red]Spotify Connect seek_track error:[/red] {e}")
+
     def set_volume(self, volume_percent, device_id=None):
         # volume_percent: 0–100
         if self.spotify is None:

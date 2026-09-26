@@ -81,7 +81,11 @@ on Playing()
                 set pos_double to the player position
                 set total_double to the duration of the current track
                 set pos to round pos_double rounding down
-                set total to round total_double rounding down
+                try 
+                    set total to round total_double rounding down
+                on error errMsg
+                    set total to 0
+                end try
                 set songId to id of the current track
 
                 if hasCover then
