@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 #
 # Roonmatrix App - display roon, spotify and apple music playout informations and more on 8x8 led matrix display
-# version 2.0.0, date: 17.08.2026
+# version 2.0.0, date: 27.09.2026
 #
 # show what is playing on roon zones and via webservers on Spotify and Apple Music
 # show actual weather, rss feeds and clock
@@ -16,7 +16,7 @@
 # start service: sudo systemctl start roonmatrix.service
 # live log:      journalctl -f
 
-scriptVersion = '2.0.0, date: 17.08.2026'
+scriptVersion = '2.0.0, date: 27.09.2026'
 APP_NAME = "roonmatrix"
 
 startlog = True		# default true: log start and config information
@@ -6927,8 +6927,30 @@ if is_app_embedded is True:
         
         if config_version_exist == config_version_new:
             roon_config_path = configs_dir
+            print("config files have the same version number...")
         else:
-            roon_config_path = environ['PYTHONHOME'] + '/app/config/'
+            if 'config_replace' in config_new['SYSTEM'] and config_new['SYSTEM']['config_replace'] is True:
+                roon_config_path = environ['PYTHONHOME'] + '/app/config/' # replace whole config if config_replace is set to true
+                print("replace config file...")
+            else:
+                # add new properties to existing config
+                found = False
+                roon_config_path = configs_dir
+                for areaKey in config_new:
+                    if areaKey not in config_exist:
+                        found = True
+                        config_exist[areaKey] = {}
+                    for key in config_new[areaKey]:
+                        if key not in config_exist[areaKey]:
+                            found = True
+                            config_exist[areaKey][key] = config_new[areaKey][key]
+                if found is True:
+                    print("update config file...")
+                    if 'config_version' in config_new['SYSTEM']:
+                        config_exist['SYSTEM']['config_version'] = config_new['SYSTEM']['config_version']
+                    config_exist['SYSTEM']['updated_at'] = str(datetime.now())
+                    with open(configs_dir + 'roon_api.ini', 'w') as fileRes:
+                        config_exist.write(fileRes)
     else:
         roon_config_path = environ['PYTHONHOME'] + '/app/config/'
     roon_write_path = configs_dir
