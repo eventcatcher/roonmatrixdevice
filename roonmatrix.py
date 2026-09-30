@@ -1348,14 +1348,23 @@ else:
     # starting REST-Webserver (HTTPServer)
     # ---------------------------------------------------------
 
-    def run_rest_server():
+    rest_server = None
+
+    def start_rest_server():
+        global rest_server
+        rest_server = ThreadingHTTPServer(("0.0.0.0", 8000), MyRestHandler)
+        threading.Thread(target=rest_server.serve_forever, daemon=True).start()
         flexprint("REST Server runs on port 8000")
-        server.serve_forever()
 
-    server = ThreadingHTTPServer(("0.0.0.0", 8000), MyRestHandler)
+    def restart_rest_server():
+        global rest_server
+        old_server = rest_server
+        if old_server is not None:
+            old_server.server_close() # close (reclaimed) listening socket first to free port 8000
+            threading.Thread(target=old_server.shutdown, daemon=True).start() # shutdown blocks until serve_forever has ended
+        start_rest_server()
 
-    thread = threading.Thread(target=run_rest_server, daemon=True)
-    thread.start()
+    start_rest_server()
 
     # ---------------------------------------------------------
     # Websocket-Server
@@ -1405,20 +1414,70 @@ else:
                 flexprint(f"[bold red]websocket {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} websocket_endpoint error[/bold red]: {e}")
                 flexprint(str(data))
 
+    ws_loop = None
+    ws_server = None
+
     def websocket_thread():
-        global ws_loop
+        global ws_loop, ws_server
         ws_loop = asyncio.new_event_loop()
         asyncio.set_event_loop(ws_loop)
-        server = websockets.serve(ws_handler, "0.0.0.0", 8100)
-        ws_loop.run_until_complete(server)
+        ws_server = ws_loop.run_until_complete(websockets.serve(ws_handler, "0.0.0.0", 8100))
         flexprint("WebSocket Server runs on port 8100")
         ws_loop.run_forever()
+
+    async def restart_ws_server_async():
+        global ws_server
+        if ws_server is not None:
+            ws_server.close()
+            try:
+                await asyncio.wait_for(ws_server.wait_closed(), 2)
+            except Exception:
+                pass
+        ws_server = await websockets.serve(ws_handler, "0.0.0.0", 8100)
+        flexprint("WebSocket Server restarted on port 8100")
+
+    def restart_ws_server():
+        if ws_loop is not None:
+            asyncio.run_coroutine_threadsafe(restart_ws_server_async(), ws_loop).result(timeout=15)
 
     # ---------------------------------------------------------
     # starting Websocket Server (HTTPServer)
     # ---------------------------------------------------------
-    
+
     threading.Thread(target=websocket_thread, daemon=True).start()
+
+    # ---------------------------------------------------------
+    # server watchdog (in-app server only):
+    # iOS reclaims listening sockets while the app is suspended (standby),
+    # after resume both ports refuse connections although the script is still running
+    # => check REST port periodically and restart both servers if closed
+    # ---------------------------------------------------------
+
+    def is_local_port_open(port):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=2):
+                return True
+        except OSError:
+            return False
+
+    def server_watchdog_thread():
+        watchdog_interval = 5 # seconds
+        while exit_now is False:
+            time.sleep(watchdog_interval)
+            if is_local_port_open(8000) is False:
+                flexprint(f"[bold red]server watchdog {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} => REST port 8000 closed, restart REST and Websocket server[/bold red]")
+                # websocket first: REST server start may be slow (HTTPServer.server_bind does a getfqdn lookup)
+                try:
+                    restart_ws_server()
+                except Exception as e:
+                    flexprint(f"[bold red]server watchdog => restart Websocket server error: {e}[/bold red]")
+                try:
+                    restart_rest_server()
+                except Exception as e:
+                    flexprint(f"[bold red]server watchdog => restart REST server error: {e}[/bold red]")
+
+    if is_app_embedded is True:
+        threading.Thread(target=server_watchdog_thread, daemon=True).start()
 
 def run_rest():
     uvicorn.run(app, host="0.0.0.0", port=8000)
