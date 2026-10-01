@@ -5906,7 +5906,7 @@ def roon_state_callback(event, changed_ids):
         if callbacks_initialized is False:
             return
         
-        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
+        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and (output_in_progress is True or is_app_embedded is True) and do_set_zone_control is False
         coverplayer_allowed = display_cover is True and initialization_done is True
         flexprint('[bold blue]roon_state_callback start @ ' + datetime.now().strftime("%H:%M:%S") + '=> matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + ', event: ' + str(event) + ', changed_ids: ' + ','.join(changed_ids) + '[/bold blue]')
         if matrix_allowed is True or coverplayer_allowed is True:
@@ -6031,7 +6031,7 @@ def roon_state_callback(event, changed_ids):
                         playing_data_has_changed = name not in roon_playouts_raw or compare_filtered_roon_zonedata_is_equal(roon_playouts_raw[name], playing, True) is False
                         flexprint('roon_state_callback => state: ' + str(state) + ', control_id: ' + str(control_id) + ', name :' + str(name) + ', playing_data_has_changed: ' + str(playing_data_has_changed))
                         if ((force_active_roon_zone_only is False or (control_id in channels.keys() and name == channels[control_id])) and playing_data_has_changed is True):
-                            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
+                            allowed = display_cover is True or ((output_in_progress is True or is_app_embedded is True) and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
                             flexprint('roon_state_callback => allowed: ' + str(allowed) + ', force_roon_update: ' + str(force_roon_update))
                             if allowed is True and force_roon_update is True:
                                 flexprint("roon playout detected for zone: %s playing: %s => interrupt message" % (name, playing))
@@ -6057,7 +6057,7 @@ def check_webserver_for_playouts():
     global interrupt_message, fetch_output_time, prepared_displaystr, prepared_vert_strlines, webcheck_timer
 
     try:
-        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and output_in_progress is True and do_set_zone_control is False
+        matrix_allowed = display_cover is False and initialization_done is True and not (custom_message != '' and custom_message_option == 'exclusive') and fetch_output_in_progress is False and (output_in_progress is True or is_app_embedded is True) and do_set_zone_control is False
         coverplayer_allowed = display_cover is True and initialization_done is True and fetch_output_in_progress is False and output_in_progress is True
         flexprint('[bold blue]### check_webserver_for_playouts start @ ' + datetime.now().strftime("%H:%M:%S") + ' => matrix_allowed: ' + str(matrix_allowed) + ', coverplayer_allowed: ' + str(coverplayer_allowed) + '[/bold blue]')
         if matrix_allowed is True or coverplayer_allowed is True:
@@ -6065,7 +6065,7 @@ def check_webserver_for_playouts():
                 lines = get_playing_apple_or_spotify(webservers_zones,['force>'])
             else:
                 displaystr = get_playing_apple_or_spotify(webservers_zones,'force>')
-            allowed = display_cover is True or (output_in_progress is True and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
+            allowed = display_cover is True or ((output_in_progress is True or is_app_embedded is True) and fetch_output_time is not None and (fetch_output_time - datetime.now()).total_seconds() > 2) # added @ 06.12.2025: if display_cover is True, no check of other requirements
 
             flexprint('[blue]### check_webserver_for_playouts done => allowed: ' + str(allowed) + ', output_in_progress: ' + str(output_in_progress) + ', fetch_output_time: ' + str(fetch_output_time) + ', diff: ' + (str((fetch_output_time - datetime.now()).total_seconds()) if fetch_output_time is not None else 'None') + '[/blue]')
             if allowed is True and not (vertical_output == False and displaystr[:6] == 'force>') and not (vertical_output == True and lines[0] == 'force>'):
@@ -6096,7 +6096,7 @@ def force_custom_message():
     if display_cover is True or is_raspberry_pi is False:
         return
     try:
-        if initialization_done is True and fetch_output_in_progress is False and output_in_progress is True and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
+        if initialization_done is True and fetch_output_in_progress is False and (output_in_progress is True or is_app_embedded is True) and (fetch_output_time - datetime.now()).total_seconds() > 2 and do_set_zone_control is False:
             displaystr = convert_special_chars(custom_message)
 
             flexprint('custom message with force option detected => interrupt message')
