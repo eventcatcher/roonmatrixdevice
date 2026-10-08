@@ -3096,6 +3096,11 @@ def is_audioinfo_available():
                 update_roon_channels()
             if last_roon_active != roon_active:
                 add_changed_data_to_websocket_queue()
+                if roon_active is True:
+                    t = Timer(30, connect_to_roon_server, [roon_nonblocked_thread_on_reconnect])	# connect after 30s (roon server needs time to be ready)
+                    t.start()
+                else:
+                    roonapi = None
             if available is True:
                 time.sleep(discovery_delay)
     except Exception as e:
@@ -6693,6 +6698,11 @@ def build_output():
             roon_discover_first_test()
             if last_roon_active != roon_active:
                 add_changed_data_to_websocket_queue()
+                if roon_active is True:
+                    t = Timer(30, connect_to_roon_server, [roon_nonblocked_thread_on_reconnect])	# connect after 30s (roon server needs time to be ready)
+                    t.start()
+                else:
+                    roonapi = None              
 
             flexprint('roon_active: ' + str(roon_active) + ', core_ip: ' + str(core_ip) + ', core_port: ' + str(core_port) + ', roonapi: ' + str(roonapi is not None))
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
