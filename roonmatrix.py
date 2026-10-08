@@ -273,6 +273,8 @@ webcheck_timer = None
 weather_timer = None
 callbacks_initialized = False
 reboot_python = False
+roon_active = False
+last_roon_error = ''
 ws_update_queue = {}
 ws_notification_queue = [];
 test_roon_discover = False # true: call RoonDiscovery to check for roon servers
@@ -291,7 +293,10 @@ infodata_props_to_check = {
     "roon_playouts_raw",
     "web_playouts_raw",
     "app_displaystr",
-    "spotify_auth_url" 
+    "spotify_auth_url",
+    "reboot_python",
+    "roon_active",
+    "last_roon_error" 
 }
 
 # --- FUNCTIONS AND CLASSES PART: START ---
@@ -1015,6 +1020,8 @@ def getInfoData():
         "track_id": track_id,
         "spotify_auth_url": get_spotify_auth_url(spotify_connect_auth_success),
         "reboot_python": reboot_python,
+        "roon_active": roon_active,
+        "last_roon_error": last_roon_error,
         "config_updated_at": updated_at
     }
 
@@ -1037,7 +1044,7 @@ def add_changed_data_to_websocket_queue():
                 if matched == True:
                     break
     
-            if matched == False and data['app_displaystr'] != '':
+            if matched == False:
                 flexprint('[bold magenta]websocket add item to queue for device with ip ' + str(ip) + '[/bold magenta], app_displaystr: ' + data['app_displaystr'])
                 queue.append(data)
                 if len(queue) > 3:
@@ -1876,7 +1883,7 @@ def roon_discover_active_test():
             if errorlog is True: flexprint('[red]roon discover active test error: ' + str(e) + '[/red]')
 
 def roon_discover(connect):
-    global roon_servers, core_ip, core_port, config
+    global roon_servers, core_ip, core_port, config, last_roon_error
 
     if roonapi is not None:
         return
@@ -1944,12 +1951,14 @@ def roon_discover(connect):
             flexprint('roon_discover => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ': ' + str(len(roon_servers)) + ' => ' + str (roon_servers) + ' [/bright_magenta]')
             time.sleep(discovery_delay)
     except Exception as e:
-        if errorlog is True: 
+        if errorlog is True:
             flexprint('[red]==> roon discover error: [/red]', str(e))
+            last_roon_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            add_changed_data_to_websocket_queue()
             #flexprint(traceback.format_exc())
 
 def get_roon_api(wait_for_response = False, retry = 0):
-    global roonapi, roon_servers, ws_notification_queue, roon_first_connect
+    global roonapi, roon_servers, ws_notification_queue, roon_first_connect, last_roon_error
 
     try:
         if roonapi is not None and retry > 0:
@@ -2024,6 +2033,9 @@ def get_roon_api(wait_for_response = False, retry = 0):
             if core_id is not None and token is not None and 'roon-activation-alert' in ws_notification_queue:
                 ws_notification_queue.remove('roon-activation-alert')
             roon_first_connect = True
+            if last_roon_error != '':
+                last_roon_error = ''
+                add_changed_data_to_websocket_queue()
         else:
             if retry < 2:
                 send_roon_activation_warning()
@@ -2035,6 +2047,8 @@ def get_roon_api(wait_for_response = False, retry = 0):
     except Exception as e:
         if threadTimer is not None:
             threadTimer.cancel()
+        last_roon_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        add_changed_data_to_websocket_queue()
         if errorlog is True: 
             flexprint('[red]==> get RoonApi error: [/red]', str(e))
             #flexprint(traceback.format_exc())
@@ -3015,7 +3029,7 @@ def get_active_zone_from_spotify_connect_onlinecheck(update):
     return active_zone
 
 def is_audioinfo_available():
-    global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress, active_spotify_connect_zone
+    global roonapi, audioinfo_available, fetch_output_time, fetch_output_in_progress, active_spotify_connect_zone, roon_active
 
     time.sleep(1)
     available = False
@@ -3064,6 +3078,7 @@ def is_audioinfo_available():
                 available = True
 
         if check_audioinfo is True and available is False and roon_show is True:
+            last_roon_active = roon_active
             if debug is True: flexprint('is_audioinfo_available => [bright_magenta]try to discover roon server @ ' + str(datetime.now().strftime("%Y-%m-%d %H:%M:%S")) + ' [/bright_magenta]')
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
@@ -3079,6 +3094,8 @@ def is_audioinfo_available():
                         available = True
                         break
                 update_roon_channels()
+            if last_roon_active != roon_active:
+                add_changed_data_to_websocket_queue()
             if available is True:
                 time.sleep(discovery_delay)
     except Exception as e:
@@ -5898,7 +5915,7 @@ def set_default_zone():
         if errorlog is True: flexprint('[red]set default zone error: ' + str(e) + '[/red]')
 
 def roon_state_callback(event, changed_ids):
-    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last
+    global roon_playouts_raw, roon_playouts, interrupt_message, check_audioinfo, fetch_output_time, prepared_displaystr, prepared_vert_strlines, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_cover_url, is_playing_last, is_playing, last_cover_text_line_parts, playpos_last, playlen_last, last_roon_error
 
     try:
         if len(roon_servers) == 0:
@@ -5976,7 +5993,7 @@ def roon_state_callback(event, changed_ids):
                         track_id_changed = track_id != track_id_last
                         playpos_changed = playpos_last != playpos
                         playlen_changed = playlen_last != playlen
-                        anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or repeat_changed or playlen_changed
+                        anything_changed = cover_changed or text_changed or is_playing_changed or shuffle_changed or repeat_changed or playlen_changed or track_id_changed
                     
                         if (anything_changed is True or (anything_changed is False and playpos_changed is True)):
                             last_cover_url = cover_url
@@ -6048,7 +6065,12 @@ def roon_state_callback(event, changed_ids):
 
                                 refresh_output_data()
                                 check_audioinfo = False
+        if last_roon_error != '':
+            last_roon_error = ''
+            add_changed_data_to_websocket_queue()
     except Exception as e:
+        last_roon_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        add_changed_data_to_websocket_queue()
         if errorlog is True: 
             flexprint('[red]==> roon state callback ERROR: [/red]', str(e))
             #flexprint(traceback.format_exc())
@@ -6491,7 +6513,7 @@ def is_active_spotify_connect_zone(name):
     return False
 
 def reconnect_roon_api_if_zone_is_stopped(roon_zones):
-    global roonapi
+    global roonapi, last_roon_error
     
     try:
         stopped_zone_found = False
@@ -6508,6 +6530,8 @@ def reconnect_roon_api_if_zone_is_stopped(roon_zones):
         #        return list(roonapi.zones.values())
     except Exception as e:
         if errorlog is True: flexprint('[red]reconnect roon api if zone is stopped error: ' + str(e) + '[/red]')
+        last_roon_error = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        add_changed_data_to_websocket_queue()
     return roon_zones
 
 def init_spotify_connect():
@@ -6612,7 +6636,7 @@ def log_startinfo():
         flexprint('')
 
 def build_output():
-    global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone
+    global callbacks_initialized, prepared_displaystr, prepared_vert_strlines, audio_playing, last_idle_time, roon_servers, roonapi, build_seconds, fetch_output_done, roon_playouts_raw, roon_playouts, last_cover_url, last_cover_text_line_parts, is_playing, is_playing_last, shuffle_on, shuffle_on_last, repeat_on, repeat_on_last, track_id, track_id_last, last_zones_playing, playpos_last, playlen_last, app_displaystr, roon_zones, last_zones_online, upcoming_control_zone, roon_active
     # global fetch_output_time
 
     try:
@@ -6659,6 +6683,7 @@ def build_output():
             buildlines = vertical_longtext_split_and_append('> ' + convert_special_chars(test_message),buildlines)
         
         if show_test_only is False and roon_show == True:
+            last_roon_active = roon_active
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             if core_ip == '' or core_port == '':
                 roon_discover(True)
@@ -6666,6 +6691,8 @@ def build_output():
                 connect_to_roon_server(roon_nonblocked_thread_on_reconnect)
             roon_active = is_roon_server_active(core_ip, core_port) if (core_ip != '' and core_port != '') else False
             roon_discover_first_test()
+            if last_roon_active != roon_active:
+                add_changed_data_to_websocket_queue()
 
             flexprint('roon_active: ' + str(roon_active) + ', core_ip: ' + str(core_ip) + ', core_port: ' + str(core_port) + ', roonapi: ' + str(roonapi is not None))
             if roon_active is True and core_ip != '' and core_port != '' and roonapi is not None:
